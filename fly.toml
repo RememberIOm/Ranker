@@ -1,5 +1,5 @@
 # fly.toml — 세션 기반 멀티유저 Ranker
-app = 'anime-ranker'
+app = 'battle-ranker'
 primary_region = 'nrt'
 
 [build]
@@ -14,7 +14,7 @@ primary_region = 'nrt'
 
 # 세션 JSON 파일 저장 볼륨 (/data/sessions/)
 [mounts]
-  source = "anime_data"
+  source = "ranker_data"
   destination = "/data"
 
 [[vm]]
