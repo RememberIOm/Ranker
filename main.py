@@ -1,91 +1,21 @@
 # main.py
-import secrets
-from contextlib import asynccontextmanager
-from fastapi import FastAPI, Depends, Request, HTTPException, status
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
-from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.exception_handlers import (
-    http_exception_handler as default_http_exception_handler,
-)
+# 세션 기반 멀티유저 Ranker 웹앱 엔트리포인트.
+# 각 사용자는 JSON 파일을 업로드하거나 새 세션을 시작하여 독립적으로 사용합니다.
 
-from config import settings
-from database import engine, Base, AsyncSessionLocal
-from services import load_initial_data
+import json
+
+from fastapi import FastAPI, Request, UploadFile, File
+from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
+
+from deps import create_session_id, get_session_store
+from store import get_store, session_exists
 from routers import battle, ranking, manage
 
-# --- Security ---
-security = HTTPBasic()
-
-
-def verify_credentials(credentials: HTTPBasicCredentials = Depends(security)):
-    """Constant-time comparison for HTTP Basic Auth"""
-    current_username_bytes = credentials.username.encode("utf8")
-    correct_username_bytes = settings.AUTH_USERNAME.encode("utf8")
-    is_correct_username = secrets.compare_digest(
-        current_username_bytes, correct_username_bytes
-    )
-
-    current_password_bytes = credentials.password.encode("utf8")
-    correct_password_bytes = settings.AUTH_PASSWORD.encode("utf8")
-    is_correct_password = secrets.compare_digest(
-        current_password_bytes, correct_password_bytes
-    )
-
-    if not (is_correct_username and is_correct_password):
-        # 브라우저가 로그인 창을 띄우게 하려면 WWW-Authenticate 헤더가 필수입니다.
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
-            headers={"WWW-Authenticate": "Basic"},
-        )
-    return credentials.username
-
-
-# --- Lifespan ---
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Startup
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-    async with AsyncSessionLocal() as session:
-        await load_initial_data(session)
-
-    yield
-
-    # Shutdown
-    await engine.dispose()
-
-
-# --- App Init ---
-app = FastAPI(lifespan=lifespan, dependencies=[Depends(verify_credentials)])
+app = FastAPI()
 templates = Jinja2Templates(directory="templates")
 
-
-# --- Custom Exception Handlers ---
-@app.exception_handler(HTTPException)
-async def custom_http_exception_handler(request: Request, exc: HTTPException):
-    """
-    HTTPException(특히 401) 발생 시 브라우저 요청이면 HTML 페이지를 반환합니다.
-    """
-    if exc.status_code == status.HTTP_401_UNAUTHORIZED:
-        # Accept 헤더에 'text/html'이 포함된 경우 (브라우저 접근)
-        if "text/html" in request.headers.get("accept", ""):
-            return templates.TemplateResponse(
-                "401.html",
-                {"request": request},
-                status_code=exc.status_code,
-                # WWW-Authenticate 헤더를 유지해야 브라우저가 상황을 인지합니다.
-                # 다만 사용자가 '취소'를 누른 후에는 페이지 본문이 보입니다.
-                headers=exc.headers,
-            )
-
-    # 그 외의 경우(API 요청 등)는 기본 핸들러(JSON) 사용
-    return await default_http_exception_handler(request, exc)
-
-
-# Include Routers
+# 라우터 등록
 app.include_router(battle.router)
 app.include_router(ranking.router)
 app.include_router(manage.router)
@@ -93,4 +23,63 @@ app.include_router(manage.router)
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    """
+    인덱스 페이지: 세션이 이미 있으면 메인 화면, 없으면 업로드/시작 화면을 표시합니다.
+    """
+    session_id = request.cookies.get("session_id")
+    has_session = bool(session_id and session_exists(session_id))
+    return templates.TemplateResponse("index.html", {
+        "request": request,
+        "has_session": has_session,
+    })
+
+
+@app.post("/start")
+async def start_new_session():
+    """새 세션(빈 데이터)을 생성하고 쿠키를 설정합니다."""
+    sid = create_session_id()
+    store = get_store(sid)  # 기본 데이터로 초기화
+    store.save()
+
+    response = RedirectResponse(url="/manage", status_code=303)
+    response.set_cookie(
+        key="session_id", value=sid,
+        max_age=7 * 24 * 60 * 60,  # 7일
+        httponly=True, samesite="lax",
+    )
+    return response
+
+
+@app.post("/upload")
+async def upload_session(file: UploadFile = File(...)):
+    """JSON 파일을 업로드하여 새 세션을 생성합니다."""
+    sid = create_session_id()
+    store = get_store(sid)
+
+    raw = await file.read()
+    try:
+        store.import_json(raw.decode("utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return HTMLResponse("유효하지 않은 JSON 파일입니다.", status_code=400)
+
+    response = RedirectResponse(url="/battle", status_code=303)
+    response.set_cookie(
+        key="session_id", value=sid,
+        max_age=7 * 24 * 60 * 60,
+        httponly=True, samesite="lax",
+    )
+    return response
+
+
+@app.post("/end-session")
+async def end_session(request: Request):
+    """현재 세션을 종료하고 쿠키를 삭제합니다."""
+    session_id = request.cookies.get("session_id")
+    if session_id:
+        store = get_session_store(request, session_id)
+        if store:
+            store.delete_session()
+
+    response = RedirectResponse(url="/", status_code=303)
+    response.delete_cookie("session_id")
+    return response

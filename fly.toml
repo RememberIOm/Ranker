@@ -1,8 +1,4 @@
-# fly.toml app configuration file generated for anime-ranker on 2025-12-30T10:20:54+09:00
-#
-# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
-#
-
+# fly.toml — 세션 기반 멀티유저 Ranker
 app = 'anime-ranker'
 primary_region = 'nrt'
 
@@ -16,12 +12,10 @@ primary_region = 'nrt'
   min_machines_running = 0
   processes = ['app']
 
+# 세션 JSON 파일 저장 볼륨 (/data/sessions/)
 [mounts]
   source = "anime_data"
-  destination = "/data"  # Dockerfile 내부의 마운트 경로
-
-[env]
-  DB_PATH = "/data/anime_rank.db"
+  destination = "/data"
 
 [[vm]]
   memory = '512mb'

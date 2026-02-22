@@ -1,189 +1,180 @@
 # routers/battle.py
-import random
-from typing import Annotated
-from fastapi import APIRouter, Depends, Request, Form, BackgroundTasks
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
-from fastapi.templating import Jinja2Templates
-from sqlalchemy.ext.asyncio import AsyncSession
+# 모든 평가 기준을 한 라운드에 동시 비교하여 Elo 수렴 속도를 대폭 향상시킵니다.
+# 세션별 DataStore를 사용하여 멀티유저를 지원합니다.
 
-from database import get_db, AsyncSessionLocal
-from models import Anime
-from schemas import VoteResponse
+from fastapi import APIRouter, Request, BackgroundTasks, Cookie
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
+
+from deps import get_session_store
 from services import (
     get_match_pair,
     calculate_elo_update,
-    normalize_scores_task,
+    normalize_scores,
     get_match_probabilities,
-    get_anime_rank_info,
 )
 
 router = APIRouter(prefix="/battle", tags=["battle"])
 templates = Jinja2Templates(directory="templates")
 
-SessionDep = Annotated[AsyncSession, Depends(get_db)]
 
-CATEGORIES = [
-    ("story", "스토리"),
-    ("visual", "작화"),
-    ("ost", "OST"),
-    ("voice", "성우"),
-    ("char", "캐릭터"),
-    ("fun", "종합적인 재미"),
-]
+def _build_battle_context(
+    request: Request,
+    store,
+    item1: dict,
+    item2: dict,
+    *,
+    focus_mode: bool = False,
+    focus_id: int | None = None,
+) -> dict:
+    """배틀 페이지 템플릿 컨텍스트를 구성합니다."""
+    criteria = store.criteria
+    init = store.settings["initial_rating"]
+
+    # 각 기준별 확률 계산
+    criteria_info = []
+    for c in criteria:
+        r1 = item1["ratings"].get(c["key"], init)
+        r2 = item2["ratings"].get(c["key"], init)
+        probs = get_match_probabilities(store, r1, r2)
+        criteria_info.append({
+            **c,
+            "r1": round(r1),
+            "r2": round(r2),
+            "probs": probs,
+        })
+
+    return {
+        "request": request,
+        "item1": item1,
+        "item2": item2,
+        "criteria_info": criteria_info,
+        "focus_mode": focus_mode,
+        "focus_id": focus_id,
+        "result_auto_skip": store.settings.get("result_auto_skip", False),
+        "result_skip_seconds": store.settings.get("result_skip_seconds", 3.0),
+    }
 
 
 @router.get("", response_class=HTMLResponse)
-async def get_battle(request: Request, db: SessionDep):
-    anime1, anime2 = await get_match_pair(db)
+async def get_battle(request: Request, session_id: str | None = Cookie(default=None)):
+    store = get_session_store(request, session_id)
+    if not store:
+        return RedirectResponse(url="/", status_code=303)
 
-    if not anime1 or not anime2:
+    if not store.criteria:
         return HTMLResponse(
-            content="""
-            <div style='text-align:center; padding:50px;'>
-                <h2>데이터가 부족합니다.</h2>
-                <p>관리자 페이지에서 애니메이션을 추가해주세요.</p>
-                <a href='/manage'>관리 페이지로 이동</a>
-            </div>
-            """,
-            status_code=200,
+            "<div style='text-align:center;padding:50px;'>"
+            "<h2>평가 기준이 없습니다.</h2>"
+            "<a href='/manage'>관리 페이지에서 기준을 추가하세요.</a></div>"
         )
 
-    selected_category = random.choice(CATEGORIES)
-    category_key = selected_category[0]
+    item1, item2 = get_match_pair(store)
+    if not item1 or not item2:
+        return HTMLResponse(
+            "<div style='text-align:center;padding:50px;'>"
+            "<h2>데이터가 부족합니다.</h2>"
+            "<a href='/manage'>관리 페이지에서 항목을 추가하세요.</a></div>"
+        )
 
-    # 점수 가져오기
-    r1 = getattr(anime1, f"rating_{category_key}")
-    r2 = getattr(anime2, f"rating_{category_key}")
+    ctx = _build_battle_context(request, store, item1, item2)
+    return templates.TemplateResponse("battle.html", ctx)
 
-    # 확률 및 등수 정보 계산
-    probs = get_match_probabilities(r1, r2)
-    rank1 = await get_anime_rank_info(db, category_key, r1)
-    rank2 = await get_anime_rank_info(db, category_key, r2)
 
-    return templates.TemplateResponse(
-        "battle.html",
-        {
-            "request": request,
-            "anime1": anime1,
-            "anime2": anime2,
-            "category_key": category_key,
-            "category_name": selected_category[1],
-            "probs": probs,
-            "rank1": rank1,
-            "rank2": rank2,
-        },
+@router.get("/focus/{item_id}", response_class=HTMLResponse)
+async def focus_battle(item_id: int, request: Request, session_id: str | None = Cookie(default=None)):
+    store = get_session_store(request, session_id)
+    if not store:
+        return RedirectResponse(url="/", status_code=303)
+
+    if not store.criteria:
+        return HTMLResponse("평가 기준이 없습니다.", status_code=400)
+
+    item1, item2 = get_match_pair(store, focus_id=item_id)
+    if not item1:
+        return HTMLResponse("존재하지 않는 항목입니다.", status_code=404)
+    if not item2:
+        return HTMLResponse("상대할 항목 데이터가 부족합니다.", status_code=200)
+
+    ctx = _build_battle_context(
+        request, store, item1, item2, focus_mode=True, focus_id=item_id
     )
+    return templates.TemplateResponse("battle.html", ctx)
 
 
-@router.get("/focus/{anime_id}", response_class=HTMLResponse)
-async def focus_battle(anime_id: int, request: Request, db: SessionDep):
-    anime1, anime2 = await get_match_pair(db, focus_id=anime_id)
-
-    if not anime1:
-        return HTMLResponse("존재하지 않는 애니메이션입니다.", status_code=404)
-    if not anime2:
-        return HTMLResponse("상대할 애니메이션 데이터가 부족합니다.", status_code=200)
-
-    selected_category = random.choice(CATEGORIES)
-    category_key = selected_category[0]
-
-    r1 = getattr(anime1, f"rating_{category_key}")
-    r2 = getattr(anime2, f"rating_{category_key}")
-
-    probs = get_match_probabilities(r1, r2)
-    rank1 = await get_anime_rank_info(db, category_key, r1)
-    rank2 = await get_anime_rank_info(db, category_key, r2)
-
-    return templates.TemplateResponse(
-        "battle.html",
-        {
-            "request": request,
-            "anime1": anime1,
-            "anime2": anime2,
-            "category_key": category_key,
-            "category_name": selected_category[1],
-            "focus_mode": True,
-            "focus_id": anime_id,
-            "probs": probs,
-            "rank1": rank1,
-            "rank2": rank2,
-        },
-    )
-
-
-@router.post("/vote", response_model=VoteResponse)
+@router.post("/vote")
 async def vote(
     request: Request,
     background_tasks: BackgroundTasks,
-    db: SessionDep,
-    anime1_id: int = Form(...),
-    anime2_id: int = Form(...),
-    category: str = Form(...),
-    winner: str = Form(...),
-    redirect_to: str = Form(None),
+    session_id: str | None = Cookie(default=None),
 ):
-    a1 = await db.get(Anime, anime1_id)
-    a2 = await db.get(Anime, anime2_id)
+    """
+    모든 criteria에 대한 투표를 한번에 수신하여 일괄 업데이트합니다.
+    Body JSON: { "item1_id": int, "item2_id": int, "votes": {"key": "1"|"2"|"draw", ...}, "redirect_to": str|null }
+    """
+    store = get_session_store(request, session_id)
+    if not store:
+        return JSONResponse({"error": "No active session"}, status_code=401)
 
+    body = await request.json()
+    item1_id: int = body["item1_id"]
+    item2_id: int = body["item2_id"]
+    votes: dict[str, str] = body.get("votes", {})
+    redirect_to: str = body.get("redirect_to", "")
+
+    a1 = store.get_item(item1_id)
+    a2 = store.get_item(item2_id)
     if not a1 or not a2:
-        return JSONResponse({"error": "Anime not found"}, status_code=404)
+        return JSONResponse({"error": "Item not found"}, status_code=404)
 
-    attr_name = f"rating_{category}"
-    old_r1 = getattr(a1, attr_name)
-    old_r2 = getattr(a2, attr_name)
+    criteria = store.criteria
+    results: list[dict] = []
 
-    # 1. 변경 전 등수 계산
-    info1_old = await get_anime_rank_info(db, category, old_r1)
-    info2_old = await get_anime_rank_info(db, category, old_r2)
+    for c in criteria:
+        key = c["key"]
+        winner = votes.get(key, "draw")
 
-    # 2. 점수 업데이트 계산
-    if winner == "1":
-        actual_score = 1.0
-    elif winner == "2":
-        actual_score = 0.0
-    else:
-        actual_score = 0.5
+        old_r1 = a1["ratings"].get(key, 1200.0)
+        old_r2 = a2["ratings"].get(key, 1200.0)
 
-    new_r1, new_r2 = calculate_elo_update(
-        old_r1, old_r2, actual_score, a1.matches_played, a2.matches_played
-    )
+        actual_score = {"1": 1.0, "2": 0.0}.get(winner, 0.5)
 
-    setattr(a1, attr_name, new_r1)
-    setattr(a2, attr_name, new_r2)
-    a1.matches_played += 1
-    a2.matches_played += 1
+        new_r1, new_r2 = calculate_elo_update(
+            store, old_r1, old_r2, actual_score,
+            a1["matches_played"], a2["matches_played"],
+        )
 
-    await db.commit()
+        a1["ratings"][key] = new_r1
+        a2["ratings"][key] = new_r2
 
-    # 3. 변경 후 등수 계산 (주의: DB에 반영된 새 점수를 기준으로 재조회 필요)
-    # 다만 여기서는 count 쿼리이므로, 다른 애니메이션 점수는 그대로라고 가정하고
-    # a1, a2의 점수만 변동된 상태에서 쿼리를 날립니다.
-    # 이미 commit을 했으므로 DB에는 새 점수가 반영되어 있습니다.
+        results.append({
+            "key": key,
+            "label": c["label"],
+            "color": c["color"],
+            "winner": winner,
+            "old_r1": round(old_r1),
+            "new_r1": round(new_r1),
+            "diff_r1": round(new_r1 - old_r1),
+            "old_r2": round(old_r2),
+            "new_r2": round(new_r2),
+            "diff_r2": round(new_r2 - old_r2),
+        })
 
-    info1_new = await get_anime_rank_info(db, category, new_r1)
-    info2_new = await get_anime_rank_info(db, category, new_r2)
+    # matches_played는 라운드당 1회만 증가
+    a1["matches_played"] += 1
+    a2["matches_played"] += 1
+    store.save()
 
-    background_tasks.add_task(normalize_scores_task, AsyncSessionLocal)
+    background_tasks.add_task(normalize_scores, store)
 
     response_data = {
-        "a1_id": a1.id,
-        "a2_id": a2.id,
-        "old_r1": round(old_r1),
-        "new_r1": round(new_r1),
-        "diff_r1": round(new_r1 - old_r1),
-        "old_r2": round(old_r2),
-        "new_r2": round(new_r2),
-        "diff_r2": round(new_r2 - old_r2),
-        # Rank Info
-        "old_rank_1": info1_old["rank"],
-        "new_rank_1": info1_new["rank"],
-        "old_rank_2": info2_old["rank"],
-        "new_rank_2": info2_new["rank"],
-        "total_animes": info1_old["total"],
+        "a1_id": a1["id"],
+        "a2_id": a2["id"],
+        "a1_name": a1["name"],
+        "a2_name": a2["name"],
+        "results": results,
+        "total_items": len(store.items),
         "next_url": redirect_to if redirect_to else "/battle",
     }
 
-    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
-        return JSONResponse(response_data)
-
-    return RedirectResponse(url=response_data["next_url"], status_code=303)
+    return JSONResponse(response_data)

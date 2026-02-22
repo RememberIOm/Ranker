@@ -1,219 +1,211 @@
 {% extends "base.html" %}
 
 {% block content %}
+<div class="relative flex flex-col items-center min-h-[80vh] py-6 px-4">
 
-{# --- Macro Definition --- #}
-{% macro battle_card(anime, rank, side, color) %}
-<div id="card-{{ '1' if side == 'left' else '2' }}" onclick="submitVote('{{ '1' if side == 'left' else '2' }}')"
-    class="group relative bg-white dark:bg-gray-800 rounded-[2rem] p-6 md:p-8 shadow-xl hover:shadow-2xl hover:shadow-{{ color }}-500/20 border-2 border-transparent hover:border-{{ color }}-500 cursor-pointer transition-all duration-300 transform hover:-translate-y-2 flex flex-col justify-between items-center min-h-[320px] md:min-h-[480px]">
-
-    <!-- Rank Badge -->
-    <div class="absolute top-4 right-4 flex flex-col items-end gap-1 pointer-events-none">
-        <div
-            class="bg-gray-900/5 dark:bg-white/10 backdrop-blur-md px-3 py-1 rounded-lg text-xs font-bold text-gray-600 dark:text-gray-300 border border-white/20">
-            #<span class="font-mono text-sm">{{ rank.rank }}</span>
-        </div>
-        {% if rank.top_percent <= 30 %} <div
-            class="bg-gradient-to-r from-yellow-400 to-orange-500 text-white px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider shadow-sm">
-            Top {{ rank.top_percent }}%
-    </div>
-    {% endif %}
-</div>
-
-<!-- Letter Circle -->
-<div
-    class="absolute top-4 left-4 w-12 h-12 md:w-16 md:h-16 rounded-2xl bg-gray-50 dark:bg-gray-700/50 flex items-center justify-center font-black text-xl md:text-2xl text-gray-300 dark:text-gray-600 group-hover:bg-{{ color }}-500 group-hover:text-white transition-all duration-300 shadow-inner group-hover:shadow-lg group-hover:scale-110 group-hover:rotate-6 mb-4">
-    {{ 'A' if side == 'left' else 'B' }}
-</div>
-
-<!-- Name -->
-<div class="flex-grow flex items-center justify-center w-full my-4">
-    <h3
-        class="text-2xl sm:text-3xl md:text-4xl font-black text-center text-gray-800 dark:text-gray-100 group-hover:text-{{ color }}-600 dark:group-hover:text-{{ color }}-400 break-words leading-tight transition-colors w-full px-2">
-        {{ anime.name }}
-    </h3>
-</div>
-
-<!-- Stats -->
-<div class="w-full flex justify-center mt-4">
-    <div
-        class="bg-gray-50 dark:bg-gray-700/50 px-6 py-2 rounded-full border border-gray-100 dark:border-gray-600 group-hover:border-{{ color }}-200 dark:group-hover:border-{{ color }}-800 transition-colors">
-        <span class="text-xs text-gray-400 uppercase mr-2 font-bold">Rating</span>
-        <span
-            class="text-lg font-mono font-bold text-gray-700 dark:text-gray-200 group-hover:text-{{ color }}-600 dark:group-hover:text-{{ color }}-300">
-            {{ anime['rating_' + category_key]|round|int }}
-        </span>
-    </div>
-</div>
-
-<!-- Winner Overlay -->
-<div id="result-overlay-{{ '1' if side == 'left' else '2' }}"
-    class="absolute inset-0 bg-{{ color }}-500/10 dark:bg-{{ color }}-400/10 rounded-[2rem] border-4 border-{{ color }}-500 hidden transition-all z-20 backdrop-blur-[2px]">
-    <div class="absolute inset-0 flex items-center justify-center">
-        <span
-            class="bg-{{ color }}-600 text-white text-2xl md:text-4xl font-black px-8 py-3 rounded-2xl shadow-2xl transform {{ '-rotate-12' if side == 'left' else 'rotate-12' }} scale-110 border-4 border-white/20">
-            WINNER
-        </span>
-    </div>
-</div>
-</div>
-{% endmacro %}
-{# --- End Macro --- #}
-
-
-<div class="relative flex flex-col items-center justify-center min-h-[80vh] py-8">
-
-    <!-- 집중 모드 알림 -->
+    {# --- Focus Mode Banner --- #}
     {% if focus_mode %}
     <div class="fixed top-20 left-1/2 transform -translate-x-1/2 z-40 animate-bounce-in">
         <div
-            class="bg-gradient-to-r from-blue-600 to-blue-500 text-white px-6 py-2 rounded-full text-sm font-bold shadow-xl flex items-center gap-2 backdrop-blur-sm ring-4 ring-blue-500/20">
+            class="bg-gradient-to-r from-blue-600 to-blue-500 text-white px-6 py-2 rounded-full text-sm font-bold shadow-xl flex items-center gap-2 ring-4 ring-blue-500/20">
             <span class="animate-pulse">🎯</span>
-            <span>'{{ anime1.name }}' 집중 평가 중</span>
+            <span>'{{ item1.name }}' 집중 평가 중</span>
             <a href="/manage" class="ml-2 text-blue-200 hover:text-white underline text-xs">종료</a>
         </div>
     </div>
     {% endif %}
 
-    <!-- 헤더 섹션 -->
-    <div class="text-center mb-8 md:mb-12 z-10 px-4 space-y-2">
-        <div
-            class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-gray-100 dark:bg-gray-800 text-xs font-bold uppercase tracking-widest text-gray-500 dark:text-gray-400">
-            <span>Battle Arena</span>
-            <span class="w-1 h-1 rounded-full bg-gray-400"></span>
-            <span>Category: {{ category_name }}</span>
+    {# --- Header: VS Display --- #}
+    <div class="w-full max-w-4xl mb-8">
+        <div class="text-center mb-6">
+            <div
+                class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-gray-100 dark:bg-gray-800 text-xs font-bold uppercase tracking-widest text-gray-500 dark:text-gray-400 mb-3">
+                <span>Battle Arena</span>
+                <span class="w-1 h-1 rounded-full bg-gray-400"></span>
+                <span>All Criteria</span>
+            </div>
+            <h2 class="text-2xl md:text-4xl font-black text-gray-900 dark:text-white">
+                각 항목에서 더 뛰어난 쪽을 선택하세요
+            </h2>
         </div>
-        <h2 class="text-3xl md:text-5xl font-black text-gray-900 dark:text-white break-words drop-shadow-sm">
-            <span class="text-transparent bg-clip-text bg-gradient-to-r from-brand-600 to-pink-500">{{ category_name
-                }}</span>,
-            어느 쪽이 더 훌륭한가요?
-        </h2>
-    </div>
 
-    <!-- 대결 카드 영역 -->
-    <div class="w-full max-w-7xl grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] gap-6 md:gap-8 items-stretch px-4">
+        {# --- Two Items Header --- #}
+        <div class="grid grid-cols-[1fr_auto_1fr] gap-3 items-stretch mb-2">
+            <!-- Item A -->
+            <div
+                class="flex flex-col bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-lg border-2 border-brand-500 dark:border-brand-400 text-center h-full justify-center">
+                <div class="text-xs font-bold text-brand-500 uppercase tracking-wider mb-2">A</div>
+                <h3
+                    class="text-lg md:text-2xl font-black text-gray-900 dark:text-white break-words whitespace-normal leading-snug">
+                    {{ item1.name }}
+                </h3>
+            </div>
 
-        <!-- Anime 1 -->
-        {{ battle_card(anime1, rank1, 'left', 'brand') }}
-
-        <!-- VS Section (Center) -->
-        <div class="flex flex-col items-center justify-center gap-6 z-20 py-4 md:py-0 min-w-[140px]">
-            <div class="relative">
+            <!-- VS Badge -->
+            <div class="flex items-center justify-center">
                 <div
-                    class="w-16 h-16 md:w-20 md:h-20 rounded-full bg-white dark:bg-gray-800 flex items-center justify-center font-black text-xl md:text-2xl italic text-gray-300 dark:text-gray-600 shadow-xl ring-8 ring-gray-50 dark:ring-gray-900 z-10 relative">
+                    class="w-10 h-10 md:w-12 md:h-12 rounded-full bg-white dark:bg-gray-800 flex items-center justify-center font-black text-sm italic text-gray-400 dark:text-gray-500 shadow-lg ring-4 ring-gray-50 dark:ring-gray-900 shrink-0 z-10">
                     VS
                 </div>
-                <div
-                    class="absolute inset-0 rounded-full bg-gradient-to-br from-brand-500 to-pink-500 blur-lg opacity-30 animate-pulse">
-                </div>
             </div>
 
-            <!-- 확률 그래프 -->
+            <!-- Item B -->
             <div
-                class="w-full flex flex-col gap-2 items-center px-2 bg-white/50 dark:bg-gray-800/50 p-4 rounded-2xl backdrop-blur-sm border border-gray-100 dark:border-gray-700 shadow-sm">
-                <div class="flex justify-between w-full text-xs font-bold text-gray-500 dark:text-gray-400">
-                    <span class="text-brand-600 dark:text-brand-400">{{ probs.win_a }}%</span>
-                    <span>Draw</span>
-                    <span class="text-pink-600 dark:text-pink-400">{{ probs.win_b }}%</span>
+                class="flex flex-col bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-lg border-2 border-pink-500 dark:border-pink-400 text-center h-full justify-center">
+                <div class="text-xs font-bold text-pink-500 uppercase tracking-wider mb-2">B</div>
+                <h3
+                    class="text-lg md:text-2xl font-black text-gray-900 dark:text-white break-words whitespace-normal leading-snug">
+                    {{ item2.name }}
+                </h3>
+            </div>
+        </div>
+    </div>
+
+    {# --- Criteria Vote Cards --- #}
+    <div class="w-full max-w-4xl space-y-3" id="criteria-list">
+        {% for c in criteria_info %}
+        <div class="criteria-card bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden transition-all duration-200 hover:shadow-md"
+            data-key="{{ c.key }}">
+
+            {# === 승률 표시 바 === #}
+            <div class="h-1.5 flex w-full">
+                <div class="bg-brand-500/70 h-full transition-all duration-500" style="width: {{ c.probs.win_a }}%">
                 </div>
-                <div class="flex w-full h-2 rounded-full overflow-hidden bg-gray-100 dark:bg-gray-700/50">
-                    <div style="width: {{ probs.win_a }}%"
-                        class="bg-brand-500 h-full shadow-[0_0_10px_rgba(139,92,246,0.5)]"></div>
-                    <div style="width: {{ probs.draw }}%" class="bg-gray-300 dark:bg-gray-600 h-full"></div>
-                    <div style="width: {{ probs.win_b }}%"
-                        class="bg-pink-500 h-full shadow-[0_0_10px_rgba(236,72,153,0.5)]"></div>
+                <div class="bg-gray-300 dark:bg-gray-600 h-full transition-all duration-500"
+                    style="width: {{ c.probs.draw }}%"></div>
+                <div class="bg-pink-500/70 h-full transition-all duration-500" style="width: {{ c.probs.win_b }}%">
                 </div>
             </div>
 
-            <button onclick="submitVote('draw')"
-                class="group relative px-8 py-3 rounded-full bg-white dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 font-bold text-sm hover:border-gray-400 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-200 transition-all shadow-sm hover:shadow-md active:scale-95">
-                무승부
+            <div class="flex items-stretch">
+                {# Left: Vote A #}
+                <button type="button" onclick="selectVote('{{ c.key }}', '1')" id="btn-{{ c.key }}-1"
+                    class="vote-btn flex-1 py-4 px-3 flex flex-col items-center justify-center gap-1 transition-all duration-200 hover:bg-brand-50 dark:hover:bg-brand-900/20 border-r border-gray-100 dark:border-gray-700 group">
+                    <span class="text-xs text-gray-400 group-hover:text-brand-500 font-bold">A</span>
+                    <span class="text-sm font-mono font-bold text-gray-600 dark:text-gray-300">{{ c.r1 }}</span>
+                    <span class="text-[10px] text-brand-400 font-semibold">{{ c.probs.win_a }}%</span>
+                </button>
+
+                {# Center: Label + Draw #}
+                <button type="button" onclick="selectVote('{{ c.key }}', 'draw')" id="btn-{{ c.key }}-draw"
+                    class="vote-btn w-36 md:w-44 py-4 px-2 flex flex-col items-center justify-center gap-1.5 transition-all duration-200 hover:bg-gray-50 dark:hover:bg-gray-700/50 border-r border-gray-100 dark:border-gray-700">
+                    <span
+                        class="text-base md:text-lg font-extrabold text-{{ c.color }}-600 dark:text-{{ c.color }}-400 tracking-wide">{{
+                        c.label }}</span>
+                    <span class="text-[10px] text-gray-400 uppercase tracking-wider">Draw · {{ c.probs.draw }}%</span>
+                </button>
+
+                {# Right: Vote B #}
+                <button type="button" onclick="selectVote('{{ c.key }}', '2')" id="btn-{{ c.key }}-2"
+                    class="vote-btn flex-1 py-4 px-3 flex flex-col items-center justify-center gap-1 transition-all duration-200 hover:bg-pink-50 dark:hover:bg-pink-900/20 group">
+                    <span class="text-xs text-gray-400 group-hover:text-pink-500 font-bold">B</span>
+                    <span class="text-sm font-mono font-bold text-gray-600 dark:text-gray-300">{{ c.r2 }}</span>
+                    <span class="text-[10px] text-pink-400 font-semibold">{{ c.probs.win_b }}%</span>
+                </button>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    {# --- Quick Actions --- #}
+    <div class="w-full max-w-4xl mt-4 flex flex-wrap items-center justify-center gap-3">
+        <button onclick="selectAllAs('1')"
+            class="px-4 py-2 rounded-lg text-xs font-bold bg-brand-50 text-brand-600 hover:bg-brand-100 dark:bg-brand-900/30 dark:text-brand-300 dark:hover:bg-brand-900/50 transition border border-brand-200 dark:border-brand-800">
+            전부 A 선택
+        </button>
+        <button onclick="selectAllAs('draw')"
+            class="px-4 py-2 rounded-lg text-xs font-bold bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600 transition border border-gray-200 dark:border-gray-600">
+            전부 무승부
+        </button>
+        <button onclick="selectAllAs('2')"
+            class="px-4 py-2 rounded-lg text-xs font-bold bg-pink-50 text-pink-600 hover:bg-pink-100 dark:bg-pink-900/30 dark:text-pink-300 dark:hover:bg-pink-900/50 transition border border-pink-200 dark:border-pink-800">
+            전부 B 선택
+        </button>
+        <button onclick="clearAll()"
+            class="px-4 py-2 rounded-lg text-xs font-bold text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition">
+            초기화
+        </button>
+    </div>
+
+    {# --- Progress & Submit --- #}
+    <div class="w-full max-w-4xl mt-6 sticky bottom-4 z-30">
+        <div
+            class="bg-white/90 dark:bg-gray-800/90 backdrop-blur-lg rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 p-4 flex items-center justify-between gap-4">
+            <div class="flex items-center gap-3 min-w-0">
+                <div class="relative w-10 h-10 shrink-0">
+                    <svg class="w-10 h-10 -rotate-90" viewBox="0 0 36 36">
+                        <circle cx="18" cy="18" r="14" fill="none" stroke="currentColor"
+                            class="text-gray-200 dark:text-gray-700" stroke-width="3"></circle>
+                        <circle id="progress-ring" cx="18" cy="18" r="14" fill="none" stroke="currentColor"
+                            class="text-brand-500 transition-all duration-300" stroke-width="3" stroke-dasharray="87.96"
+                            stroke-dashoffset="87.96" stroke-linecap="round"></circle>
+                    </svg>
+                    <span id="progress-count"
+                        class="absolute inset-0 flex items-center justify-center text-[10px] font-black text-gray-500 dark:text-gray-400">
+                        0/{{ criteria_info|length }}
+                    </span>
+                </div>
+                <span id="progress-label" class="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">
+                    기준을 선택해주세요
+                </span>
+            </div>
+            <button id="submit-btn" onclick="submitAllVotes()" disabled class="px-8 py-3 rounded-xl font-bold text-white shadow-lg transition-all duration-300
+                       bg-gray-300 dark:bg-gray-600 cursor-not-allowed">
+                ⚔️ 결과 확인
             </button>
         </div>
-
-        <!-- Anime 2 -->
-        {{ battle_card(anime2, rank2, 'right', 'pink') }}
-
     </div>
 </div>
 
-<!-- 결과 모달 -->
+{# --- Result Modal --- #}
 <div id="result-modal"
     class="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center z-50 hidden opacity-0 transition-opacity duration-300">
     <div
-        class="bg-white dark:bg-gray-900 p-8 rounded-[2rem] shadow-2xl max-w-lg w-full mx-4 border border-gray-100 dark:border-gray-800 transform scale-95 transition-transform duration-300 relative overflow-hidden">
+        class="bg-white dark:bg-gray-900 rounded-[2rem] shadow-2xl max-w-lg w-full mx-4 border border-gray-100 dark:border-gray-800 transform scale-95 transition-transform duration-300 relative overflow-hidden max-h-[85vh] flex flex-col">
 
-        <!-- Background Decor -->
         <div class="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-brand-500 via-purple-500 to-pink-500"></div>
 
-        <h3 class="text-2xl font-black text-center mb-8">
-            <span
-                class="bg-clip-text text-transparent bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-300">
-                Battle Result
-            </span>
-        </h3>
+        <div class="p-6 pb-3">
+            <h3 class="text-xl font-black text-center">
+                <span
+                    class="bg-clip-text text-transparent bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-300">Battle
+                    Result</span>
+            </h3>
+        </div>
 
-        <div class="flex items-stretch justify-between gap-4 mb-8">
-            <!-- P1 Result -->
-            <div class="flex-1 flex flex-col items-center bg-gray-50 dark:bg-gray-800/50 rounded-2xl p-4">
-                <div class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Left Side</div>
-                <div
-                    class="text-sm font-bold text-gray-800 dark:text-gray-200 text-center line-clamp-1 mb-3 px-2 w-full">
-                    {{ anime1.name }}
-                </div>
-
-                <!-- Score -->
-                <div class="flex items-baseline gap-1 mb-2">
-                    <span id="score-1" class="text-3xl font-mono font-black text-gray-900 dark:text-white">1200</span>
-                    <span id="diff-1"
-                        class="text-xs font-bold opacity-0 transform translate-y-2 transition-all duration-500"></span>
-                </div>
-
-                <!-- Rank -->
-                <div
-                    class="flex items-center gap-1.5 text-xs bg-white dark:bg-gray-800 px-3 py-1.5 rounded-lg border border-gray-100 dark:border-gray-700 shadow-sm mt-auto w-full justify-center">
-                    <span class="text-gray-400">Rank</span>
-                    <span id="rank-old-1" class="font-mono text-gray-500 line-through decoration-red-500/50"></span>
-                    <span class="text-gray-300">→</span>
-                    <span id="rank-new-1" class="font-mono font-bold text-gray-800 dark:text-gray-200"></span>
-                    <span id="rank-change-1"></span>
-                </div>
-            </div>
-
-            <!-- P2 Result -->
-            <div class="flex-1 flex flex-col items-center bg-gray-50 dark:bg-gray-800/50 rounded-2xl p-4">
-                <div class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Right Side</div>
-                <div
-                    class="text-sm font-bold text-gray-800 dark:text-gray-200 text-center line-clamp-1 mb-3 px-2 w-full">
-                    {{ anime2.name }}
-                </div>
-
-                <!-- Score -->
-                <div class="flex items-baseline gap-1 mb-2">
-                    <span id="score-2" class="text-3xl font-mono font-black text-gray-900 dark:text-white">1200</span>
-                    <span id="diff-2"
-                        class="text-xs font-bold opacity-0 transform translate-y-2 transition-all duration-500"></span>
-                </div>
-
-                <!-- Rank -->
-                <div
-                    class="flex items-center gap-1.5 text-xs bg-white dark:bg-gray-800 px-3 py-1.5 rounded-lg border border-gray-100 dark:border-gray-700 shadow-sm mt-auto w-full justify-center">
-                    <span class="text-gray-400">Rank</span>
-                    <span id="rank-old-2" class="font-mono text-gray-500 line-through decoration-red-500/50"></span>
-                    <span class="text-gray-300">→</span>
-                    <span id="rank-new-2" class="font-mono font-bold text-gray-800 dark:text-gray-200"></span>
-                    <span id="rank-change-2"></span>
-                </div>
+        {# Header: item names #}
+        <div class="px-6 pb-3">
+            <div class="grid grid-cols-[1fr_auto_1fr] gap-2 text-center">
+                <div class="text-sm font-bold text-brand-600 dark:text-brand-400 break-words" id="result-name-1"></div>
+                <div class="text-xs text-gray-400 self-center shrink-0">vs</div>
+                <div class="text-sm font-bold text-pink-600 dark:text-pink-400 break-words" id="result-name-2"></div>
             </div>
         </div>
 
-        <!-- Progress Bar -->
-        <div class="relative w-full h-1.5 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden mb-4">
-            <div id="progress-bar"
-                class="absolute left-0 top-0 h-full bg-gradient-to-r from-brand-500 to-pink-500 w-0 transition-all duration-[1500ms] ease-out">
+        {# Per-criteria results #}
+        <div class="overflow-y-auto px-6 pb-4 flex-1" id="result-list"></div>
+
+        {# Footer: auto-skip 모드에 따라 진행 바 또는 버튼 표시 #}
+        <div class="px-6 pb-6">
+            <div id="auto-skip-area" class="hidden">
+                <div class="relative w-full h-1.5 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden mb-3">
+                    <div id="modal-progress"
+                        class="absolute left-0 top-0 h-full bg-gradient-to-r from-brand-500 to-pink-500 w-0 transition-all ease-out"
+                        style="transition-duration: {{ (result_skip_seconds * 1000)|int }}ms"></div>
+                </div>
+                <p class="text-center text-[10px] text-gray-400 uppercase tracking-widest animate-pulse">
+                    {{ result_skip_seconds }}초 후 자동 이동...
+                </p>
+            </div>
+
+            <div id="click-skip-area" class="hidden">
+                <button id="next-battle-btn" onclick="goNext()"
+                    class="w-full py-3 rounded-xl font-bold text-white bg-gradient-to-r from-brand-600 to-pink-500 hover:from-brand-700 hover:to-pink-600 shadow-lg transition-all duration-200 transform hover:scale-[1.02] active:scale-95">
+                    ⚔️ 다음 대결
+                </button>
+                <p class="text-center text-[10px] text-gray-400 mt-2">아무 곳이나 클릭하거나 스페이스바를 눌러도 넘어갑니다</p>
             </div>
         </div>
-        <p class="text-center text-[10px] text-gray-400 uppercase tracking-widest animate-pulse">Redirecting...</p>
     </div>
 </div>
 
@@ -237,133 +229,216 @@
     .animate-bounce-in {
         animation: bounceIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
     }
+
+    /* 선택 상태 스타일 */
+    .vote-btn.selected-1 {
+        background: linear-gradient(135deg, rgba(139, 92, 246, 0.15), rgba(139, 92, 246, 0.05));
+        box-shadow: inset 0 0 0 2px rgba(139, 92, 246, 0.5);
+    }
+
+    .dark .vote-btn.selected-1 {
+        background: linear-gradient(135deg, rgba(139, 92, 246, 0.25), rgba(139, 92, 246, 0.1));
+    }
+
+    .vote-btn.selected-draw {
+        background: linear-gradient(135deg, rgba(156, 163, 175, 0.2), rgba(156, 163, 175, 0.05));
+        box-shadow: inset 0 0 0 2px rgba(156, 163, 175, 0.5);
+    }
+
+    .dark .vote-btn.selected-draw {
+        background: linear-gradient(135deg, rgba(156, 163, 175, 0.25), rgba(156, 163, 175, 0.1));
+    }
+
+    .vote-btn.selected-2 {
+        background: linear-gradient(135deg, rgba(236, 72, 153, 0.15), rgba(236, 72, 153, 0.05));
+        box-shadow: inset 0 0 0 2px rgba(236, 72, 153, 0.5);
+    }
+
+    .dark .vote-btn.selected-2 {
+        background: linear-gradient(135deg, rgba(236, 72, 153, 0.25), rgba(236, 72, 153, 0.1));
+    }
+
+    /* 투표 완료된 카드에 체크 표시 효과 */
+    .criteria-card.voted {
+        border-color: rgba(139, 92, 246, 0.3);
+    }
+
+    .dark .criteria-card.voted {
+        border-color: rgba(139, 92, 246, 0.4);
+    }
 </style>
 
 {% endblock %}
 
 {% block scripts %}
 <script>
-    const anime1Id = "{{ anime1.id }}";
-    const anime2Id = "{{ anime2.id }}";
-    const categoryKey = "{{ category_key }}";
+    // --- Settings from server ---
+    const RESULT_AUTO_SKIP = {{ 'true' if result_auto_skip else 'false' }};
+    const RESULT_SKIP_SECONDS = {{ result_skip_seconds }};
+
+    // --- State ---
+    const item1Id = {{ item1.id }};
+    const item2Id = {{ item2.id }};
     const redirectTo = "{% if focus_mode %}/battle/focus/{{ focus_id }}{% endif %}";
+    const criteriaKeys = {{ criteria_info | map(attribute = 'key') | list | tojson }};
+    const totalCriteria = criteriaKeys.length;
+    const votes = {};
+    let nextUrl = '/battle';
 
-    async function submitVote(winner) {
-        if (winner === '1') document.getElementById('result-overlay-1').classList.remove('hidden');
-        if (winner === '2') document.getElementById('result-overlay-2').classList.remove('hidden');
-        document.body.style.pointerEvents = 'none';
+    // --- Vote Selection ---
+    function selectVote(key, choice) {
+        votes[key] = choice;
+        ['1', 'draw', '2'].forEach(c => {
+            document.getElementById(`btn-${key}-${c}`).classList.remove('selected-1', 'selected-2', 'selected-draw');
+        });
+        document.getElementById(`btn-${key}-${choice}`).classList.add(`selected-${choice}`);
+        document.querySelector(`.criteria-card[data-key="${key}"]`).classList.add('voted');
+        updateProgress();
+    }
 
-        const formData = new FormData();
-        formData.append('anime1_id', anime1Id);
-        formData.append('anime2_id', anime2Id);
-        formData.append('category', categoryKey);
-        formData.append('winner', winner);
-        if (redirectTo) formData.append('redirect_to', redirectTo);
+    function selectAllAs(choice) {
+        criteriaKeys.forEach(key => selectVote(key, choice));
+    }
+
+    function clearAll() {
+        criteriaKeys.forEach(key => {
+            delete votes[key];
+            ['1', 'draw', '2'].forEach(c => {
+                document.getElementById(`btn-${key}-${c}`).classList.remove('selected-1', 'selected-2', 'selected-draw');
+            });
+            document.querySelector(`.criteria-card[data-key="${key}"]`).classList.remove('voted');
+        });
+        updateProgress();
+    }
+
+    // --- Progress ---
+    function updateProgress() {
+        const count = Object.keys(votes).length;
+        const pct = count / totalCriteria;
+        const ring = document.getElementById('progress-ring');
+        ring.style.strokeDashoffset = 87.96 * (1 - pct);
+        document.getElementById('progress-count').textContent = `${count}/${totalCriteria}`;
+
+        const label = document.getElementById('progress-label');
+        if (count === 0) label.textContent = '기준을 선택해주세요';
+        else if (count < totalCriteria) label.textContent = `${totalCriteria - count}개 남았습니다`;
+        else label.textContent = '모든 기준 선택 완료!';
+
+        const btn = document.getElementById('submit-btn');
+        if (count === totalCriteria) {
+            btn.disabled = false;
+            btn.className = 'px-8 py-3 rounded-xl font-bold text-white shadow-lg transition-all duration-300 bg-gradient-to-r from-brand-600 to-pink-500 hover:from-brand-700 hover:to-pink-600 cursor-pointer transform hover:scale-105 active:scale-95';
+        } else {
+            btn.disabled = true;
+            btn.className = 'px-8 py-3 rounded-xl font-bold text-white shadow-lg transition-all duration-300 bg-gray-300 dark:bg-gray-600 cursor-not-allowed';
+        }
+    }
+
+    // --- Submit ---
+    async function submitAllVotes() {
+        if (Object.keys(votes).length < totalCriteria) return;
+        const submitBtn = document.getElementById('submit-btn');
+        submitBtn.disabled = true;
+        submitBtn.textContent = '처리 중...';
 
         try {
-            const response = await fetch('/battle/vote', {
+            const res = await fetch('/battle/vote', {
                 method: 'POST',
-                body: formData,
-                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    item1_id: item1Id,
+                    item2_id: item2Id,
+                    votes: votes,
+                    redirect_to: redirectTo || null,
+                }),
             });
-            const data = await response.json();
-            showResultAnimation(data);
-        } catch (error) {
-            console.error('Error:', error);
+            const data = await res.json();
+            showResultModal(data);
+        } catch (err) {
+            console.error(err);
             location.reload();
         }
     }
 
-    function showResultAnimation(data) {
+    // --- Navigate to next ---
+    function goNext() {
+        window.location.href = nextUrl;
+    }
+
+    // --- Result Modal ---
+    function showResultModal(data) {
+        nextUrl = data.next_url;
+
+        document.getElementById('result-name-1').textContent = data.a1_name;
+        document.getElementById('result-name-2').textContent = data.a2_name;
+
+        const container = document.getElementById('result-list');
+        container.innerHTML = '';
+
+        data.results.forEach((r, i) => {
+            const row = document.createElement('div');
+            row.className = 'flex items-center gap-2 py-2.5 border-b border-gray-100 dark:border-gray-800 last:border-0 opacity-0 translate-y-2';
+            row.style.transition = `all 0.3s ease ${i * 60}ms`;
+
+            const winIcon = r.winner === '1' ? '◀' : r.winner === '2' ? '▶' : '=';
+            const winColor = r.winner === '1' ? 'text-brand-500' : r.winner === '2' ? 'text-pink-500' : 'text-gray-400';
+
+            row.innerHTML = `
+                <div class="flex-1 text-right">
+                    <span class="font-mono text-sm font-bold text-gray-700 dark:text-gray-200">${r.new_r1}</span>
+                    <span class="text-xs font-bold ml-1 ${r.diff_r1 > 0 ? 'text-green-500' : r.diff_r1 < 0 ? 'text-red-500' : 'text-gray-400'}">${r.diff_r1 > 0 ? '+' : ''}${r.diff_r1}</span>
+                </div>
+                <div class="w-24 md:w-28 text-center shrink-0">
+                    <span class="text-xs font-bold ${winColor}">${winIcon}</span>
+                    <div class="text-[11px] font-bold text-gray-600 dark:text-gray-300">${r.label}</div>
+                </div>
+                <div class="flex-1 text-left">
+                    <span class="text-xs font-bold mr-1 ${r.diff_r2 > 0 ? 'text-green-500' : r.diff_r2 < 0 ? 'text-red-500' : 'text-gray-400'}">${r.diff_r2 > 0 ? '+' : ''}${r.diff_r2}</span>
+                    <span class="font-mono text-sm font-bold text-gray-700 dark:text-gray-200">${r.new_r2}</span>
+                </div>
+            `;
+            container.appendChild(row);
+            requestAnimationFrame(() => requestAnimationFrame(() => {
+                row.style.opacity = '1';
+                row.style.transform = 'translateY(0)';
+            }));
+        });
+
         const modal = document.getElementById('result-modal');
-        const content = modal.querySelector('div');
-
-        const score1El = document.getElementById('score-1');
-        const diff1El = document.getElementById('diff-1');
-        const rankOld1 = document.getElementById('rank-old-1');
-        const rankNew1 = document.getElementById('rank-new-1');
-        const rankChange1 = document.getElementById('rank-change-1');
-
-        const score2El = document.getElementById('score-2');
-        const diff2El = document.getElementById('diff-2');
-        const rankOld2 = document.getElementById('rank-old-2');
-        const rankNew2 = document.getElementById('rank-new-2');
-        const rankChange2 = document.getElementById('rank-change-2');
-
-        const progressBar = document.getElementById('progress-bar');
-
-        score1El.innerText = data.old_r1;
-        score2El.innerText = data.old_r2;
-
-        rankOld1.innerText = "#" + data.old_rank_1;
-        rankNew1.innerText = "#" + data.new_rank_1;
-        rankOld2.innerText = "#" + data.old_rank_2;
-        rankNew2.innerText = "#" + data.new_rank_2;
-
-        setRankChangeStyle(rankChange1, data.old_rank_1, data.new_rank_1);
-        setRankChangeStyle(rankChange2, data.old_rank_2, data.new_rank_2);
-
-        setDiffStyle(diff1El, data.diff_r1);
-        setDiffStyle(diff2El, data.diff_r2);
-
+        const inner = modal.querySelector(':scope > div');
         modal.classList.remove('hidden');
-        void modal.offsetWidth;
-        modal.classList.remove('opacity-0');
-        content.classList.remove('scale-95');
-        content.classList.add('scale-100');
+        requestAnimationFrame(() => {
+            modal.classList.remove('opacity-0');
+            inner.classList.remove('scale-95');
+            inner.classList.add('scale-100');
+        });
 
-        setTimeout(() => {
-            animateValue(score1El, data.old_r1, data.new_r1, 600);
-            animateValue(score2El, data.old_r2, data.new_r2, 600);
-            diff1El.classList.remove('opacity-0', 'translate-y-2');
-            diff2El.classList.remove('opacity-0', 'translate-y-2');
-            progressBar.style.width = "100%";
-        }, 100);
-
-        setTimeout(() => {
-            window.location.href = data.next_url;
-        }, 1800);
-    }
-
-    function setDiffStyle(element, diff) {
-        if (diff > 0) {
-            element.innerText = "+" + diff;
-            element.className = "text-xs font-bold px-1.5 py-0.5 rounded bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-400 opacity-0 transform translate-y-2 transition-all duration-500";
-        } else if (diff < 0) {
-            element.innerText = diff;
-            element.className = "text-xs font-bold px-1.5 py-0.5 rounded bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-400 opacity-0 transform translate-y-2 transition-all duration-500";
+        if (RESULT_AUTO_SKIP) {
+            document.getElementById('auto-skip-area').classList.remove('hidden');
+            document.getElementById('click-skip-area').classList.add('hidden');
+            setTimeout(() => {
+                document.getElementById('modal-progress').style.width = '100%';
+            }, 50);
+            setTimeout(goNext, RESULT_SKIP_SECONDS * 1000);
         } else {
-            element.innerText = "-";
-            element.className = "text-xs font-bold px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 opacity-0 transform translate-y-2 transition-all duration-500";
-        }
-    }
+            document.getElementById('auto-skip-area').classList.add('hidden');
+            document.getElementById('click-skip-area').classList.remove('hidden');
 
-    function setRankChangeStyle(element, oldRank, newRank) {
-        if (newRank < oldRank) {
-            element.innerHTML = "▲";
-            element.className = "text-green-500 font-bold ml-1 animate-bounce";
-        } else if (newRank > oldRank) {
-            element.innerHTML = "▼";
-            element.className = "text-red-500 font-bold ml-1";
-        } else {
-            element.innerHTML = "-";
-            element.className = "text-gray-300 ml-1";
-        }
-    }
+            modal.addEventListener('click', function handler(e) {
+                if (e.target === modal) {
+                    modal.removeEventListener('click', handler);
+                    goNext();
+                }
+            });
 
-    function animateValue(obj, start, end, duration) {
-        let startTimestamp = null;
-        const step = (timestamp) => {
-            if (!startTimestamp) startTimestamp = timestamp;
-            const progress = Math.min((timestamp - startTimestamp) / duration, 1);
-            obj.innerHTML = Math.floor(progress * (end - start) + start);
-            if (progress < 1) {
-                window.requestAnimationFrame(step);
-            } else {
-                obj.innerHTML = end;
-            }
-        };
-        window.requestAnimationFrame(step);
+            document.addEventListener('keydown', function handler(e) {
+                if (e.code === 'Space' || e.code === 'Enter') {
+                    e.preventDefault();
+                    document.removeEventListener('keydown', handler);
+                    goNext();
+                }
+            });
+        }
     }
 </script>
 {% endblock %}

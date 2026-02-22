@@ -10,26 +10,26 @@
             <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">항목별 점수를 클릭하여 랭킹을 정렬하세요.</p>
         </div>
 
-        <!-- 카테고리 필터 (가로 스크롤 가능) -->
+        <!-- 카테고리 필터 -->
         <div class="flex space-x-2 overflow-x-auto pb-2 scrollbar-hide">
-            {% set filters = [
-            ('total', '종합', 'yellow'),
-            ('story', '스토리', 'blue'),
-            ('visual', '작화', 'purple'),
-            ('ost', 'OST', 'pink'),
-            ('voice', '성우', 'green'),
-            ('char', '캐릭터', 'indigo'),
-            ('fun', '재미', 'red')
-            ] %}
-
-            {% for key, label, color in filters %}
-            <a href="/ranking?sort_by={{ key }}" class="px-4 py-2 rounded-lg text-sm font-bold whitespace-nowrap transition-all duration-200 border 
-               {% if sort_by == key %}
-                   bg-{{ color }}-500 text-white border-{{ color }}-600 shadow-md transform scale-105
+            <a href="/ranking?sort_by=total"
+               class="px-4 py-2 rounded-lg text-sm font-bold whitespace-nowrap transition-all duration-200 border
+               {% if sort_by == 'total' %}
+                   bg-yellow-500 text-white border-yellow-600 shadow-md transform scale-105
                {% else %}
                    bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700
                {% endif %}">
-                {{ label }}
+                종합
+            </a>
+            {% for c in criteria %}
+            <a href="/ranking?sort_by={{ c.key }}"
+               class="px-4 py-2 rounded-lg text-sm font-bold whitespace-nowrap transition-all duration-200 border
+               {% if sort_by == c.key %}
+                   bg-{{ c.color }}-500 text-white border-{{ c.color }}-600 shadow-md transform scale-105
+               {% else %}
+                   bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700
+               {% endif %}">
+                {{ c.label }}
             </a>
             {% endfor %}
         </div>
@@ -46,59 +46,77 @@
     </div>
 
     <!-- 랭킹 테이블 -->
-    <div
-        class="bg-white dark:bg-gray-800 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+    <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
         <div class="overflow-x-auto">
             <table class="w-full text-left border-collapse whitespace-nowrap">
                 <thead>
-                    <tr
-                        class="bg-gray-50 dark:bg-gray-700/50 border-b border-gray-200 dark:border-gray-700 text-xs uppercase text-gray-500 dark:text-gray-400 font-semibold">
+                    <tr class="bg-gray-50 dark:bg-gray-700/50 border-b border-gray-200 dark:border-gray-700 text-xs uppercase text-gray-500 dark:text-gray-400 font-semibold">
                         <th class="p-4 text-center w-16">#</th>
                         <th class="p-4">Title</th>
                         <th class="p-4 text-center text-yellow-600 dark:text-yellow-400 bg-yellow-50/50 dark:bg-yellow-900/10 cursor-pointer hover:bg-yellow-100 dark:hover:bg-yellow-900/20 transition"
                             onclick="location.href='/ranking?sort_by=total'">Total</th>
-                        <th class="p-4 text-center cursor-pointer hover:text-blue-500"
-                            onclick="location.href='/ranking?sort_by=story'">Story</th>
-                        <th class="p-4 text-center cursor-pointer hover:text-purple-500"
-                            onclick="location.href='/ranking?sort_by=visual'">Visual</th>
-                        <th class="p-4 text-center cursor-pointer hover:text-pink-500"
-                            onclick="location.href='/ranking?sort_by=ost'">OST</th>
-                        <th class="p-4 text-center cursor-pointer hover:text-green-500"
-                            onclick="location.href='/ranking?sort_by=voice'">Voice</th>
-                        <th class="p-4 text-center cursor-pointer hover:text-indigo-500"
-                            onclick="location.href='/ranking?sort_by=char'">Char</th>
-                        <th class="p-4 text-center cursor-pointer hover:text-red-500"
-                            onclick="location.href='/ranking?sort_by=fun'">Fun</th>
+                        {% for c in criteria %}
+                        <th class="p-4 text-center cursor-pointer hover:text-{{ c.color }}-500"
+                            onclick="location.href='/ranking?sort_by={{ c.key }}'">{{ c.label }}</th>
+                        {% endfor %}
                         <th class="p-4 text-center text-gray-400">Matches</th>
+                        <th class="p-4 text-center text-gray-400 w-16"></th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-gray-100 dark:divide-gray-700">
-                    {% for ani in animes %}
+                    {% for item in items %}
                     <tr class="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors group">
                         <td class="p-4 text-center font-mono text-gray-400 text-sm">{{ loop.index }}</td>
-                        <td
-                            class="p-4 font-bold text-gray-800 dark:text-gray-100 group-hover:text-brand-600 dark:group-hover:text-brand-400 transition-colors">
-                            {{ ani.name }}
+                        <td class="p-4 font-bold text-gray-800 dark:text-gray-100 group-hover:text-brand-600 dark:group-hover:text-brand-400 transition-colors">
+                            <span id="rank-view-{{ item.id }}">{{ item.name }}</span>
+                            <form id="rank-edit-{{ item.id }}" action="/manage/edit" method="post" class="hidden items-center gap-2">
+                                <input type="hidden" name="item_id" value="{{ item.id }}">
+                                <input type="hidden" name="redirect_url" value="/ranking?sort_by={{ sort_by }}">
+                                <input type="text" name="new_name" value="{{ item.name }}" required
+                                    class="px-2 py-1 bg-white dark:bg-gray-900 border border-brand-400 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 outline-none text-gray-900 dark:text-white w-48">
+                                <button type="submit" class="px-2 py-1 bg-brand-600 text-white rounded-lg text-xs font-bold">Save</button>
+                                <button type="button" onclick="toggleRankEdit('{{ item.id }}')" class="px-2 py-1 bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-lg text-xs font-bold">Cancel</button>
+                            </form>
                         </td>
-                        <td
-                            class="p-4 text-center font-mono font-bold text-lg text-yellow-600 dark:text-yellow-400 bg-yellow-50/30 dark:bg-yellow-900/10">
-                            {{ ani.total }}
+                        <td class="p-4 text-center font-mono font-bold text-lg text-yellow-600 dark:text-yellow-400 bg-yellow-50/30 dark:bg-yellow-900/10">
+                            {{ item.total }}
                         </td>
-                        <!-- 각 점수 셀: 정렬된 컬럼 강조 -->
-                        {% for key, val in [('story', ani.story), ('visual', ani.visual), ('ost', ani.ost), ('voice',
-                        ani.voice), ('char', ani.char), ('fun', ani.fun)] %}
-                        <td
-                            class="p-4 text-center font-mono text-sm
-                            {% if sort_by == key %} font-bold text-gray-900 dark:text-white {% else %} text-gray-500 dark:text-gray-400 {% endif %}">
-                            {{ val }}
+                        {% for c in criteria %}
+                        <td class="p-4 text-center font-mono text-sm
+                            {% if sort_by == c.key %} font-bold text-gray-900 dark:text-white {% else %} text-gray-500 dark:text-gray-400 {% endif %}">
+                            {{ item[c.key] }}
                         </td>
                         {% endfor %}
-
                         <td class="p-4 text-center">
-                            <span
-                                class="text-xs font-mono px-2 py-1 rounded bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400">
-                                {{ ani.matches }}
+                            <span class="text-xs font-mono px-2 py-1 rounded bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400">
+                                {{ item.matches }}
                             </span>
+                        </td>
+                        <td class="p-4 text-center relative">
+                            <div class="relative inline-block">
+                                <button onclick="this.nextElementSibling.classList.toggle('hidden')"
+                                    class="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition opacity-0 group-hover:opacity-100">
+                                    <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><circle cx="10" cy="4" r="2"/><circle cx="10" cy="10" r="2"/><circle cx="10" cy="16" r="2"/></svg>
+                                </button>
+                                <div class="hidden absolute right-0 top-8 z-30 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 py-1 w-32 text-left">
+                                    <a href="/battle/focus/{{ item.id }}"
+                                       class="block px-4 py-2 text-xs font-bold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition">
+                                        🎯 Focus
+                                    </a>
+                                    <button onclick="this.closest('.relative').querySelector('div').classList.add('hidden'); toggleRankEdit('{{ item.id }}')"
+                                       class="block w-full text-left px-4 py-2 text-xs font-bold text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition">
+                                        ✏️ Edit
+                                    </button>
+                                    <form action="/manage/delete" method="post" onsubmit="return confirm('⚠️ \'{{ item.name }}\' 항목을 삭제하시겠습니까?')" class="block">
+                                        <input type="hidden" name="item_id" value="{{ item.id }}">
+                                        <input type="hidden" name="redirect_url" value="/ranking?sort_by={{ sort_by }}">
+                                        <button type="submit"
+                                           class="block w-full text-left px-4 py-2 text-xs font-bold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 transition">
+                                            🗑️ Delete
+                                        </button>
+                                    </form>
+                                </div>
+                            </div>
                         </td>
                     </tr>
                     {% endfor %}
@@ -112,102 +130,87 @@
 {% block scripts %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
+    // --- Inline Edit Toggle ---
+    function toggleRankEdit(id) {
+        const viewEl = document.getElementById(`rank-view-${id}`);
+        const editEl = document.getElementById(`rank-edit-${id}`);
+        if (editEl.classList.contains('hidden')) {
+            viewEl.classList.add('hidden');
+            editEl.classList.remove('hidden');
+            editEl.classList.add('flex');
+            editEl.querySelector('input[name="new_name"]').focus();
+        } else {
+            viewEl.classList.remove('hidden');
+            editEl.classList.add('hidden');
+            editEl.classList.remove('flex');
+        }
+    }
+
+    // 외부 클릭 시 드롭다운 닫기
+    document.addEventListener('click', (e) => {
+        document.querySelectorAll('td .relative > div:last-child').forEach(menu => {
+            if (!menu.classList.contains('hidden') && !menu.parentElement.contains(e.target)) {
+                menu.classList.add('hidden');
+            }
+        });
+    });
     const labels = {{ chart_data.labels | safe }};
     const counts = {{ chart_data.counts | safe }};
     const categoryName = "{{ chart_data.category }}";
 
-    // 카테고리별 테마 색상 매핑
     const colorMap = {
-        'STORY': '59, 130, 246', // blue-500
-        'VISUAL': '168, 85, 247', // purple-500
-        'OST': '236, 72, 153', // pink-500
-        'VOICE': '34, 197, 94', // green-500
-        'CHAR': '99, 102, 241', // indigo-500
-        'FUN': '239, 68, 68', // red-500
-        '종합 점수': '234, 179, 8' // yellow-500
+        'STORY': '59, 130, 246',
+        'VISUAL': '168, 85, 247',
+        'OST': '236, 72, 153',
+        'VOICE': '34, 197, 94',
+        'CHAR': '99, 102, 241',
+        'FUN': '239, 68, 68',
+        '종합 점수': '234, 179, 8',
     };
-
-    // 기본값은 Brand Color (Violet)
     let colorTheme = colorMap[categoryName] || '139, 92, 246';
 
     const ctx = document.getElementById('distributionChart').getContext('2d');
 
-    // 테마 감지 및 차트 옵션 설정 함수
     function getChartOptions() {
         const isDark = document.documentElement.classList.contains('dark');
         const gridColor = isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)';
         const textColor = isDark ? '#94a3b8' : '#64748b';
-
         return {
             responsive: true,
             maintainAspectRatio: false,
-            plugins: {
-                legend: { display: false },
-                tooltip: {
-                    backgroundColor: isDark ? 'rgba(0, 0, 0, 0.8)' : 'rgba(255, 255, 255, 0.9)',
-                    titleColor: isDark ? '#fff' : '#1e293b',
-                    bodyColor: isDark ? '#ccc' : '#475569',
-                    borderColor: isDark ? '#333' : '#e2e8f0',
-                    borderWidth: 1,
-                    padding: 10,
-                    displayColors: false
-                }
-            },
+            plugins: { legend: { display: false }, tooltip: {
+                backgroundColor: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.9)',
+                titleColor: isDark ? '#fff' : '#1e293b',
+                bodyColor: isDark ? '#ccc' : '#475569',
+                borderColor: isDark ? '#333' : '#e2e8f0',
+                borderWidth: 1, padding: 10, displayColors: false
+            }},
             scales: {
-                x: {
-                    grid: { display: false },
-                    ticks: { color: textColor }
-                },
-                y: {
-                    beginAtZero: true,
-                    grid: { color: gridColor, borderDash: [4, 4] },
-                    ticks: { color: textColor, precision: 0 }
-                }
+                x: { grid: { display: false }, ticks: { color: textColor } },
+                y: { beginAtZero: true, grid: { color: gridColor, borderDash: [4, 4] }, ticks: { color: textColor, precision: 0 } }
             },
-            interaction: {
-                mode: 'nearest',
-                axis: 'x',
-                intersect: false
-            }
+            interaction: { mode: 'nearest', axis: 'x', intersect: false }
         };
     }
 
     let chartInstance = null;
-
     function initChart() {
         if (chartInstance) chartInstance.destroy();
-
         const gradient = ctx.createLinearGradient(0, 0, 0, 400);
         gradient.addColorStop(0, `rgba(${colorTheme}, 0.5)`);
         gradient.addColorStop(1, `rgba(${colorTheme}, 0.0)`);
-
         chartInstance = new Chart(ctx, {
             type: 'line',
-            data: {
-                labels: labels,
-                datasets: [{
-                    label: 'Count',
-                    data: counts,
-                    borderColor: `rgba(${colorTheme}, 1)`,
-                    backgroundColor: gradient,
-                    borderWidth: 3,
-                    pointBackgroundColor: `rgba(${colorTheme}, 1)`,
-                    pointBorderColor: '#fff',
-                    pointHoverBackgroundColor: '#fff',
-                    pointHoverBorderColor: `rgba(${colorTheme}, 1)`,
-                    pointRadius: 4,
-                    pointHoverRadius: 6,
-                    fill: true,
-                    tension: 0.4
-                }]
-            },
+            data: { labels, datasets: [{ label: 'Count', data: counts,
+                borderColor: `rgba(${colorTheme}, 1)`, backgroundColor: gradient,
+                borderWidth: 3, pointBackgroundColor: `rgba(${colorTheme}, 1)`,
+                pointBorderColor: '#fff', pointHoverBackgroundColor: '#fff',
+                pointHoverBorderColor: `rgba(${colorTheme}, 1)`,
+                pointRadius: 4, pointHoverRadius: 6, fill: true, tension: 0.4 }] },
             options: getChartOptions()
         });
     }
-
     initChart();
-
-    // 테마 변경 시 차트 재렌더링
     window.addEventListener('theme-changed', initChart);
 </script>
 {% endblock %}

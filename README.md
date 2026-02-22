@@ -1,46 +1,45 @@
-# Anime Ranker (Elo Rating System)
+# Ranker (Session-based Elo Rating System)
 
-**Anime Ranker**는 애니메이션 1:1 대결 투표를 통해 실시간으로 순위를 산정하는 웹 애플리케이션입니다.
-체스 등에서 사용되는 **Elo Rating 알고리즘**을 기반으로 하며, 스토리, 작화, OST 등 6가지 세부 항목에 대한 정밀한 평가 시스템을 갖추고 있습니다.
+**Ranker**는 1:1 대결 투표를 통해 실시간으로 순위를 산정하는 범용 랭킹 웹 애플리케이션입니다.
+영화, 음식, 게임, 애니메이션 등 **어떤 주제든** 사용자가 원하는 항목과 평가 기준을 자유롭게 설정하여 나만의 랭킹을 만들 수 있습니다. 
+
+단일 데이터베이스 대신 **사용자별 세션 기반 JSON 저장소**를 채택하여, 누구나 독립적인 환경에서 자신만의 데이터를 구축하고 백업(Export/Import)할 수 있습니다.
 
 ![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=flat-square&logo=fastapi)
-![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white)
-![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-Async-red?style=flat-square)
+![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=flat-square&logo=python&logoColor=white)
 ![TailwindCSS](https://img.shields.io/badge/TailwindCSS-Integration-38B2AC?style=flat-square&logo=tailwind-css)
 
 ---
 
 ## ✨ 주요 기능 (Key Features)
 
-### 1. ⚔️ Battle Arena (투표 시스템)
-- **1vs1 대결**: 무작위 또는 알고리즘에 의해 선정된 두 애니메이션 중 하나를 선택합니다.
-- **Smart Matchmaking**: 비슷한 점수대의 '라이벌'을 매칭하여 대결의 긴장감을 높입니다 (80% 확률).
-- **Focus Mode**: 특정 애니메이션을 집중적으로 평가할 수 있는 모드를 지원합니다.
-- **동적 카테고리**: 스토리, 작화, OST, 성우, 캐릭터, 종합 재미 중 랜덤한 주제로 대결합니다.
+### 1. ⚔️ Battle Arena (다차원 동시 투표 시스템)
+- **다중 기준 동시 평가**: 한 번의 대결에서 사용자가 설정한 모든 평가 기준(예: 스토리, 작화, 음악 등)을 동시에 비교하여 투표합니다. 이를 통해 점수 수렴 속도가 대폭 향상됩니다.
+- **Smart Matchmaking**: 비슷한 점수대의 '라이벌'을 매칭하여 대결의 긴장감과 랭킹의 정확도를 높입니다 (확률 조정 가능).
+- **Focus Mode**: 특정 항목만 고정해두고 다른 항목들과 연속으로 대결시킬 수 있습니다.
 
-### 2. 🏆 Ranking Board (순위표)
+### 2. 🏆 Ranking Board (동적 순위표)
 - **실시간 랭킹**: 투표 즉시 Elo 점수가 계산되어 순위에 반영됩니다.
-- **다차원 분석**: 종합 점수 외 각 카테고리별(스토리, 작화 등) 순위를 별도로 확인할 수 있습니다.
-- **시각화**: Chart.js를 활용하여 현재 점수 분포(Distribution)를 그래프로 보여줍니다.
+- **가중치 기반 종합 점수**: 각 평가 기준별로 가중치를 부여하여 보다 합리적인 종합 점수를 산출합니다.
+- **차트 시각화**: Chart.js를 활용하여 현재 점수 분포(Distribution)를 기준별로 한눈에 파악할 수 있습니다.
 
-### 3. ⚙️ Management (관리자 페이지)
-- **데이터 관리**: 애니메이션 추가, 수정, 삭제가 가능합니다.
-- **CSV 초기화**: `animation.csv` 파일이 존재할 경우 서버 시작 시 자동으로 데이터를 로드합니다.
-- **보안**: HTTP Basic Auth를 통해 관리자 페이지 접근을 제어합니다.
+### 3. ⚙️ Management (데이터 및 시스템 설정)
+- **항목(Items) 관리**: 평가할 대상을 개별 또는 여러 줄 텍스트로 일괄(Bulk) 등록하고 수정/삭제할 수 있습니다.
+- **평가 기준(Criteria) 편집**: 평가할 기준의 이름, 테마 색상, 가중치를 자유롭게 추가하고 편집할 수 있습니다.
+- **Elo Settings**: K-Factor(점수 변동폭), 매치메이킹 범위, 무승부 확률, 점수 인플레이션 방지(정규화) 등 랭킹 알고리즘의 모든 파라미터를 UI에서 직접 튜닝할 수 있습니다.
+- **데이터 백업 및 복구 (Data I/O)**: 현재 세션의 모든 데이터(설정, 기준, 항목)를 단일 `JSON` 파일로 다운로드(Export)하거나 업로드(Import)하여 이어서 진행할 수 있습니다.
 
-### 4. 🎨 UI/UX
-- **반응형 디자인**: TailwindCSS를 사용하여 모바일과 데스크톱 모두에 최적화되었습니다.
-- **Dark Mode**: 시스템 설정 또는 토글 버튼을 통해 다크 모드를 완벽하게 지원합니다.
-- **Interactive UI**: 플로팅 애니메이션, 점수 카운팅 효과 등 동적인 인터랙션을 제공합니다.
+### 4. 🗂️ 독립적인 멀티 유저 세션 (Multi-Session)
+- 복잡한 DB 설정이나 회원가입 없이, 사이트 접속 시 발급되는 브라우저 쿠키를 기반으로 각 유저마다 고유한 JSON 데이터 환경을 제공합니다.
 
 ---
 
 ## 🛠 기술 스택 (Tech Stack)
 
-- **Backend**: Python 3.10+, FastAPI
-- **Database**: SQLite, SQLAlchemy 2.0 (Async/Await), Aiosqlite
+- **Backend**: Python 3.12, FastAPI
+- **Data Storage**: Local JSON Files (`store.py`, In-memory Caching + File Sync)
 - **Frontend**: Jinja2 Templates, TailwindCSS (CDN), Chart.js
-- **Deployment**: Fly.io (Docker environment compatible)
+- **Deployment**: Fly.io (Docker container with Volume Mount)
 
 ---
 
@@ -63,19 +62,12 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 3. 환경 변수 설정 (.env)
-프로젝트 루트에 `.env` 파일을 생성하거나 `config.py`의 기본값을 수정합니다.
-```ini
-DB_PATH=./anime_rank.db
-AUTH_USERNAME=admin
-AUTH_PASSWORD=password
-```
-
-### 4. 서버 실행
+### 3. 서버 실행
+환경 변수나 DB 초기화 설정 없이 바로 실행 가능합니다. (데이터는 자동으로 `./data/sessions` 폴더에 생성됩니다.)
 ```bash
 uvicorn main:app --reload
 ```
-브라우저에서 `http://localhost:8000`으로 접속합니다.
+브라우저에서 `http://localhost:8000`으로 접속하여 **"새로 시작"**을 클릭하면 즉시 사용할 수 있습니다.
 
 ---
 
@@ -83,23 +75,21 @@ uvicorn main:app --reload
 
 ```text
 .
-├── main.py              # 앱 진입점 (App Entrypoint & Auth)
-├── config.py            # 설정 및 환경변수 관리 (Pydantic)
-├── database.py          # 비동기 DB 엔진 및 세션 설정
-├── models.py            # SQLAlchemy ORM 모델 정의
+├── main.py              # 앱 진입점 및 세션 쿠키 관리 라우터
+├── deps.py              # FastAPI 의존성 (세션 ID 검증 및 Store 주입)
+├── store.py             # 세션별 JSON 데이터 읽기/쓰기 및 캐싱 로직
 ├── schemas.py           # Pydantic 데이터 검증 스키마
-├── services.py          # 비즈니스 로직 (Elo 계산, 매치메이킹, 정규화)
+├── services.py          # 순수 비즈니스 로직 (Elo 연산, 매치메이킹, 정규화)
 ├── routers/             # API 라우터 모듈
-│   ├── battle.py        # 대결 및 투표 처리
-│   ├── ranking.py       # 순위 조회 및 차트 데이터
-│   └── manage.py        # 데이터 CRUD (관리자)
+│   ├── battle.py        # 대결 페이지 및 투표 처리
+│   ├── ranking.py       # 순위 조회 및 통계 차트
+│   └── manage.py        # 데이터 CRUD 및 시스템 파라미터 설정
 ├── templates/           # Jinja2 HTML 템플릿
-│   ├── base.html        # 레이아웃 및 공통 스크립트
-│   ├── index.html       # 메인 페이지
-│   ├── battle.html      # 대결 페이지
-│   ├── ranking.html     # 랭킹 페이지
-│   └── manage.html      # 관리 페이지
-├── requirements.txt     # 의존성 목록
+│   ├── base.html        # 레이아웃 및 다크모드, 네비게이션
+│   ├── index.html       # 메인(시작/업로드) 페이지
+│   ├── battle.html      # 1:1 다중 투표 UI
+│   ├── ranking.html     # 랭킹 테이블 및 차트
+│   └── manage.html      # 항목/기준/설정 관리 UI
 └── fly.toml             # Fly.io 배포 설정
 ```
 
@@ -107,27 +97,24 @@ uvicorn main:app --reload
 
 ## 🧠 알고리즘 상세 (Algorithm Logic)
 
-### Elo Rating Configuration (`config.py`)
-이 프로젝트는 단순 승패 기록이 아닌, **상대방의 점수에 따른 기대 승률**을 기반으로 점수를 변동시킵니다.
+모든 알고리즘 동작 방식은 **[Manage] -> [Elo Settings]** 탭에서 실시간으로 조정할 수 있습니다.
 
-1.  **Dynamic K-Factor**:
-    *   초기 진입 시 (`K=60`): 빠른 제자리 찾기를 위해 변동폭이 큽니다.
-    *   안정화 후 (`K=24`): 많은 대결을 치른 후에는 점수 변동이 안정화됩니다.
-2.  **Inflation Control**:
-    *   `normalize_scores_task` 백그라운드 작업을 통해 전체 평균 점수가 1200점에서 크게 벗어나지 않도록 미세 조정하여 점수 인플레이션을 방지합니다.
-
-### Smart Matchmaking (`services.py`)
-*   **Rival Match (80%)**: 현재 애니메이션의 점수 기준 `±300`점 내의 상대를 우선 매칭하여 대결의 의미를 강화합니다.
-*   **Random Match (20%)**: 랭킹 고착화를 방지하기 위해 가끔 완전 무작위 매칭을 수행합니다.
+1. **Dynamic K-Factor (동적 변동폭)**:
+   - 처음 추가된 항목은 배치고사를 치르듯 점수가 크게 변동합니다 (`K Max`).
+   - 대결 횟수가 누적될수록 점수 변동폭이 점차 줄어들어 안정화됩니다 (`K Min`, `Decay Factor`).
+2. **Draw Probability (무승부 확률 보정)**:
+   - 두 항목의 점수 차이에 기반하여 가상의 무승부 확률(Gaussian Curve)을 계산하고, 이를 기반으로 승패에 따른 기대 점수를 보정합니다.
+3. **Inflation Control (점수 정규화)**:
+   - 투표가 진행됨에 따라 전체 점수가 상향 또는 하향 평준화되는 것을 막기 위해, 백그라운드에서 주기적으로 전체 평균을 목표 점수(`Normalize Target`)로 자동 보정합니다.
 
 ---
 
 ## ☁️ 배포 (Deployment)
 
-이 프로젝트는 **Fly.io** 배포에 최적화되어 있습니다.
+이 프로젝트는 **Fly.io** 배포에 최적화되어 있습니다. (Docker 컨테이너 환경)
 
 1. `flyctl` 설치 및 로그인.
-2. 앱 생성: `fly launch`
-3. 배포: `fly deploy`
+2. 앱 런칭: `fly launch`
+3. 배포 진행: `fly deploy`
 
-*주의: `fly.toml`에 정의된 대로 `/data` 경로에 볼륨을 마운트하여 DB 영속성을 보장해야 합니다.*
+*주의: `fly.toml`에 정의된 대로 `[mounts]`를 통해 Fly Volume을 `/data` 경로에 마운트해야 사용자의 JSON 세션 파일들이 서버 재시작 후에도 날아가지 않고 유지됩니다.*

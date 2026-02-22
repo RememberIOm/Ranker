@@ -1,8 +1,4 @@
 fastapi
-uvicorn
-sqlalchemy[asyncio]
-aiosqlite
+uvicorn[standard]
 jinja2
 python-multipart
-pandas
-pydantic-settings

@@ -1,141 +1,581 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="max-w-4xl mx-auto space-y-8">
+<div class="max-w-5xl mx-auto space-y-8">
 
     <div class="flex items-center justify-between">
-        <h1 class="text-3xl font-bold text-gray-900 dark:text-white">Database Management</h1>
-        <span class="px-3 py-1 bg-gray-100 dark:bg-gray-800 rounded-full text-xs font-mono text-gray-500">Total: {{
-            animes|length }}</span>
+        <h1 class="text-3xl font-bold text-gray-900 dark:text-white">Management</h1>
+        <span class="px-3 py-1 bg-gray-100 dark:bg-gray-800 rounded-full text-xs font-mono text-gray-500">
+            Items: {{ items|length }} · Criteria: {{ criteria|length }}
+        </span>
     </div>
 
-    <!-- 추가 폼 -->
-    <div class="bg-white dark:bg-gray-800 rounded-2xl p-6 shadow-lg border border-gray-100 dark:border-gray-700">
-        <h2 class="text-lg font-bold mb-4 text-brand-600 dark:text-brand-400 flex items-center gap-2">
-            <span>Add New Anime</span>
-        </h2>
-        <form action="/manage/add" method="post" class="flex flex-col sm:flex-row gap-4">
-            <div class="flex-1 relative">
-                <input type="text" name="name" placeholder="애니메이션 이름 입력" required
-                    class="w-full pl-4 pr-4 py-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition text-gray-900 dark:text-white placeholder-gray-400">
-            </div>
-            <button type="submit"
-                class="bg-brand-600 hover:bg-brand-700 text-white font-bold px-8 py-3 rounded-xl transition shadow-lg shadow-brand-500/30 whitespace-nowrap">
-                등록하기
-            </button>
-        </form>
-        <p class="text-xs text-gray-400 mt-3 ml-1">* 초기 Elo Rating은 1200점으로 설정됩니다.</p>
+    <!-- 탭 네비게이션 -->
+    <div class="flex space-x-1 bg-gray-100 dark:bg-gray-800 p-1 rounded-xl">
+        {% set tabs = [('items', '📋 Items'), ('criteria', '📐 Criteria'), ('settings', '⚡ Elo Settings'), ('data', '💾
+        Data')] %}
+        {% for key, label in tabs %}
+        <a href="/manage?tab={{ key }}" class="flex-1 text-center px-4 py-2.5 rounded-lg text-sm font-bold transition-all
+           {% if tab == key %}
+               bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm
+           {% else %}
+               text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300
+           {% endif %}">
+            {{ label }}
+        </a>
+        {% endfor %}
     </div>
 
-    <!-- 목록 영역 -->
-    <div
-        class="bg-white dark:bg-gray-800 rounded-2xl shadow-lg border border-gray-100 dark:border-gray-700 overflow-hidden">
-        <div class="p-4 border-b border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/50">
-            <span class="text-sm font-semibold text-gray-500 uppercase tracking-wider">Registered Items</span>
+    {# ===== TAB: Items ===== #}
+    {% if tab == 'items' %}
+    <div class="space-y-6">
+        <!-- 단일 추가 -->
+        <div class="bg-white dark:bg-gray-800 rounded-2xl p-6 shadow-lg border border-gray-100 dark:border-gray-700">
+            <h2 class="text-lg font-bold mb-4 text-brand-600 dark:text-brand-400">Add Item</h2>
+            <form action="/manage/add" method="post" class="flex flex-col sm:flex-row gap-4">
+                <input type="text" name="name" placeholder="항목 이름 입력" required
+                    class="flex-1 pl-4 pr-4 py-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition text-gray-900 dark:text-white placeholder-gray-400">
+                <button type="submit"
+                    class="bg-brand-600 hover:bg-brand-700 text-white font-bold px-8 py-3 rounded-xl transition shadow-lg shadow-brand-500/30 whitespace-nowrap">
+                    등록
+                </button>
+            </form>
         </div>
 
-        <ul class="divide-y divide-gray-100 dark:divide-gray-700 max-h-[600px] overflow-y-auto custom-scrollbar">
-            {% for ani in animes %}
-            <li class="p-4 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors group">
+        <!-- 대량 추가 -->
+        <div class="bg-white dark:bg-gray-800 rounded-2xl p-6 shadow-lg border border-gray-100 dark:border-gray-700">
+            <h2 class="text-lg font-bold mb-4 text-blue-600 dark:text-blue-400">Bulk Add</h2>
+            <form action="/manage/add-bulk" method="post" class="space-y-4">
+                <textarea name="names" rows="6" placeholder="줄바꿈으로 구분하여 여러 항목을 입력하세요.&#10;예:&#10;항목 1&#10;항목 2&#10;항목 3"
+                    class="w-full pl-4 pr-4 py-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition text-gray-900 dark:text-white placeholder-gray-400 resize-y font-mono text-sm"></textarea>
+                <button type="submit"
+                    class="bg-blue-600 hover:bg-blue-700 text-white font-bold px-8 py-3 rounded-xl transition shadow-lg shadow-blue-500/30">
+                    일괄 등록
+                </button>
+            </form>
+        </div>
 
-                <!-- 보기 모드 -->
-                <div id="view-row-{{ ani.id }}" class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                    <div class="flex items-center gap-3 overflow-hidden">
-                        <div class="w-2 h-2 rounded-full bg-brand-400 shrink-0"></div>
-                        <span class="font-medium text-gray-800 dark:text-gray-200 truncate text-lg"
-                            title="{{ ani.name }}">
-                            {{ ani.name }}
-                        </span>
-                        {% if ani.matches_played < 10 %} <span
-                            class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400 border border-yellow-200 dark:border-yellow-800">
-                            NEW</span>
-                            {% endif %}
-                    </div>
-
-                    <div
-                        class="flex items-center gap-2 self-end sm:self-auto shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
-                        <!-- 집중 평가 -->
-                        <a href="/battle/focus/{{ ani.id }}"
-                            class="px-3 py-1.5 text-xs font-bold rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-300 dark:hover:bg-blue-900/50 transition">
-                            Focus
-                        </a>
-                        <!-- 수정 -->
-                        <button onclick="toggleEdit('{{ ani.id }}')"
-                            class="px-3 py-1.5 text-xs font-bold rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600 transition">
-                            Edit
-                        </button>
-                        <!-- 삭제 -->
-                        <form action="/manage/delete" method="post" onsubmit="return confirmDelete('{{ ani.name }}')"
-                            class="inline">
-                            <input type="hidden" name="anime_id" value="{{ ani.id }}">
-                            <button type="submit"
-                                class="px-3 py-1.5 text-xs font-bold rounded-lg bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-900/30 dark:text-red-300 dark:hover:bg-red-900/50 transition">
-                                Delete
+        <!-- 목록 -->
+        <div
+            class="bg-white dark:bg-gray-800 rounded-2xl shadow-lg border border-gray-100 dark:border-gray-700 overflow-hidden">
+            <div class="p-4 border-b border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/50">
+                <span class="text-sm font-semibold text-gray-500 uppercase tracking-wider">Registered Items</span>
+            </div>
+            <ul class="divide-y divide-gray-100 dark:divide-gray-700 max-h-[600px] overflow-y-auto">
+                {% for item in items %}
+                <li class="p-4 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors group">
+                    <div id="view-row-{{ item.id }}"
+                        class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div class="flex items-center gap-3 overflow-hidden">
+                            <div class="w-2 h-2 rounded-full bg-brand-400 shrink-0"></div>
+                            <span class="font-medium text-gray-800 dark:text-gray-200 truncate text-lg"
+                                title="{{ item.name }}">
+                                {{ item.name }}
+                            </span>
+                            {% if item.matches_played < 10 %} <span
+                                class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400 border border-yellow-200 dark:border-yellow-800">
+                                NEW</span>
+                                {% endif %}
+                        </div>
+                        <div
+                            class="flex items-center gap-2 self-end sm:self-auto shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                            <a href="/battle/focus/{{ item.id }}"
+                                class="px-3 py-1.5 text-xs font-bold rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-300 dark:hover:bg-blue-900/50 transition">
+                                Focus
+                            </a>
+                            <button onclick="toggleEdit('{{ item.id }}')"
+                                class="px-3 py-1.5 text-xs font-bold rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600 transition">
+                                Edit
                             </button>
-                        </form>
+                            <form action="/manage/delete" method="post"
+                                onsubmit="return confirm('⚠️ \'{{ item.name }}\' 항목을 삭제하시겠습니까?')" class="inline">
+                                <input type="hidden" name="item_id" value="{{ item.id }}">
+                                <button type="submit"
+                                    class="px-3 py-1.5 text-xs font-bold rounded-lg bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-900/30 dark:text-red-300 dark:hover:bg-red-900/50 transition">
+                                    Delete
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                    <form id="edit-row-{{ item.id }}" action="/manage/edit" method="post"
+                        class="hidden flex flex-col sm:flex-row gap-2 w-full animate-fade-in">
+                        <input type="hidden" name="item_id" value="{{ item.id }}">
+                        <input type="text" id="input-name-{{ item.id }}" name="new_name" value="{{ item.name }}"
+                            required
+                            class="flex-1 bg-white dark:bg-gray-900 border border-brand-300 dark:border-brand-600 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 outline-none text-gray-900 dark:text-white">
+                        <div class="flex gap-2">
+                            <button type="submit"
+                                class="px-4 py-2 bg-brand-600 hover:bg-brand-500 text-white rounded-lg text-xs font-bold shadow-md">Save</button>
+                            <button type="button" onclick="toggleEdit('{{ item.id }}')"
+                                class="px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg text-xs font-bold">Cancel</button>
+                        </div>
+                    </form>
+                </li>
+                {% else %}
+                <li class="p-12 text-center text-gray-400 flex flex-col items-center">
+                    <span class="text-4xl mb-2">📭</span>
+                    <span>항목이 없습니다. 위에서 추가해주세요.</span>
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+
+    {# ===== TAB: Criteria ===== #}
+    {% elif tab == 'criteria' %}
+    <div class="bg-white dark:bg-gray-800 rounded-2xl p-6 shadow-lg border border-gray-100 dark:border-gray-700">
+        <h2 class="text-lg font-bold mb-2 text-brand-600 dark:text-brand-400">평가 기준 편집</h2>
+        <p class="text-sm text-gray-500 dark:text-gray-400 mb-6">
+            기준을 추가/수정/삭제할 수 있습니다. 저장 시 기존 아이템의 ratings가 자동으로 동기화됩니다.
+        </p>
+
+        <form action="/manage/criteria" method="post" id="criteria-form">
+            <div id="criteria-rows" class="space-y-3">
+                {% for c in criteria %}
+                <div
+                    class="criteria-row flex flex-wrap items-center gap-3 p-4 bg-gray-50 dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700">
+                    <input type="hidden" name="key" value="{{ c.key }}">
+                    <div class="flex-1 min-w-[120px]">
+                        <label class="text-[10px] font-bold text-gray-400 uppercase">이름</label>
+                        <input type="text" name="label" value="{{ c.label }}" required placeholder="평가 기준 이름"
+                            class="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 outline-none text-gray-900 dark:text-white">
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-bold text-gray-400 uppercase">색상</label>
+                        <input type="hidden" name="color" value="{{ c.color }}">
+                        <div class="flex gap-1.5 mt-1">
+                            <!-- 무지개색(Hue) 순서 배치 -->
+                            {% for clr in ['red', 'orange', 'yellow', 'green', 'teal', 'blue', 'indigo', 'purple',
+                            'pink', 'gray'] %}
+                            <button type="button" onclick="pickColor(this, '{{ clr }}')" class="color-swatch w-7 h-7 rounded-full border-2 transition-all duration-150 hover:scale-110
+                                bg-{{ clr }}-500
+                                {% if c.color == clr %}
+                                    border-gray-900 dark:border-white ring-2 ring-{{ clr }}-300 dark:ring-{{ clr }}-700 scale-110
+                                {% else %}
+                                    border-transparent hover:border-gray-400 dark:hover:border-gray-500
+                                {% endif %}" title="{{ clr }}"></button>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    <div class="w-24">
+                        <label class="text-[10px] font-bold text-gray-400 uppercase">가중치</label>
+                        <input type="number" name="weight" value="{{ c.weight }}" step="0.1" min="0" required
+                            class="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm font-mono focus:ring-2 focus:ring-brand-500 outline-none text-gray-900 dark:text-white">
+                    </div>
+                    <button type="button" onclick="this.closest('.criteria-row').remove()"
+                        class="self-end p-2 text-red-500 hover:text-red-700 dark:hover:text-red-400 transition mb-0.5"
+                        title="삭제">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16">
+                            </path>
+                        </svg>
+                    </button>
+                </div>
+                {% endfor %}
+            </div>
+
+            <div class="flex gap-3 mt-6">
+                <button type="button" onclick="addCriteriaRow()"
+                    class="px-6 py-2.5 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-xl text-sm font-bold transition">
+                    + 기준 추가
+                </button>
+                <button type="submit"
+                    class="px-8 py-2.5 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-sm font-bold shadow-lg shadow-brand-500/30 transition">
+                    저장
+                </button>
+            </div>
+        </form>
+    </div>
+
+    {# ===== TAB: Settings ===== #}
+    {% elif tab == 'settings' %}
+    <div class="space-y-6">
+        <div
+            class="bg-white dark:bg-gray-800 rounded-2xl p-6 md:p-8 shadow-lg border border-gray-100 dark:border-gray-700">
+            <h2 class="text-xl font-bold mb-2 text-brand-600 dark:text-brand-400">Elo Rating 파라미터</h2>
+            <p class="text-sm text-gray-500 dark:text-gray-400 mb-8">
+                각 설정은 랭킹 알고리즘의 동작을 세밀하게 조절합니다. 추천 범위를 참고해 당신만의 랭킹 시스템을 커스텀하세요.
+            </p>
+
+            <form action="/manage/settings" method="post" class="space-y-8">
+
+                {# --- K-Factor --- #}
+                <div
+                    class="p-5 md:p-6 bg-gray-50 dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-700 transition-colors">
+                    <div class="border-b border-gray-200 dark:border-gray-700 pb-4 mb-5 flex items-start gap-3">
+                        <div
+                            class="p-2.5 bg-blue-100 dark:bg-blue-900/40 rounded-xl text-blue-600 dark:text-blue-400 shadow-sm">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path>
+                            </svg>
+                        </div>
+                        <div>
+                            <h3 class="text-lg font-extrabold text-gray-900 dark:text-white tracking-wide">K-Factor (점수
+                                변동폭)</h3>
+                            <p class="text-sm text-gray-500 dark:text-gray-400 mt-1 leading-relaxed">
+                                한 번의 대결 승패 시 점수가 얼마나 크게 변할지 결정합니다. 초기 매치에서는 <strong
+                                    class="text-gray-700 dark:text-gray-300">K Max</strong>만큼 변동하며, 누적 매치가 늘어날수록 <strong
+                                    class="text-gray-700 dark:text-gray-300">K Min</strong>으로 안정화됩니다.
+                            </p>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-6">
+                        <div>
+                            <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">K Max <span
+                                    class="text-gray-400 font-normal ml-1">(최대)</span></label>
+                            <p class="text-xs text-gray-500 dark:text-gray-400 mb-2 h-8">새 항목이 처음 대결할 때 획득/상실하는 최대 점수
+                            </p>
+                            <input type="number" name="elo_k_max" value="{{ settings.elo_k_max }}" step="1"
+                                class="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-mono focus:ring-2 focus:ring-brand-500 outline-none text-gray-900 dark:text-white">
+                            <p class="text-[11px] text-blue-600 dark:text-blue-400 font-semibold mt-1.5">추천: 60~120</p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">K Min <span
+                                    class="text-gray-400 font-normal ml-1">(최소)</span></label>
+                            <p class="text-xs text-gray-500 dark:text-gray-400 mb-2 h-8">충분히 매치를 치른 후 적용되는 최소 변동 점수</p>
+                            <input type="number" name="elo_k_min" value="{{ settings.elo_k_min }}" step="1"
+                                class="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-mono focus:ring-2 focus:ring-brand-500 outline-none text-gray-900 dark:text-white">
+                            <p class="text-[11px] text-blue-600 dark:text-blue-400 font-semibold mt-1.5">추천: 16~40</p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">Decay Factor
+                                <span class="text-gray-400 font-normal ml-1">(감쇠)</span></label>
+                            <p class="text-xs text-gray-500 dark:text-gray-400 mb-2 h-8">K값이 Max에서 Min으로 안정화되는 속도 계수</p>
+                            <input type="number" name="elo_decay_factor" value="{{ settings.elo_decay_factor }}"
+                                step="1"
+                                class="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-mono focus:ring-2 focus:ring-brand-500 outline-none text-gray-900 dark:text-white">
+                            <p class="text-[11px] text-blue-600 dark:text-blue-400 font-semibold mt-1.5">추천: 20~100</p>
+                        </div>
                     </div>
                 </div>
 
-                <!-- 수정 모드 -->
-                <form id="edit-row-{{ ani.id }}" action="/manage/edit" method="post"
-                    class="hidden flex flex-col sm:flex-row gap-2 w-full animate-fade-in">
-                    <input type="hidden" name="anime_id" value="{{ ani.id }}">
-                    <input type="text" id="input-name-{{ ani.id }}" name="new_name" value="{{ ani.name }}" required
-                        class="flex-1 bg-white dark:bg-gray-900 border border-brand-300 dark:border-brand-600 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 outline-none text-gray-900 dark:text-white">
-                    <div class="flex gap-2">
-                        <button type="submit"
-                            class="px-4 py-2 bg-brand-600 hover:bg-brand-500 text-white rounded-lg text-xs font-bold shadow-md">Save</button>
-                        <button type="button" onclick="toggleEdit('{{ ani.id }}')"
-                            class="px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg text-xs font-bold">Cancel</button>
+                {# --- Matchmaking --- #}
+                <div
+                    class="p-5 md:p-6 bg-gray-50 dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-700 transition-colors">
+                    <div class="border-b border-gray-200 dark:border-gray-700 pb-4 mb-5 flex items-start gap-3">
+                        <div
+                            class="p-2.5 bg-indigo-100 dark:bg-indigo-900/40 rounded-xl text-indigo-600 dark:text-indigo-400 shadow-sm">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z">
+                                </path>
+                            </svg>
+                        </div>
+                        <div>
+                            <h3 class="text-lg font-extrabold text-gray-900 dark:text-white tracking-wide">Matchmaking
+                                (대결 매칭)</h3>
+                            <p class="text-sm text-gray-500 dark:text-gray-400 mt-1 leading-relaxed">
+                                임의의 상대와 만날지, 점수가 비슷한 라이벌과 만날지를 조절하는 설정입니다.
+                            </p>
+                        </div>
                     </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                        <div>
+                            <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">Smart Match
+                                Rate</label>
+                            <p class="text-xs text-gray-500 dark:text-gray-400 mb-2 h-8">가까운 점수대의 항목끼리 우선 매칭될 확률
+                                (0.0~1.0)</p>
+                            <input type="number" name="match_smart_rate" value="{{ settings.match_smart_rate }}"
+                                step="0.05" min="0" max="1"
+                                class="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-mono focus:ring-2 focus:ring-brand-500 outline-none text-gray-900 dark:text-white">
+                            <p class="text-[11px] text-indigo-600 dark:text-indigo-400 font-semibold mt-1.5">추천: 0.5~1.0
+                            </p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">Score Range
+                                <span class="text-gray-400 font-normal ml-1">(매칭 범위)</span></label>
+                            <p class="text-xs text-gray-500 dark:text-gray-400 mb-2 h-8">스마트 매칭 발동 시, 탐색할 점수 차이의 한계값</p>
+                            <input type="number" name="match_score_range" value="{{ settings.match_score_range }}"
+                                step="50"
+                                class="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-mono focus:ring-2 focus:ring-brand-500 outline-none text-gray-900 dark:text-white">
+                            <p class="text-[11px] text-indigo-600 dark:text-indigo-400 font-semibold mt-1.5">추천: 150~500
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                {# --- Draw Probability --- #}
+                <div
+                    class="p-5 md:p-6 bg-gray-50 dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-700 transition-colors">
+                    <div class="border-b border-gray-200 dark:border-gray-700 pb-4 mb-5 flex items-start gap-3">
+                        <div
+                            class="p-2.5 bg-yellow-100 dark:bg-yellow-900/40 rounded-xl text-yellow-600 dark:text-yellow-400 shadow-sm">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M3 6l3 1m0 0l-3 9a5.002 5.002 0 006.001 0M6 7l3 9M6 7l6-2m6 2l3-1m-3 1l-3 9a5.002 5.002 0 006.001 0M18 7l3 9m-3-9l-6-2m0-2v2m0 16V5m0 16H9m3 0h3">
+                                </path>
+                            </svg>
+                        </div>
+                        <div>
+                            <h3 class="text-lg font-extrabold text-gray-900 dark:text-white tracking-wide">Draw
+                                Probability (무승부 밸런스)</h3>
+                            <p class="text-sm text-gray-500 dark:text-gray-400 mt-1 leading-relaxed">
+                                화면에 표시되는 '무승부'가 나올 통계적 확률을 제어합니다. 점수차가 클수록 이 확률은 줄어듭니다.
+                            </p>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                        <div>
+                            <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">Draw Max <span
+                                    class="text-gray-400 font-normal ml-1">(최대치)</span></label>
+                            <p class="text-xs text-gray-500 dark:text-gray-400 mb-2 h-8">두 항목의 점수가 완전히 동일할 때의 무승부 확률</p>
+                            <input type="number" name="elo_draw_max" value="{{ settings.elo_draw_max }}" step="0.01"
+                                min="0" max="1"
+                                class="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-mono focus:ring-2 focus:ring-brand-500 outline-none text-gray-900 dark:text-white">
+                            <p class="text-[11px] text-yellow-600 dark:text-yellow-400 font-semibold mt-1.5">추천: 0.1~0.5
+                            </p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">Draw Scale
+                                <span class="text-gray-400 font-normal ml-1">(감쇠도)</span></label>
+                            <p class="text-xs text-gray-500 dark:text-gray-400 mb-2 h-8">점수 차이가 날 때 무승부 확률이 깎이는 민감도 (클수록
+                                덜 깎임)</p>
+                            <input type="number" name="elo_draw_scale" value="{{ settings.elo_draw_scale }}" step="10"
+                                class="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-mono focus:ring-2 focus:ring-brand-500 outline-none text-gray-900 dark:text-white">
+                            <p class="text-[11px] text-yellow-600 dark:text-yellow-400 font-semibold mt-1.5">추천: 200~500
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                {# --- Initial & Normalization --- #}
+                <div
+                    class="p-5 md:p-6 bg-gray-50 dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-700 transition-colors">
+                    <div class="border-b border-gray-200 dark:border-gray-700 pb-4 mb-5 flex items-start gap-3">
+                        <div
+                            class="p-2.5 bg-emerald-100 dark:bg-emerald-900/40 rounded-xl text-emerald-600 dark:text-emerald-400 shadow-sm">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z">
+                                </path>
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                            </svg>
+                        </div>
+                        <div>
+                            <h3 class="text-lg font-extrabold text-gray-900 dark:text-white tracking-wide">Base &
+                                Normalization (기본값 & 정규화)</h3>
+                            <p class="text-sm text-gray-500 dark:text-gray-400 mt-1 leading-relaxed">
+                                전체 점수대가 기하급수적으로 부풀려지는 인플레이션 현상을 방지하고 기준점을 유지시킵니다.
+                            </p>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-6">
+                        <div>
+                            <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">Initial Rating
+                                <span class="text-gray-400 font-normal ml-1">(시작점)</span></label>
+                            <p class="text-xs text-gray-500 dark:text-gray-400 mb-2 h-8">새 항목이 처음 생성될 때 기본으로 부여받는 점수</p>
+                            <input type="number" name="initial_rating" value="{{ settings.initial_rating }}" step="50"
+                                class="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-mono focus:ring-2 focus:ring-brand-500 outline-none text-gray-900 dark:text-white">
+                            <p class="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold mt-1.5">추천:
+                                1000~1500</p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">Normalize
+                                Target <span class="text-gray-400 font-normal ml-1">(목표치)</span></label>
+                            <p class="text-xs text-gray-500 dark:text-gray-400 mb-2 h-8">모든 항목 점수의 평균이 유지되어야 할 타겟 점수</p>
+                            <input type="number" name="normalize_target" value="{{ settings.normalize_target }}"
+                                step="50"
+                                class="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-mono focus:ring-2 focus:ring-brand-500 outline-none text-gray-900 dark:text-white">
+                            <p class="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold mt-1.5">추천:
+                                Initial Rating과 동일</p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">Normalize
+                                Threshold</label>
+                            <p class="text-xs text-gray-500 dark:text-gray-400 mb-2 h-8">평균 점수가 이 값 이상 벗어나면 자동 보정이 실행됨
+                            </p>
+                            <input type="number" name="normalize_threshold" value="{{ settings.normalize_threshold }}"
+                                step="0.1"
+                                class="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-mono focus:ring-2 focus:ring-brand-500 outline-none text-gray-900 dark:text-white">
+                            <p class="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold mt-1.5">추천:
+                                0.5~5.0</p>
+                        </div>
+                    </div>
+                </div>
+
+                {# --- Battle UI --- #}
+                <div
+                    class="p-5 md:p-6 bg-gray-50 dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-700 transition-colors">
+                    <div class="border-b border-gray-200 dark:border-gray-700 pb-4 mb-5 flex items-start gap-3">
+                        <div
+                            class="p-2.5 bg-rose-100 dark:bg-rose-900/40 rounded-xl text-rose-600 dark:text-rose-400 shadow-sm">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z">
+                                </path>
+                            </svg>
+                        </div>
+                        <div>
+                            <h3 class="text-lg font-extrabold text-gray-900 dark:text-white tracking-wide">Battle UI (대결
+                                인터페이스)</h3>
+                            <p class="text-sm text-gray-500 dark:text-gray-400 mt-1 leading-relaxed">
+                                대결을 마친 후 결과 화면에서 다음 라운드로 넘어가는 방식을 편의에 맞게 조정하세요.
+                            </p>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-6 items-end">
+                        <div class="pb-1">
+                            <label class="flex items-center gap-3 cursor-pointer select-none">
+                                <input type="checkbox" name="result_auto_skip" {% if settings.get('result_auto_skip',
+                                    False) %}checked{% endif %}
+                                    class="w-5 h-5 rounded border-gray-300 text-brand-600 focus:ring-brand-500 dark:bg-gray-800 dark:border-gray-600 transition">
+                                <div>
+                                    <span class="text-sm font-bold text-gray-700 dark:text-gray-200">결과 자동 스킵 (Auto
+                                        Skip)</span>
+                                    <p class="text-xs text-gray-500 dark:text-gray-400 mt-1 leading-relaxed">
+                                        결과가 나온 뒤, 클릭 없이도 정해진 시간이 지나면 다음 대결로 자동 이동합니다.
+                                    </p>
+                                </div>
+                            </label>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">대기 시간
+                                (초)</label>
+                            <p class="text-xs text-gray-500 dark:text-gray-400 mb-2 h-4 hidden sm:block"></p>
+                            <input type="number" name="result_skip_seconds"
+                                value="{{ settings.get('result_skip_seconds', 3.0) }}" step="0.5" min="0.5" max="30"
+                                class="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-mono focus:ring-2 focus:ring-brand-500 outline-none text-gray-900 dark:text-white">
+                            <p class="text-[11px] text-rose-600 dark:text-rose-400 font-semibold mt-1.5">추천: 2.0~5.0</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="pt-2">
+                    <button type="submit"
+                        class="w-full sm:w-auto px-10 py-3.5 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-lg font-bold shadow-xl shadow-brand-500/30 transition transform hover:-translate-y-0.5">
+                        설정 저장하기
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        {# ===== TAB: Data ===== #}
+        {% elif tab == 'data' %}
+        <div class="space-y-6">
+            <!-- Export -->
+            <div
+                class="bg-white dark:bg-gray-800 rounded-2xl p-6 shadow-lg border border-gray-100 dark:border-gray-700">
+                <h2 class="text-lg font-bold mb-2 text-green-600 dark:text-green-400">Export Data</h2>
+                <p class="text-sm text-gray-500 dark:text-gray-400 mb-4">
+                    현재 모든 데이터(항목, 기준, 설정)를 JSON 파일로 다운로드합니다.
+                </p>
+                <a href="/manage/export"
+                    class="inline-block px-8 py-3 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold shadow-lg shadow-green-500/30 transition">
+                    📥 JSON 다운로드
+                </a>
+            </div>
+
+            <!-- Import -->
+            <div
+                class="bg-white dark:bg-gray-800 rounded-2xl p-6 shadow-lg border border-gray-100 dark:border-gray-700">
+                <h2 class="text-lg font-bold mb-2 text-orange-600 dark:text-orange-400">Import Data</h2>
+                <p class="text-sm text-gray-500 dark:text-gray-400 mb-4">
+                    JSON 파일을 업로드하여 전체 데이터를 교체합니다.
+                    <span class="text-red-500 font-bold">⚠️ 기존 데이터가 덮어씌워집니다.</span>
+                </p>
+                <form action="/manage/import" method="post" enctype="multipart/form-data"
+                    onsubmit="return confirm('⚠️ 기존 데이터가 완전히 교체됩니다. 계속하시겠습니까?')"
+                    class="flex flex-col sm:flex-row gap-4">
+                    <input type="file" name="file" accept=".json" required
+                        class="flex-1 text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-bold file:bg-orange-50 file:text-orange-700 hover:file:bg-orange-100 dark:file:bg-orange-900/30 dark:file:text-orange-300">
+                    <button type="submit"
+                        class="px-8 py-3 bg-orange-600 hover:bg-orange-700 text-white rounded-xl font-bold shadow-lg shadow-orange-500/30 transition whitespace-nowrap">
+                        📤 업로드 & 적용
+                    </button>
                 </form>
+            </div>
+        </div>
+        {% endif %}
 
-            </li>
-            {% else %}
-            <li class="p-12 text-center text-gray-400 flex flex-col items-center">
-                <span class="text-4xl mb-2">📭</span>
-                <span>데이터가 없습니다. 위 입력창을 통해 추가해주세요.</span>
-            </li>
-            {% endfor %}
-        </ul>
     </div>
-</div>
 
-<script>
-    function confirmDelete(name) {
-        return confirm(`⚠️ 삭제 확인\n\n'${name}' 데이터를 영구적으로 삭제하시겠습니까?\n모든 점수 기록이 사라집니다.`);
-    }
-
-    function toggleEdit(id) {
-        const viewRow = document.getElementById(`view-row-${id}`);
-        const editRow = document.getElementById(`edit-row-${id}`);
-
-        if (viewRow.classList.contains('hidden')) {
-            viewRow.classList.remove('hidden');
-            editRow.classList.add('hidden');
-        } else {
-            viewRow.classList.add('hidden');
-            editRow.classList.remove('hidden');
-            document.getElementById(`input-name-${id}`).focus();
-        }
-    }
-</script>
-
-<style>
-    .animate-fade-in {
-        animation: fadeIn 0.2s ease-out;
-    }
-
-    @keyframes fadeIn {
-        from {
-            opacity: 0;
-            transform: translateY(-5px);
+    <script>
+        // 항목 수정 토글
+        function toggleEdit(id) {
+            const viewRow = document.getElementById(`view-row-${id}`);
+            const editRow = document.getElementById(`edit-row-${id}`);
+            if (viewRow.classList.contains('hidden')) {
+                viewRow.classList.remove('hidden');
+                editRow.classList.add('hidden');
+            } else {
+                viewRow.classList.add('hidden');
+                editRow.classList.remove('hidden');
+                document.getElementById(`input-name-${id}`).focus();
+            }
         }
 
-        to {
-            opacity: 1;
-            transform: translateY(0);
+        // 색상 스와치 선택
+        function pickColor(btn, color) {
+            const row = btn.closest('.criteria-row');
+            row.querySelector('input[name="color"]').value = color;
+            row.querySelectorAll('.color-swatch').forEach(s => {
+                s.classList.remove('border-gray-900', 'dark:border-white', 'scale-110');
+                s.className = s.className.replace(/ring-2\s+ring-\S+\s*dark:ring-\S*/g, '');
+                s.classList.add('border-transparent');
+            });
+            btn.classList.remove('border-transparent');
+            btn.classList.add('border-gray-900', 'dark:border-white', 'scale-110', 'ring-2', `ring-${color}-300`);
         }
-    }
-</style>
-{% endblock %}
+
+        // 평가 기준 행 동적 추가 (무지개색 Hue 순서 배열 적용)
+        const COLORS = ['red', 'orange', 'yellow', 'green', 'teal', 'blue', 'indigo', 'purple', 'pink', 'gray'];
+
+        function addCriteriaRow() {
+            const container = document.getElementById('criteria-rows');
+
+            const swatches = COLORS.map((c, i) =>
+                `<button type="button" onclick="pickColor(this, '${c}')"
+                class="color-swatch w-7 h-7 rounded-full border-2 transition-all duration-150 hover:scale-110 bg-${c}-500
+                ${i === COLORS.length - 1 ? 'border-gray-900 dark:border-white ring-2 ring-gray-300 scale-110' : 'border-transparent hover:border-gray-400 dark:hover:border-gray-500'}"
+                title="${c}"></button>`
+            ).join('');
+
+            const html = `
+        <div class="criteria-row flex flex-wrap items-center gap-3 p-4 bg-gray-50 dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 animate-fade-in">
+            <input type="hidden" name="key" value="">
+            <div class="flex-1 min-w-[120px]">
+                <label class="text-[10px] font-bold text-gray-400 uppercase">이름</label>
+                <input type="text" name="label" required placeholder="평가 기준 이름"
+                    class="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 outline-none text-gray-900 dark:text-white">
+            </div>
+            <div>
+                <label class="text-[10px] font-bold text-gray-400 uppercase">색상</label>
+                <input type="hidden" name="color" value="gray">
+                <div class="flex gap-1.5 mt-1">${swatches}</div>
+            </div>
+            <div class="w-24">
+                <label class="text-[10px] font-bold text-gray-400 uppercase">가중치</label>
+                <input type="number" name="weight" value="1.0" step="0.1" min="0" required
+                    class="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm font-mono focus:ring-2 focus:ring-brand-500 outline-none text-gray-900 dark:text-white">
+            </div>
+            <button type="button" onclick="this.closest('.criteria-row').remove()"
+                class="self-end p-2 text-red-500 hover:text-red-700 dark:hover:text-red-400 transition mb-0.5" title="삭제">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+            </button>
+        </div>`;
+            container.insertAdjacentHTML('beforeend', html);
+            container.lastElementChild.querySelector('input[name="label"]').focus();
+        }
+    </script>
+
+    <style>
+        .animate-fade-in {
+            animation: fadeIn 0.2s ease-out;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(-5px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+    </style>
+    {% endblock %}
