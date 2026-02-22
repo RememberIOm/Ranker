@@ -5,9 +5,16 @@
 
 단일 데이터베이스 대신 **사용자별 세션 기반 JSON 저장소**를 채택하여, 누구나 독립적인 환경에서 자신만의 데이터를 구축하고 백업(Export/Import)할 수 있습니다.
 
+![Python](https://img.shields.io/badge/Python-3.12+-3776AB?style=flat-square&logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=flat-square&logo=fastapi)
-![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=flat-square&logo=python&logoColor=white)
 ![TailwindCSS](https://img.shields.io/badge/TailwindCSS-Integration-38B2AC?style=flat-square&logo=tailwind-css)
+![Fly.io](https://img.shields.io/badge/Deployed_on-Fly.io-7b51b6?style=flat-square&logo=fly.io&logoColor=white)
+
+<div align="center">
+
+🚀 **[battle-ranker.fly.dev](https://battle-ranker.fly.dev)**
+
+</div>
 
 ---
 
