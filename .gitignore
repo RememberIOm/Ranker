@@ -5,3 +5,6 @@ __pycache__/
 *.csv
 .DS_Store
 .vscode/
+
+# Claude code
+CLAUDE.md

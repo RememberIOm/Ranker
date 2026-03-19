@@ -2,12 +2,14 @@
 # 세션 기반 JSON 데이터 저장소 — 각 사용자가 독립된 데이터를 운용합니다.
 # UUID 세션 ID를 키로 사용하며, 세션별 JSON 파일을 /data/sessions/ 에 저장합니다.
 
-import os
+import asyncio
 import json
-import threading
+import os
 import time
 from pathlib import Path
 from typing import Any
+
+import aiofiles
 
 # 환경 변수 SESSION_DIR이 설정되어 있으면 해당 경로를 사용하고,
 # 로컬 개발 환경(uvicorn 실행)에서는 권한 오류를 피하기 위해 './data/sessions'를 사용합니다.
@@ -17,17 +19,17 @@ SESSION_DIR.mkdir(parents=True, exist_ok=True)
 # 세션 만료 시간 (7일)
 SESSION_TTL_SECONDS = 7 * 24 * 60 * 60
 
-# Thread-safe 쓰기를 위한 Lock (세션 ID별)
-_locks: dict[str, threading.Lock] = {}
-_locks_guard = threading.Lock()
+# asyncio.Lock은 실행 중인 이벤트 루프 안에서 생성해야 하므로 lazy init
+# cooperative scheduling 덕분에 await 없는 구간은 원자적 — dict 가드 불필요
+_locks: dict[str, asyncio.Lock] = {}
+_session_cache: dict[str, tuple["DataStore", float]] = {}
 
 
-def _get_lock(session_id: str) -> threading.Lock:
-    """세션별 Lock을 반환합니다 (lazy init)."""
-    with _locks_guard:
-        if session_id not in _locks:
-            _locks[session_id] = threading.Lock()
-        return _locks[session_id]
+def _get_lock(session_id: str) -> asyncio.Lock:
+    """세션별 asyncio.Lock을 반환합니다 (lazy init)."""
+    if session_id not in _locks:
+        _locks[session_id] = asyncio.Lock()
+    return _locks[session_id]
 
 
 def _default_data() -> dict[str, Any]:
@@ -63,18 +65,27 @@ def _default_data() -> dict[str, Any]:
 class DataStore:
     """
     세션별 JSON 데이터 저장소.
-    메모리에 데이터를 캐싱하고, 변경 시 세션 파일에 동기적으로 기록합니다.
+    메모리에 데이터를 캐싱하고, 변경 시 세션 파일에 비동기적으로 기록합니다.
+    직접 생성하지 말고 DataStore.create(session_id)를 사용하세요.
     """
 
-    def __init__(self, session_id: str):
+    def __init__(self, session_id: str) -> None:
         self._session_id = session_id
         self._path = SESSION_DIR / f"{session_id}.json"
-        self._data: dict[str, Any] = self._load()
+        self._data: dict[str, Any] = {}  # create()에서 채워짐
 
-    def _load(self) -> dict[str, Any]:
+    @classmethod
+    async def create(cls, session_id: str) -> "DataStore":
+        """비동기 팩토리 — 파일에서 데이터를 로드한 DataStore를 반환합니다."""
+        instance = cls(session_id)
+        instance._data = await instance._load()
+        return instance
+
+    async def _load(self) -> dict[str, Any]:
         if self._path.exists():
-            with open(self._path, "r", encoding="utf-8") as f:
-                data = json.load(f)
+            async with aiofiles.open(self._path, "r", encoding="utf-8") as f:
+                raw = await f.read()
+            data = json.loads(raw)  # json 파싱은 CPU-bound이므로 sync
             # 누락 필드에 기본값 병합 (하위 호환성)
             defaults = _default_data()
             for key in defaults:
@@ -85,11 +96,11 @@ class DataStore:
             return data
         return _default_data()
 
-    def _save(self) -> None:
+    async def _save(self) -> None:
         lock = _get_lock(self._session_id)
-        with lock:
-            with open(self._path, "w", encoding="utf-8") as f:
-                json.dump(self._data, f, ensure_ascii=False, indent=2)
+        async with lock:
+            async with aiofiles.open(self._path, "w", encoding="utf-8") as f:
+                await f.write(json.dumps(self._data, ensure_ascii=False, indent=2))
 
     # --- Settings ---
 
@@ -97,9 +108,9 @@ class DataStore:
     def settings(self) -> dict[str, Any]:
         return self._data["settings"]
 
-    def update_settings(self, patch: dict[str, Any]) -> None:
+    async def update_settings(self, patch: dict[str, Any]) -> None:
         self._data["settings"].update(patch)
-        self._save()
+        await self._save()
 
     # --- Criteria ---
 
@@ -107,7 +118,7 @@ class DataStore:
     def criteria(self) -> list[dict[str, Any]]:
         return self._data["criteria"]
 
-    def set_criteria(self, criteria: list[dict[str, Any]]) -> None:
+    async def set_criteria(self, criteria: list[dict[str, Any]]) -> None:
         """평가 기준 전체 교체 — 기존 아이템의 ratings도 동기화합니다."""
         old_keys = {c["key"] for c in self._data["criteria"]}
         new_keys = {c["key"] for c in criteria}
@@ -123,7 +134,7 @@ class DataStore:
                 item["ratings"].pop(key, None)
 
         self._data["criteria"] = criteria
-        self._save()
+        await self._save()
 
     # --- Items ---
 
@@ -136,7 +147,7 @@ class DataStore:
             return 1
         return max(item["id"] for item in self._data["items"]) + 1
 
-    def add_item(self, name: str) -> dict[str, Any]:
+    async def add_item(self, name: str) -> dict[str, Any]:
         initial = self._data["settings"]["initial_rating"]
         item = {
             "id": self._next_id(),
@@ -145,10 +156,10 @@ class DataStore:
             "matches_played": 0,
         }
         self._data["items"].append(item)
-        self._save()
+        await self._save()
         return item
 
-    def add_items_bulk(self, names: list[str]) -> int:
+    async def add_items_bulk(self, names: list[str]) -> int:
         """여러 항목을 한번에 추가합니다. 추가된 개수를 반환합니다."""
         count = 0
         initial = self._data["settings"]["initial_rating"]
@@ -165,7 +176,7 @@ class DataStore:
             self._data["items"].append(item)
             count += 1
         if count:
-            self._save()
+            await self._save()
         return count
 
     def get_item(self, item_id: int) -> dict[str, Any] | None:
@@ -174,39 +185,39 @@ class DataStore:
                 return item
         return None
 
-    def update_item(self, item_id: int, **fields: Any) -> bool:
+    async def update_item(self, item_id: int, **fields: Any) -> bool:
         item = self.get_item(item_id)
         if not item:
             return False
         item.update(fields)
-        self._save()
+        await self._save()
         return True
 
-    def delete_item(self, item_id: int) -> bool:
+    async def delete_item(self, item_id: int) -> bool:
         before = len(self._data["items"])
         self._data["items"] = [i for i in self._data["items"] if i["id"] != item_id]
         if len(self._data["items"]) < before:
-            self._save()
+            await self._save()
             return True
         return False
 
-    def save(self) -> None:
+    async def save(self) -> None:
         """외부에서 메모리 데이터 변경 후 명시적으로 저장할 때 사용합니다."""
-        self._save()
+        await self._save()
 
     # --- Import / Export ---
 
     def export_json(self) -> str:
         return json.dumps(self._data, ensure_ascii=False, indent=2)
 
-    def import_json(self, raw: str) -> None:
+    async def import_json(self, raw: str) -> None:
         """JSON 문자열로부터 전체 데이터를 교체합니다."""
         parsed = json.loads(raw)
         defaults = _default_data()
         for key in defaults:
             parsed.setdefault(key, defaults[key])
         self._data = parsed
-        self._save()
+        await self._save()
 
     def delete_session(self) -> None:
         """세션 데이터 파일을 삭제합니다."""
@@ -217,21 +228,18 @@ class DataStore:
 # --- 세션 관리자 ---
 
 # 메모리 캐시: session_id → (DataStore, last_access_timestamp)
-_session_cache: dict[str, tuple[DataStore, float]] = {}
-_cache_lock = threading.Lock()
+# asyncio cooperative scheduling으로 await 없는 구간은 원자적 — 별도 lock 불필요
 
 
-def get_store(session_id: str) -> DataStore:
+async def get_store(session_id: str) -> DataStore:
     """세션 ID에 해당하는 DataStore를 반환합니다 (캐시 활용)."""
-    with _cache_lock:
-        if session_id in _session_cache:
-            store, _ = _session_cache[session_id]
-            _session_cache[session_id] = (store, time.time())
-            return store
-
-    store = DataStore(session_id)
-    with _cache_lock:
+    if session_id in _session_cache:
+        store, _ = _session_cache[session_id]
         _session_cache[session_id] = (store, time.time())
+        return store
+
+    store = await DataStore.create(session_id)
+    _session_cache[session_id] = (store, time.time())
     return store
 
 
@@ -240,14 +248,13 @@ def session_exists(session_id: str) -> bool:
     return (SESSION_DIR / f"{session_id}.json").exists()
 
 
-def cleanup_expired_sessions() -> int:
+async def cleanup_expired_sessions() -> int:
     """만료된 세션 파일을 정리합니다. 삭제된 개수를 반환합니다."""
     now = time.time()
     removed = 0
     for f in SESSION_DIR.glob("*.json"):
         if (now - f.stat().st_mtime) > SESSION_TTL_SECONDS:
             f.unlink(missing_ok=True)
-            with _cache_lock:
-                _session_cache.pop(f.stem, None)
+            _session_cache.pop(f.stem, None)
             removed += 1
     return removed

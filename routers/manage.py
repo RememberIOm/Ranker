@@ -19,7 +19,7 @@ templates = Jinja2Templates(directory="templates")
 
 @router.get("", response_class=HTMLResponse)
 async def manage_page(request: Request, tab: str = "items", session_id: str | None = Cookie(default=None)):
-    store = get_session_store(request, session_id)
+    store = await get_session_store(request, session_id)
     if not store:
         return RedirectResponse(url="/", status_code=303)
 
@@ -38,22 +38,22 @@ async def manage_page(request: Request, tab: str = "items", session_id: str | No
 
 @router.post("/add")
 async def add_item(name: str = Form(...), session_id: str | None = Cookie(default=None), request: Request = None):
-    store = get_session_store(request, session_id)
+    store = await get_session_store(request, session_id)
     if not store:
         return RedirectResponse(url="/", status_code=303)
     if name.strip():
-        store.add_item(name)
+        await store.add_item(name)
     return RedirectResponse(url="/manage?tab=items", status_code=303)
 
 
 @router.post("/add-bulk")
 async def add_items_bulk(names: str = Form(...), session_id: str | None = Cookie(default=None), request: Request = None):
     """줄바꿈으로 구분된 이름 목록을 한번에 추가합니다."""
-    store = get_session_store(request, session_id)
+    store = await get_session_store(request, session_id)
     if not store:
         return RedirectResponse(url="/", status_code=303)
     name_list = [n.strip() for n in names.splitlines() if n.strip()]
-    store.add_items_bulk(name_list)
+    await store.add_items_bulk(name_list)
     return RedirectResponse(url="/manage?tab=items", status_code=303)
 
 
@@ -64,10 +64,10 @@ async def delete_item(
     session_id: str | None = Cookie(default=None),
     request: Request = None,
 ):
-    store = get_session_store(request, session_id)
+    store = await get_session_store(request, session_id)
     if not store:
         return RedirectResponse(url="/", status_code=303)
-    store.delete_item(item_id)
+    await store.delete_item(item_id)
     return RedirectResponse(url=redirect_url, status_code=303)
 
 
@@ -79,11 +79,11 @@ async def edit_item(
     session_id: str | None = Cookie(default=None),
     request: Request = None,
 ):
-    store = get_session_store(request, session_id)
+    store = await get_session_store(request, session_id)
     if not store:
         return RedirectResponse(url="/", status_code=303)
     if new_name.strip():
-        store.update_item(item_id, name=new_name.strip())
+        await store.update_item(item_id, name=new_name.strip())
     return RedirectResponse(url=redirect_url, status_code=303)
 
 
@@ -93,7 +93,7 @@ async def edit_item(
 @router.post("/criteria")
 async def update_criteria(request: Request, session_id: str | None = Cookie(default=None)):
     """평가 기준을 폼 데이터로 일괄 교체합니다. key가 비어있으면 자동 생성합니다."""
-    store = get_session_store(request, session_id)
+    store = await get_session_store(request, session_id)
     if not store:
         return RedirectResponse(url="/", status_code=303)
 
@@ -124,7 +124,7 @@ async def update_criteria(request: Request, session_id: str | None = Cookie(defa
             "weight": float(w) if w else 1.0,
         })
 
-    store.set_criteria(new_criteria)
+    await store.set_criteria(new_criteria)
     return RedirectResponse(url="/manage?tab=criteria", status_code=303)
 
 
@@ -149,7 +149,7 @@ def _generate_key(label: str, existing: set[str]) -> str:
 
 @router.post("/settings")
 async def update_settings(request: Request, session_id: str | None = Cookie(default=None)):
-    store = get_session_store(request, session_id)
+    store = await get_session_store(request, session_id)
     if not store:
         return RedirectResponse(url="/", status_code=303)
 
@@ -177,7 +177,7 @@ async def update_settings(request: Request, session_id: str | None = Cookie(defa
     for key in bool_fields:
         patch[key] = key in form
 
-    store.update_settings(patch)
+    await store.update_settings(patch)
     return RedirectResponse(url="/manage?tab=settings", status_code=303)
 
 
@@ -187,7 +187,7 @@ async def update_settings(request: Request, session_id: str | None = Cookie(defa
 @router.get("/export")
 async def export_data(session_id: str | None = Cookie(default=None), request: Request = None):
     """전체 데이터를 JSON 파일로 다운로드합니다."""
-    store = get_session_store(request, session_id)
+    store = await get_session_store(request, session_id)
     if not store:
         return RedirectResponse(url="/", status_code=303)
     return Response(
@@ -204,12 +204,12 @@ async def import_data(
     request: Request = None,
 ):
     """업로드된 JSON 파일로 전체 데이터를 교체합니다."""
-    store = get_session_store(request, session_id)
+    store = await get_session_store(request, session_id)
     if not store:
         return RedirectResponse(url="/", status_code=303)
     raw = await file.read()
     try:
-        store.import_json(raw.decode("utf-8"))
+        await store.import_json(raw.decode("utf-8"))
     except (json.JSONDecodeError, UnicodeDecodeError):
         return HTMLResponse("유효하지 않은 JSON 파일입니다.", status_code=400)
     return RedirectResponse(url="/manage?tab=data", status_code=303)

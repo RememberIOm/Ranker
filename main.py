@@ -38,8 +38,8 @@ async def read_root(request: Request):
 async def start_new_session():
     """새 세션(빈 데이터)을 생성하고 쿠키를 설정합니다."""
     sid = create_session_id()
-    store = get_store(sid)  # 기본 데이터로 초기화
-    store.save()
+    store = await get_store(sid)  # 기본 데이터로 초기화
+    await store.save()
 
     response = RedirectResponse(url="/manage", status_code=303)
     response.set_cookie(
@@ -54,11 +54,11 @@ async def start_new_session():
 async def upload_session(file: UploadFile = File(...)):
     """JSON 파일을 업로드하여 새 세션을 생성합니다."""
     sid = create_session_id()
-    store = get_store(sid)
+    store = await get_store(sid)
 
     raw = await file.read()
     try:
-        store.import_json(raw.decode("utf-8"))
+        await store.import_json(raw.decode("utf-8"))
     except (json.JSONDecodeError, UnicodeDecodeError):
         return HTMLResponse("유효하지 않은 JSON 파일입니다.", status_code=400)
 
@@ -76,7 +76,7 @@ async def end_session(request: Request):
     """현재 세션을 종료하고 쿠키를 삭제합니다."""
     session_id = request.cookies.get("session_id")
     if session_id:
-        store = get_session_store(request, session_id)
+        store = await get_session_store(request, session_id)
         if store:
             store.delete_session()
 

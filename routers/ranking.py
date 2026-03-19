@@ -17,7 +17,7 @@ async def get_ranking(
     sort_by: str = "total",
     session_id: str | None = Cookie(default=None),
 ):
-    store = get_session_store(request, session_id)
+    store = await get_session_store(request, session_id)
     if not store:
         return RedirectResponse(url="/", status_code=303)
 

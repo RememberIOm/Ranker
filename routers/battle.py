@@ -58,7 +58,7 @@ def _build_battle_context(
 
 @router.get("", response_class=HTMLResponse)
 async def get_battle(request: Request, session_id: str | None = Cookie(default=None)):
-    store = get_session_store(request, session_id)
+    store = await get_session_store(request, session_id)
     if not store:
         return RedirectResponse(url="/", status_code=303)
 
@@ -83,7 +83,7 @@ async def get_battle(request: Request, session_id: str | None = Cookie(default=N
 
 @router.get("/focus/{item_id}", response_class=HTMLResponse)
 async def focus_battle(item_id: int, request: Request, session_id: str | None = Cookie(default=None)):
-    store = get_session_store(request, session_id)
+    store = await get_session_store(request, session_id)
     if not store:
         return RedirectResponse(url="/", status_code=303)
 
@@ -112,7 +112,7 @@ async def vote(
     모든 criteria에 대한 투표를 한번에 수신하여 일괄 업데이트합니다.
     Body JSON: { "item1_id": int, "item2_id": int, "votes": {"key": "1"|"2"|"draw", ...}, "redirect_to": str|null }
     """
-    store = get_session_store(request, session_id)
+    store = await get_session_store(request, session_id)
     if not store:
         return JSONResponse({"error": "No active session"}, status_code=401)
 
@@ -137,7 +137,10 @@ async def vote(
         old_r1 = a1["ratings"].get(key, 1200.0)
         old_r2 = a2["ratings"].get(key, 1200.0)
 
-        actual_score = {"1": 1.0, "2": 0.0}.get(winner, 0.5)
+        match winner:
+            case "1": actual_score = 1.0
+            case "2": actual_score = 0.0
+            case _:   actual_score = 0.5
 
         new_r1, new_r2 = calculate_elo_update(
             store, old_r1, old_r2, actual_score,
@@ -163,7 +166,7 @@ async def vote(
     # matches_played는 라운드당 1회만 증가
     a1["matches_played"] += 1
     a2["matches_played"] += 1
-    store.save()
+    await store.save()
 
     background_tasks.add_task(normalize_scores, store)
 

@@ -5,7 +5,6 @@
 import uuid
 
 from fastapi import Cookie, Request
-from fastapi.responses import RedirectResponse
 
 from store import DataStore, get_store, session_exists
 
@@ -15,7 +14,7 @@ def create_session_id() -> str:
     return uuid.uuid4().hex
 
 
-def get_session_store(
+async def get_session_store(
     request: Request,
     session_id: str | None = Cookie(default=None),
 ) -> DataStore | None:
@@ -25,4 +24,4 @@ def get_session_store(
     """
     if not session_id or not session_exists(session_id):
         return None
-    return get_store(session_id)
+    return await get_store(session_id)

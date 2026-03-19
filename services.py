@@ -138,7 +138,7 @@ def get_item_rank_info(
 # --- Score Normalization ---
 
 
-def normalize_scores(store: DataStore) -> None:
+async def normalize_scores(store: DataStore) -> None:
     """점수 인플레이션 방지 (Mean Reversion) — 백그라운드 태스크"""
     s = store.settings
     items = store.items
@@ -161,4 +161,4 @@ def normalize_scores(store: DataStore) -> None:
                 item["ratings"][key] = item["ratings"].get(key, target) - diff
 
     if modified:
-        store.save()
+        await store.save()
