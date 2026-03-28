@@ -1,12 +1,10 @@
-# flyctl launch added from .gitignore
-**\venv
-**\__pycache__
-**\*.db
-**\*.sqlite
-**\*.csv
-**\.DS_Store
-
-# flyctl launch added from venv\.gitignore
-# Created by venv; see https://docs.python.org/3/library/venv.html
-venv\**\*
+**/__pycache__
+**/*.db
+**/*.sqlite
+**/*.csv
+**/.DS_Store
+**/venv
+**/.venv
 fly.toml
+docker-compose.yml
+Dockerfile.dev

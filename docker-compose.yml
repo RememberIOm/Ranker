@@ -1,0 +1,16 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    ports:
+      - "8080:8080"
+    volumes:
+      - .:/app          # 소스코드 마운트 (hot reload)
+      - /app/.venv      # venv는 컨테이너 내부 것 사용
+      - ranker_data:/data  # 세션 데이터 영속
+    environment:
+      - SESSION_DIR=/data/sessions
+
+volumes:
+  ranker_data:
