@@ -52,29 +52,20 @@
 
 ## 🚀 설치 및 실행 (Installation)
 
-### 1. 클론 및 가상환경 설정
+### 1. 클론
 ```bash
-git clone https://github.com/RememberIOm/anime-ranker.git
-cd anime-ranker
-
-python -m venv venv
-# Windows
-source venv/Scripts/activate
-# Mac/Linux
-source venv/bin/activate
+git clone https://github.com/RememberIOm/battle-ranker.git
+cd battle-ranker
 ```
 
-### 2. 의존성 패키지 설치
+### 2. 개발 서버 실행
+환경 변수나 DB 초기화 설정 없이 바로 실행 가능합니다. (데이터는 자동으로 `ranker_data` Docker 볼륨에 저장됩니다.)
 ```bash
-pip install -r requirements.txt
+docker compose up
 ```
+브라우저에서 `http://localhost:8080`으로 접속하여 **"새로 시작"**을 클릭하면 즉시 사용할 수 있습니다.
 
-### 3. 서버 실행
-환경 변수나 DB 초기화 설정 없이 바로 실행 가능합니다. (데이터는 자동으로 `./data/sessions` 폴더에 생성됩니다.)
-```bash
-uvicorn main:app --reload
-```
-브라우저에서 `http://localhost:8000`으로 접속하여 **"새로 시작"**을 클릭하면 즉시 사용할 수 있습니다.
+> **의존성 추가 시**: `uv add <패키지명>` — `pyproject.toml`과 `uv.lock`이 자동으로 갱신됩니다.
 
 ---
 
@@ -97,6 +88,11 @@ uvicorn main:app --reload
 │   ├── battle.html      # 1:1 다중 투표 UI
 │   ├── ranking.html     # 랭킹 테이블 및 차트
 │   └── manage.html      # 항목/기준/설정 관리 UI
+├── Dockerfile           # 프로덕션 이미지 (Fly.io 배포용)
+├── Dockerfile.dev       # 개발 이미지 (hot reload, docker compose 전용)
+├── docker-compose.yml   # 로컬 개발 환경 오케스트레이션
+├── pyproject.toml       # 프로젝트 메타데이터 및 의존성 (uv)
+├── uv.lock              # 의존성 잠금 파일
 └── fly.toml             # Fly.io 배포 설정
 ```
 
