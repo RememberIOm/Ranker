@@ -8,6 +8,7 @@ from fastapi import FastAPI, Request, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from deps import create_session_id, get_session_store
 from store import get_store, session_exists
@@ -16,6 +17,26 @@ from routers import battle, ranking, manage
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+            "style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data:; "
+            "font-src 'self'; "
+            "connect-src 'self';"
+        )
+        return response
+
+
+app.add_middleware(SecurityHeadersMiddleware)
 
 # 라우터 등록
 app.include_router(battle.router)
@@ -46,9 +67,12 @@ async def start_new_session():
     response.set_cookie(
         key="session_id", value=sid,
         max_age=7 * 24 * 60 * 60,  # 7일
-        httponly=True, samesite="lax",
+        httponly=True, samesite="strict",
     )
     return response
+
+
+_MAX_UPLOAD_BYTES = 1_000_000  # 1 MB
 
 
 @app.post("/upload")
@@ -57,17 +81,19 @@ async def upload_session(file: UploadFile = File(...)):
     sid = create_session_id()
     store = await get_store(sid)
 
-    raw = await file.read()
+    raw = await file.read(_MAX_UPLOAD_BYTES + 1)
+    if len(raw) > _MAX_UPLOAD_BYTES:
+        return HTMLResponse("파일 크기는 1MB를 초과할 수 없습니다.", status_code=413)
     try:
         await store.import_json(raw.decode("utf-8"))
-    except (json.JSONDecodeError, UnicodeDecodeError):
+    except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
         return HTMLResponse("유효하지 않은 JSON 파일입니다.", status_code=400)
 
     response = RedirectResponse(url="/battle", status_code=303)
     response.set_cookie(
         key="session_id", value=sid,
         max_age=7 * 24 * 60 * 60,
-        httponly=True, samesite="lax",
+        httponly=True, samesite="strict",
     )
     return response
 

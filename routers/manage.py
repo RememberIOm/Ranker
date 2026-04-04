@@ -16,12 +16,37 @@ from deps import get_session_store
 router = APIRouter(prefix="/manage", tags=["manage"])
 templates = Jinja2Templates(directory="templates")
 
+_SETTINGS_BOUNDS: dict[str, tuple] = {
+    "elo_k_max": (1, 10000),
+    "elo_k_min": (1, 10000),
+    "elo_decay_factor": (1, 100000),  # > 0 필수 (division by zero 방지)
+    "elo_draw_max": (0.0, 1.0),
+    "elo_draw_scale": (1.0, 10000.0),  # > 0 필수 (division by zero 방지)
+    "initial_rating": (0.0, 100000.0),
+    "normalize_target": (0.0, 100000.0),
+    "normalize_threshold": (0.0, 100000.0),
+    "result_skip_seconds": (0.5, 60.0),
+}
+
+
+def _safe_redirect(url: str, fallback: str) -> str:
+    """외부 URL로의 오픈 리다이렉트를 방지합니다. 상대 경로만 허용합니다."""
+    if url.startswith("/") and not url.startswith("//"):
+        return url
+    return fallback
+
+
+_VALID_TABS = {"items", "criteria", "settings", "data"}
+
 
 @router.get("", response_class=HTMLResponse)
 async def manage_page(request: Request, tab: str = "items", session_id: str | None = Cookie(default=None)):
     store = await get_session_store(request, session_id)
     if not store:
         return RedirectResponse(url="/", status_code=303)
+
+    if tab not in _VALID_TABS:
+        tab = "items"
 
     sorted_items = sorted(store.items, key=lambda x: x["name"])
     return templates.TemplateResponse(request, "manage.html", {
@@ -67,7 +92,7 @@ async def delete_item(
     if not store:
         return RedirectResponse(url="/", status_code=303)
     await store.delete_item(item_id)
-    return RedirectResponse(url=redirect_url, status_code=303)
+    return RedirectResponse(url=_safe_redirect(redirect_url, "/manage?tab=items"), status_code=303)
 
 
 @router.post("/edit")
@@ -83,7 +108,7 @@ async def edit_item(
         return RedirectResponse(url="/", status_code=303)
     if new_name.strip():
         await store.update_item(item_id, name=new_name.strip())
-    return RedirectResponse(url=redirect_url, status_code=303)
+    return RedirectResponse(url=_safe_redirect(redirect_url, "/manage?tab=items"), status_code=303)
 
 
 # --- Criteria ---
@@ -166,12 +191,20 @@ async def update_settings(request: Request, session_id: str | None = Cookie(defa
     for key in int_fields:
         val = form.get(key)
         if val is not None and val != "":
-            patch[key] = int(val)
+            parsed = int(val)
+            if key in _SETTINGS_BOUNDS:
+                lo, hi = _SETTINGS_BOUNDS[key]
+                parsed = max(lo, min(hi, parsed))
+            patch[key] = parsed
 
     for key in float_fields:
         val = form.get(key)
         if val is not None and val != "":
-            patch[key] = float(val)
+            parsed = float(val)
+            if key in _SETTINGS_BOUNDS:
+                lo, hi = _SETTINGS_BOUNDS[key]
+                parsed = max(lo, min(hi, parsed))
+            patch[key] = parsed
 
     for key in bool_fields:
         patch[key] = key in form
@@ -206,9 +239,12 @@ async def import_data(
     store = await get_session_store(request, session_id)
     if not store:
         return RedirectResponse(url="/", status_code=303)
-    raw = await file.read()
+    _MAX_UPLOAD_BYTES = 1_000_000
+    raw = await file.read(_MAX_UPLOAD_BYTES + 1)
+    if len(raw) > _MAX_UPLOAD_BYTES:
+        return HTMLResponse("파일 크기는 1MB를 초과할 수 없습니다.", status_code=413)
     try:
         await store.import_json(raw.decode("utf-8"))
-    except (json.JSONDecodeError, UnicodeDecodeError):
+    except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
         return HTMLResponse("유효하지 않은 JSON 파일입니다.", status_code=400)
     return RedirectResponse(url="/manage?tab=data", status_code=303)

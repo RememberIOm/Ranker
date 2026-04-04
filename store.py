@@ -211,9 +211,19 @@ class DataStore:
     async def import_json(self, raw: str) -> None:
         """JSON 문자열로부터 전체 데이터를 교체합니다."""
         parsed = json.loads(raw)
+        if not isinstance(parsed, dict):
+            raise ValueError("최상위 구조가 객체여야 합니다.")
         defaults = _default_data()
         for key in defaults:
             parsed.setdefault(key, defaults[key])
+        if not isinstance(parsed.get("items"), list):
+            raise ValueError("items는 배열이어야 합니다.")
+        if len(parsed["items"]) > 10_000:
+            raise ValueError("항목 수가 10,000개를 초과합니다.")
+        if not isinstance(parsed.get("criteria"), list):
+            raise ValueError("criteria는 배열이어야 합니다.")
+        if not isinstance(parsed.get("settings"), dict):
+            raise ValueError("settings는 객체여야 합니다.")
         self._data = parsed
         await self._save()
 

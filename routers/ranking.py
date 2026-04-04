@@ -24,6 +24,10 @@ async def get_ranking(
     criteria = store.criteria
     items = store.items
 
+    valid_sort_keys = {"total"} | {c["key"] for c in criteria}
+    if sort_by not in valid_sort_keys:
+        sort_by = "total"
+
     if not items:
         return templates.TemplateResponse(request, "ranking.html", {
             "items": [],

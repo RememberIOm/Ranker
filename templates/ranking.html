@@ -128,7 +128,9 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js"
+        integrity="sha384-jb8JQMbMoBUzgWatfe6COACi2ljcDdZQ2OxczGA3bGNeWe+6DChMTBJemed7ZnvJ"
+        crossorigin="anonymous"></script>
 <script>
     // --- Inline Edit Toggle ---
     function toggleRankEdit(id) {
@@ -154,9 +156,9 @@
             }
         });
     });
-    const labels = {{ chart_data.labels | safe }};
-    const counts = {{ chart_data.counts | safe }};
-    const categoryName = "{{ chart_data.category }}";
+    const labels = {{ chart_data.labels | tojson }};
+    const counts = {{ chart_data.counts | tojson }};
+    const categoryName = {{ chart_data.category | tojson }};
 
     const colorMap = {
         'STORY': '59, 130, 246',

@@ -279,7 +279,7 @@
     // --- State ---
     const item1Id = {{ item1.id }};
     const item2Id = {{ item2.id }};
-    const redirectTo = "{% if focus_mode %}/battle/focus/{{ focus_id }}{% endif %}";
+    const redirectTo = {% if focus_mode %}{{ ("/battle/focus/" ~ focus_id) | tojson }}{% else %}""{% endif %};
     const criteriaKeys = {{ criteria_info | map(attribute = 'key') | list | tojson }};
     const totalCriteria = criteriaKeys.length;
     const votes = {};
