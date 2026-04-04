@@ -78,39 +78,38 @@ def get_match_pair(
     store: DataStore,
     focus_id: int | None = None,
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-    """대결 상대를 선정합니다 (Smart Match + Random)."""
+    """대결 상대를 선정합니다 (Power of Two Choices).
+
+    item1: 2개 무작위 샘플 중 matches_played가 적은 쪽 (탐험 촉진)
+    item2: item1 제외 2개 무작위 샘플 중 첫 번째 기준 점수 차이가 작은 쪽 (공정 매칭)
+    """
     items = store.items
     if len(items) < 2:
         return (store.get_item(focus_id) if focus_id else None), None
 
+    # item1: Two Choices — matches_played 적은 쪽 선택
     if focus_id:
         item1 = store.get_item(focus_id)
         if not item1:
             return None, None
     else:
-        item1 = random.choice(items)
+        sample = random.sample(items, min(2, len(items)))
+        item1 = min(sample, key=lambda x: x["matches_played"])
 
     others = [i for i in items if i["id"] != item1["id"]]
     if not others:
         return item1, None
 
-    s = store.settings
-    criteria_keys = [c["key"] for c in store.criteria]
-    ref_key = criteria_keys[0] if criteria_keys else None
+    # item2: Two Choices — 첫 번째 기준 점수 차이 작은 쪽 선택
+    ref_key = store.criteria[0]["key"] if store.criteria else None
+    sample2 = random.sample(others, min(2, len(others)))
 
-    item2 = None
-    if ref_key and random.random() < s["match_smart_rate"]:
-        target = item1["ratings"].get(ref_key, s["initial_rating"])
-        r = s["match_score_range"]
-        candidates = [
-            i for i in others
-            if abs(i["ratings"].get(ref_key, s["initial_rating"]) - target) <= r
-        ]
-        if candidates:
-            item2 = random.choice(candidates)
-
-    if not item2:
-        item2 = random.choice(others)
+    if ref_key:
+        initial = store.settings["initial_rating"]
+        r1 = item1["ratings"].get(ref_key, initial)
+        item2 = min(sample2, key=lambda x: abs(x["ratings"].get(ref_key, initial) - r1))
+    else:
+        item2 = sample2[0]
 
     return item1, item2
 

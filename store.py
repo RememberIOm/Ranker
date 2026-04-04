@@ -39,8 +39,6 @@ def _default_data() -> dict[str, Any]:
             "elo_k_max": 100,
             "elo_k_min": 30,
             "elo_decay_factor": 50,
-            "match_smart_rate": 0.8,
-            "match_score_range": 300,
             "elo_draw_max": 0.33,
             "elo_draw_scale": 300.0,
             "initial_rating": 1200.0,

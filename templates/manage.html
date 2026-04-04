@@ -252,50 +252,6 @@
                 </div>
 
                 {# --- Matchmaking --- #}
-                <div
-                    class="p-5 md:p-6 bg-gray-50 dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-700 transition-colors">
-                    <div class="border-b border-gray-200 dark:border-gray-700 pb-4 mb-5 flex items-start gap-3">
-                        <div
-                            class="p-2.5 bg-indigo-100 dark:bg-indigo-900/40 rounded-xl text-indigo-600 dark:text-indigo-400 shadow-sm">
-                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z">
-                                </path>
-                            </svg>
-                        </div>
-                        <div>
-                            <h3 class="text-lg font-extrabold text-gray-900 dark:text-white tracking-wide">Matchmaking
-                                (대결 매칭)</h3>
-                            <p class="text-sm text-gray-500 dark:text-gray-400 mt-1 leading-relaxed">
-                                임의의 상대와 만날지, 점수가 비슷한 라이벌과 만날지를 조절하는 설정입니다.
-                            </p>
-                        </div>
-                    </div>
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                        <div>
-                            <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">Smart Match
-                                Rate</label>
-                            <p class="text-xs text-gray-500 dark:text-gray-400 mb-2 h-8">가까운 점수대의 항목끼리 우선 매칭될 확률
-                                (0.0~1.0)</p>
-                            <input type="number" name="match_smart_rate" value="{{ settings.match_smart_rate }}"
-                                step="0.05" min="0" max="1"
-                                class="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-mono focus:ring-2 focus:ring-brand-500 outline-none text-gray-900 dark:text-white">
-                            <p class="text-[11px] text-indigo-600 dark:text-indigo-400 font-semibold mt-1.5">추천: 0.5~1.0
-                            </p>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">Score Range
-                                <span class="text-gray-400 font-normal ml-1">(매칭 범위)</span></label>
-                            <p class="text-xs text-gray-500 dark:text-gray-400 mb-2 h-8">스마트 매칭 발동 시, 탐색할 점수 차이의 한계값</p>
-                            <input type="number" name="match_score_range" value="{{ settings.match_score_range }}"
-                                step="50"
-                                class="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-mono focus:ring-2 focus:ring-brand-500 outline-none text-gray-900 dark:text-white">
-                            <p class="text-[11px] text-indigo-600 dark:text-indigo-400 font-semibold mt-1.5">추천: 150~500
-                            </p>
-                        </div>
-                    </div>
-                </div>
-
                 {# --- Draw Probability --- #}
                 <div
                     class="p-5 md:p-6 bg-gray-50 dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-700 transition-colors">

@@ -155,9 +155,9 @@ async def update_settings(request: Request, session_id: str | None = Cookie(defa
     form = await request.form()
     patch: dict = {}
 
-    int_fields = {"elo_k_max", "elo_k_min", "elo_decay_factor", "match_score_range"}
+    int_fields = {"elo_k_max", "elo_k_min", "elo_decay_factor"}
     float_fields = {
-        "match_smart_rate", "elo_draw_max", "elo_draw_scale",
+        "elo_draw_max", "elo_draw_scale",
         "initial_rating", "normalize_target", "normalize_threshold",
         "result_skip_seconds",
     }
