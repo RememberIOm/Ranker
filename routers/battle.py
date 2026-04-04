@@ -119,7 +119,7 @@ async def vote(
     item1_id: int = body["item1_id"]
     item2_id: int = body["item2_id"]
     votes: dict[str, str] = body.get("votes", {})
-    _raw_redirect: str = body.get("redirect_to", "")
+    _raw_redirect: str = body.get("redirect_to") or ""
     redirect_to = _raw_redirect if (_raw_redirect.startswith("/") and not _raw_redirect.startswith("//")) else ""
 
     a1 = store.get_item(item1_id)
