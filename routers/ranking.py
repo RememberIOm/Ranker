@@ -25,8 +25,7 @@ async def get_ranking(
     items = store.items
 
     if not items:
-        return templates.TemplateResponse("ranking.html", {
-            "request": request,
+        return templates.TemplateResponse(request, "ranking.html", {
             "items": [],
             "criteria": criteria,
             "sort_by": sort_by,
@@ -75,8 +74,7 @@ async def get_ranking(
 
     chart_data = {"labels": labels, "counts": counts, "category": cat_label}
 
-    return templates.TemplateResponse("ranking.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "ranking.html", {
         "items": ranked,
         "criteria": criteria,
         "sort_by": sort_by,

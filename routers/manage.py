@@ -24,8 +24,7 @@ async def manage_page(request: Request, tab: str = "items", session_id: str | No
         return RedirectResponse(url="/", status_code=303)
 
     sorted_items = sorted(store.items, key=lambda x: x["name"])
-    return templates.TemplateResponse("manage.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "manage.html", {
         "items": sorted_items,
         "criteria": store.criteria,
         "settings": store.settings,

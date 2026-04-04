@@ -45,7 +45,6 @@ def _build_battle_context(
         })
 
     return {
-        "request": request,
         "item1": item1,
         "item2": item2,
         "criteria_info": criteria_info,
@@ -78,7 +77,7 @@ async def get_battle(request: Request, session_id: str | None = Cookie(default=N
         )
 
     ctx = _build_battle_context(request, store, item1, item2)
-    return templates.TemplateResponse("battle.html", ctx)
+    return templates.TemplateResponse(request, "battle.html", ctx)
 
 
 @router.get("/focus/{item_id}", response_class=HTMLResponse)
@@ -99,7 +98,7 @@ async def focus_battle(item_id: int, request: Request, session_id: str | None = 
     ctx = _build_battle_context(
         request, store, item1, item2, focus_mode=True, focus_id=item_id
     )
-    return templates.TemplateResponse("battle.html", ctx)
+    return templates.TemplateResponse(request, "battle.html", ctx)
 
 
 @router.post("/vote")

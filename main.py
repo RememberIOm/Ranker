@@ -28,8 +28,7 @@ async def read_root(request: Request):
     """
     session_id = request.cookies.get("session_id")
     has_session = bool(session_id and session_exists(session_id))
-    return templates.TemplateResponse("index.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "index.html", {
         "has_session": has_session,
     })
 
