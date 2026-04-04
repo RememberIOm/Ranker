@@ -416,10 +416,11 @@
         if (RESULT_AUTO_SKIP) {
             document.getElementById('auto-skip-area').classList.remove('hidden');
             document.getElementById('click-skip-area').classList.add('hidden');
+            const MODAL_ANIM_MS = 300; // transition-opacity duration-300
             setTimeout(() => {
                 document.getElementById('modal-progress').style.width = '100%';
-            }, 50);
-            setTimeout(goNext, RESULT_SKIP_SECONDS * 1000);
+            }, MODAL_ANIM_MS + 50);
+            setTimeout(goNext, MODAL_ANIM_MS + RESULT_SKIP_SECONDS * 1000);
         } else {
             document.getElementById('auto-skip-area').classList.add('hidden');
             document.getElementById('click-skip-area').classList.remove('hidden');
