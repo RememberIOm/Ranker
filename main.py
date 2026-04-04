@@ -6,6 +6,7 @@ import json
 
 from fastapi import FastAPI, Request, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from deps import create_session_id, get_session_store
@@ -13,6 +14,7 @@ from store import get_store, session_exists
 from routers import battle, ranking, manage
 
 app = FastAPI()
+app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
 # 라우터 등록

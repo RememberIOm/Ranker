@@ -11,53 +11,11 @@
     <link rel="icon"
         href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚔️</text></svg>">
 
-    <!-- Tailwind CSS v4 (CDN) -->
-    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <!-- Tailwind CSS (사전 빌드) -->
+    <link rel="stylesheet" href="/static/output.css">
 
     <!-- Google Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
-
-    <style type="text/tailwindcss">
-        @import "tailwindcss";
-
-        /* 클래스 기반 다크모드 — 기존 JS 토글 코드 변경 불필요 */
-        @custom-variant dark (&:where(.dark, .dark *));
-
-        @theme {
-            --font-sans: 'Inter', sans-serif;
-
-            --color-brand-50:  #f5f3ff;
-            --color-brand-100: #ede9fe;
-            --color-brand-200: #ddd6fe;
-            --color-brand-400: #a78bfa;
-            --color-brand-500: #8b5cf6;
-            --color-brand-600: #7c3aed;
-            --color-brand-700: #6d28d9;
-            --color-brand-800: #5b21b6;
-            --color-brand-900: #4c1d95;
-        }
-
-        /* 스크롤바 커스텀 */
-        ::-webkit-scrollbar { width: 8px; height: 8px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
-        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-        .dark ::-webkit-scrollbar-thumb { background: #475569; }
-
-        /* 커스텀 유틸리티 */
-        @keyframes float {
-            0%, 100% { transform: translateY(0); }
-            50%       { transform: translateY(-5px); }
-        }
-        @utility animate-float {
-            animation: float 3s ease-in-out infinite;
-        }
-
-        @utility scrollbar-hide {
-            scrollbar-width: none;
-            &::-webkit-scrollbar { display: none; }
-        }
-    </style>
 </head>
 
 <body

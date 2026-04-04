@@ -1,0 +1,46 @@
+@import "tailwindcss";
+
+/* 클래스 기반 다크모드 */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* 정적 스캔 대상 */
+@source "./templates/**/*.html";
+
+/* 동적 클래스 강제 포함 (Jinja2 런타임 생성 색상 클래스) */
+@source inline("{bg,text,ring}-{red,orange,yellow,green,teal,blue,indigo,purple,pink,gray}-{300,500,600,700}");
+@source inline("{hover:text,hover:bg,dark:ring}-{red,orange,yellow,green,teal,blue,indigo,purple,pink,gray}-{300,500,600,700}");
+
+@theme {
+    --font-sans: 'Inter', sans-serif;
+
+    --color-brand-50:  #f5f3ff;
+    --color-brand-100: #ede9fe;
+    --color-brand-200: #ddd6fe;
+    --color-brand-400: #a78bfa;
+    --color-brand-500: #8b5cf6;
+    --color-brand-600: #7c3aed;
+    --color-brand-700: #6d28d9;
+    --color-brand-800: #5b21b6;
+    --color-brand-900: #4c1d95;
+}
+
+/* 스크롤바 커스텀 */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+.dark ::-webkit-scrollbar-thumb { background: #475569; }
+
+/* 커스텀 유틸리티 */
+@keyframes float {
+    0%, 100% { transform: translateY(0); }
+    50%       { transform: translateY(-5px); }
+}
+@utility animate-float {
+    animation: float 3s ease-in-out infinite;
+}
+
+@utility scrollbar-hide {
+    scrollbar-width: none;
+    &::-webkit-scrollbar { display: none; }
+}
