@@ -1,11 +1,12 @@
 # routers/ranking.py
 # 세션별 DataStore를 사용하여 랭킹 페이지를 렌더링합니다.
 
-from fastapi import APIRouter, Request, Cookie
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import APIRouter, Request, Depends
+from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
-from deps import get_session_store
+from deps import require_store
+from store import DataStore
 
 router = APIRouter(prefix="/ranking", tags=["ranking"])
 templates = Jinja2Templates(directory="templates")
@@ -15,12 +16,8 @@ templates = Jinja2Templates(directory="templates")
 async def get_ranking(
     request: Request,
     sort_by: str = "total",
-    session_id: str | None = Cookie(default=None),
+    store: DataStore = Depends(require_store),
 ):
-    store = await get_session_store(request, session_id)
-    if not store:
-        return RedirectResponse(url="/", status_code=303)
-
     criteria = store.criteria
     items = store.items
 

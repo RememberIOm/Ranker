@@ -6,8 +6,12 @@ __pycache__/
 .DS_Store
 .vscode/
 
-# Claude code
+# AI Agent files
+ai/
+.claude/
 CLAUDE.md
+AGENTS.md
+GEMINI.md
 
 # Tailwind 빌드 아티팩트 (docker compose tailwind 서비스가 생성)
 static/output.css

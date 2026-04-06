@@ -2,7 +2,9 @@
 # 세션 기반 멀티유저 Ranker 웹앱 엔트리포인트.
 # 각 사용자는 JSON 파일을 업로드하거나 새 세션을 시작하여 독립적으로 사용합니다.
 
+import asyncio
 import json
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -10,13 +12,32 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from deps import create_session_id, get_session_store
-from store import get_store, session_exists
+from deps import create_session_id, get_session_store, RequiresSessionException
+from store import get_store, session_exists, cleanup_expired_sessions
 from routers import battle, ranking, manage
 
-app = FastAPI()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """앱 시작 시 만료 세션 주기적 정리 태스크를 스폰합니다."""
+    async def _periodic_cleanup():
+        while True:
+            await asyncio.sleep(3600)  # 1시간마다
+            await cleanup_expired_sessions()
+
+    task = asyncio.create_task(_periodic_cleanup())
+    yield
+    task.cancel()
+
+
+app = FastAPI(lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
+
+
+@app.exception_handler(RequiresSessionException)
+async def session_exception_handler(request: Request, exc: RequiresSessionException):
+    return RedirectResponse(url="/", status_code=303)
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):

@@ -2,11 +2,12 @@
 # 모든 평가 기준을 한 라운드에 동시 비교하여 Elo 수렴 속도를 대폭 향상시킵니다.
 # 세션별 DataStore를 사용하여 멀티유저를 지원합니다.
 
-from fastapi import APIRouter, Request, BackgroundTasks, Cookie
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi import APIRouter, Request, BackgroundTasks, Cookie, Depends
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
-from deps import get_session_store
+from deps import get_session_store, require_store
+from store import DataStore
 from services import (
     get_match_pair,
     calculate_elo_update,
@@ -56,11 +57,7 @@ def _build_battle_context(
 
 
 @router.get("", response_class=HTMLResponse)
-async def get_battle(request: Request, session_id: str | None = Cookie(default=None)):
-    store = await get_session_store(request, session_id)
-    if not store:
-        return RedirectResponse(url="/", status_code=303)
-
+async def get_battle(request: Request, store: DataStore = Depends(require_store)):
     if not store.criteria:
         return HTMLResponse(
             "<div style='text-align:center;padding:50px;'>"
@@ -81,11 +78,7 @@ async def get_battle(request: Request, session_id: str | None = Cookie(default=N
 
 
 @router.get("/focus/{item_id}", response_class=HTMLResponse)
-async def focus_battle(item_id: int, request: Request, session_id: str | None = Cookie(default=None)):
-    store = await get_session_store(request, session_id)
-    if not store:
-        return RedirectResponse(url="/", status_code=303)
-
+async def focus_battle(item_id: int, request: Request, store: DataStore = Depends(require_store)):
     if not store.criteria:
         return HTMLResponse("평가 기준이 없습니다.", status_code=400)
 

@@ -7,11 +7,12 @@ import re
 import hashlib
 import unicodedata
 
-from fastapi import APIRouter, Request, Form, UploadFile, File, Cookie
+from fastapi import APIRouter, Request, Form, UploadFile, File, Depends
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
-from deps import get_session_store
+from deps import require_store
+from store import DataStore
 
 router = APIRouter(prefix="/manage", tags=["manage"])
 templates = Jinja2Templates(directory="templates")
@@ -40,11 +41,7 @@ _VALID_TABS = {"items", "criteria", "settings", "data"}
 
 
 @router.get("", response_class=HTMLResponse)
-async def manage_page(request: Request, tab: str = "items", session_id: str | None = Cookie(default=None)):
-    store = await get_session_store(request, session_id)
-    if not store:
-        return RedirectResponse(url="/", status_code=303)
-
+async def manage_page(request: Request, tab: str = "items", store: DataStore = Depends(require_store)):
     if tab not in _VALID_TABS:
         tab = "items"
 
@@ -61,21 +58,15 @@ async def manage_page(request: Request, tab: str = "items", session_id: str | No
 
 
 @router.post("/add")
-async def add_item(name: str = Form(...), session_id: str | None = Cookie(default=None), request: Request = None):
-    store = await get_session_store(request, session_id)
-    if not store:
-        return RedirectResponse(url="/", status_code=303)
+async def add_item(name: str = Form(...), store: DataStore = Depends(require_store)):
     if name.strip():
         await store.add_item(name)
     return RedirectResponse(url="/manage?tab=items", status_code=303)
 
 
 @router.post("/add-bulk")
-async def add_items_bulk(names: str = Form(...), session_id: str | None = Cookie(default=None), request: Request = None):
+async def add_items_bulk(names: str = Form(...), store: DataStore = Depends(require_store)):
     """줄바꿈으로 구분된 이름 목록을 한번에 추가합니다."""
-    store = await get_session_store(request, session_id)
-    if not store:
-        return RedirectResponse(url="/", status_code=303)
     name_list = [n.strip() for n in names.splitlines() if n.strip()]
     await store.add_items_bulk(name_list)
     return RedirectResponse(url="/manage?tab=items", status_code=303)
@@ -85,12 +76,8 @@ async def add_items_bulk(names: str = Form(...), session_id: str | None = Cookie
 async def delete_item(
     item_id: int = Form(...),
     redirect_url: str = Form("/manage?tab=items"),
-    session_id: str | None = Cookie(default=None),
-    request: Request = None,
+    store: DataStore = Depends(require_store),
 ):
-    store = await get_session_store(request, session_id)
-    if not store:
-        return RedirectResponse(url="/", status_code=303)
     await store.delete_item(item_id)
     return RedirectResponse(url=_safe_redirect(redirect_url, "/manage?tab=items"), status_code=303)
 
@@ -100,12 +87,8 @@ async def edit_item(
     item_id: int = Form(...),
     new_name: str = Form(...),
     redirect_url: str = Form("/manage?tab=items"),
-    session_id: str | None = Cookie(default=None),
-    request: Request = None,
+    store: DataStore = Depends(require_store),
 ):
-    store = await get_session_store(request, session_id)
-    if not store:
-        return RedirectResponse(url="/", status_code=303)
     if new_name.strip():
         await store.update_item(item_id, name=new_name.strip())
     return RedirectResponse(url=_safe_redirect(redirect_url, "/manage?tab=items"), status_code=303)
@@ -115,11 +98,8 @@ async def edit_item(
 
 
 @router.post("/criteria")
-async def update_criteria(request: Request, session_id: str | None = Cookie(default=None)):
+async def update_criteria(request: Request, store: DataStore = Depends(require_store)):
     """평가 기준을 폼 데이터로 일괄 교체합니다. key가 비어있으면 자동 생성합니다."""
-    store = await get_session_store(request, session_id)
-    if not store:
-        return RedirectResponse(url="/", status_code=303)
 
     form = await request.form()
 
@@ -172,10 +152,7 @@ def _generate_key(label: str, existing: set[str]) -> str:
 
 
 @router.post("/settings")
-async def update_settings(request: Request, session_id: str | None = Cookie(default=None)):
-    store = await get_session_store(request, session_id)
-    if not store:
-        return RedirectResponse(url="/", status_code=303)
+async def update_settings(request: Request, store: DataStore = Depends(require_store)):
 
     form = await request.form()
     patch: dict = {}
@@ -217,11 +194,8 @@ async def update_settings(request: Request, session_id: str | None = Cookie(defa
 
 
 @router.get("/export")
-async def export_data(session_id: str | None = Cookie(default=None), request: Request = None):
+async def export_data(store: DataStore = Depends(require_store)):
     """전체 데이터를 JSON 파일로 다운로드합니다."""
-    store = await get_session_store(request, session_id)
-    if not store:
-        return RedirectResponse(url="/", status_code=303)
     return Response(
         content=store.export_json(),
         media_type="application/json",
@@ -232,13 +206,9 @@ async def export_data(session_id: str | None = Cookie(default=None), request: Re
 @router.post("/import")
 async def import_data(
     file: UploadFile = File(...),
-    session_id: str | None = Cookie(default=None),
-    request: Request = None,
+    store: DataStore = Depends(require_store),
 ):
     """업로드된 JSON 파일로 전체 데이터를 교체합니다."""
-    store = await get_session_store(request, session_id)
-    if not store:
-        return RedirectResponse(url="/", status_code=303)
     _MAX_UPLOAD_BYTES = 1_000_000
     raw = await file.read(_MAX_UPLOAD_BYTES + 1)
     if len(raw) > _MAX_UPLOAD_BYTES:

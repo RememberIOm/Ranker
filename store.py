@@ -21,6 +21,8 @@ SESSION_TTL_SECONDS = 7 * 24 * 60 * 60
 
 # asyncio.Lock은 실행 중인 이벤트 루프 안에서 생성해야 하므로 lazy init
 # cooperative scheduling 덕분에 await 없는 구간은 원자적 — dict 가드 불필요
+# ⚠️ 단일 uvicorn 워커 전제 — 멀티 워커(Gunicorn) 환경에서는 프로세스 간 Lock을
+#    공유할 수 없으므로 filelock 패키지로 교체 필요. fly.toml 참고.
 _locks: dict[str, asyncio.Lock] = {}
 _session_cache: dict[str, tuple["DataStore", float]] = {}
 
@@ -83,7 +85,8 @@ class DataStore:
         if self._path.exists():
             async with aiofiles.open(self._path, "r", encoding="utf-8") as f:
                 raw = await f.read()
-            data = json.loads(raw)  # json 파싱은 CPU-bound이므로 sync
+            # CPU-bound 파싱을 스레드풀에 위임하여 이벤트 루프 블로킹 방지
+            data = await asyncio.to_thread(json.loads, raw)
             # 누락 필드에 기본값 병합 (하위 호환성)
             defaults = _default_data()
             for key in defaults:
@@ -97,8 +100,11 @@ class DataStore:
     async def _save(self) -> None:
         lock = _get_lock(self._session_id)
         async with lock:
-            async with aiofiles.open(self._path, "w", encoding="utf-8") as f:
+            # 임시 파일에 먼저 쓰고 os.replace로 원자적 교체 — 충돌 시 파일 손상 방지
+            tmp_path = self._path.with_suffix(".tmp")
+            async with aiofiles.open(tmp_path, "w", encoding="utf-8") as f:
                 await f.write(json.dumps(self._data, ensure_ascii=False, indent=2))
+            os.replace(tmp_path, self._path)
 
     # --- Settings ---
 
@@ -224,6 +230,18 @@ class DataStore:
             raise ValueError("criteria는 배열이어야 합니다.")
         if not isinstance(parsed.get("settings"), dict):
             raise ValueError("settings는 객체여야 합니다.")
+        # 항목별 구조 검증 — ratings 누락 시 /battle에서 KeyError 방지
+        for item in parsed["items"]:
+            if not isinstance(item, dict):
+                raise ValueError("items 배열의 각 요소는 객체여야 합니다.")
+            if not isinstance(item.get("id"), int):
+                raise ValueError("각 item에 정수형 id가 필요합니다.")
+            if not isinstance(item.get("name"), str):
+                raise ValueError("각 item에 문자열 name이 필요합니다.")
+            if not isinstance(item.get("ratings"), dict):
+                raise ValueError("각 item에 ratings 객체가 필요합니다.")
+            if not isinstance(item.get("matches_played"), int):
+                raise ValueError("각 item에 정수형 matches_played가 필요합니다.")
         self._data = parsed
         await self._save()
 
