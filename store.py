@@ -100,10 +100,14 @@ class DataStore:
     async def _save(self) -> None:
         lock = _get_lock(self._session_id)
         async with lock:
+            # CPU-bound 직렬화를 스레드풀에 위임하여 이벤트 루프 블로킹 방지 (_load와 일관성 유지)
+            serialized = await asyncio.to_thread(
+                json.dumps, self._data, ensure_ascii=False, indent=2
+            )
             # 임시 파일에 먼저 쓰고 os.replace로 원자적 교체 — 충돌 시 파일 손상 방지
             tmp_path = self._path.with_suffix(".tmp")
             async with aiofiles.open(tmp_path, "w", encoding="utf-8") as f:
-                await f.write(json.dumps(self._data, ensure_ascii=False, indent=2))
+                await f.write(serialized)
             os.replace(tmp_path, self._path)
 
     # --- Settings ---
@@ -167,17 +171,19 @@ class DataStore:
         """여러 항목을 한번에 추가합니다. 추가된 개수를 반환합니다."""
         count = 0
         initial = self._data["settings"]["initial_rating"]
+        next_id = self._next_id()  # O(N) 호출을 루프 밖으로 이동 — 루프 내 반복 시 O(N×M) 방지
         for name in names:
             stripped = name.strip()
             if not stripped:
                 continue
             item = {
-                "id": self._next_id(),
+                "id": next_id,
                 "name": stripped,
                 "ratings": {c["key"]: initial for c in self._data["criteria"]},
                 "matches_played": 0,
             }
             self._data["items"].append(item)
+            next_id += 1
             count += 1
         if count:
             await self._save()

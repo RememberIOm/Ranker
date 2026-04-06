@@ -108,6 +108,9 @@ async def update_criteria(request: Request, store: DataStore = Depends(require_s
     colors = form.getlist("color")
     weights = form.getlist("weight")
 
+    if not (len(keys) == len(labels) == len(colors) == len(weights)):
+        return HTMLResponse("폼 데이터가 올바르지 않습니다.", status_code=400)
+
     used_keys: set[str] = set()
     new_criteria = []
 
