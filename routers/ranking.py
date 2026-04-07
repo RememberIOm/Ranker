@@ -3,13 +3,12 @@
 
 from fastapi import APIRouter, Request, Depends
 from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
 
 from deps import require_store
 from store import DataStore
+from template_env import templates
 
 router = APIRouter(prefix="/ranking", tags=["ranking"])
-templates = Jinja2Templates(directory="templates")
 
 
 @router.get("", response_class=HTMLResponse)

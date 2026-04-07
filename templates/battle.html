@@ -279,6 +279,7 @@
     // --- State ---
     const item1Id = {{ item1.id }};
     const item2Id = {{ item2.id }};
+    const roundToken = {{ round_token | tojson }};
     const redirectTo = {% if focus_mode %}{{ ("/battle/focus/" ~ focus_id) | tojson }}{% else %}""{% endif %};
     const criteriaKeys = {{ criteria_info | map(attribute = 'key') | list | tojson }};
     const totalCriteria = criteriaKeys.length;
@@ -348,16 +349,45 @@
                 body: JSON.stringify({
                     item1_id: item1Id,
                     item2_id: item2Id,
+                    round_token: roundToken,
                     votes: votes,
                     redirect_to: redirectTo || null,
                 }),
             });
-            const data = await res.json();
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                handleVoteError(res.status, data);
+                return;
+            }
             showResultModal(data);
         } catch (err) {
             console.error(err);
+            alert('투표를 저장하는 중 오류가 발생했습니다. 페이지를 새로고침한 뒤 다시 시도해주세요.');
             location.reload();
+        } finally {
+            const modal = document.getElementById('result-modal');
+            if (modal.classList.contains('hidden')) {
+                updateProgress();
+                submitBtn.textContent = '⚔️ 결과 확인';
+            }
         }
+    }
+
+    function handleVoteError(status, data) {
+        const detail = typeof data?.detail === 'string'
+            ? data.detail
+            : typeof data?.error === 'string'
+                ? data.error
+                : '투표를 처리할 수 없습니다. 새로고침 후 다시 시도해주세요.';
+
+        if (status === 401) {
+            alert('세션이 만료되었습니다. 시작 화면으로 이동합니다.');
+            window.location.href = '/';
+            return;
+        }
+
+        alert(detail);
+        location.reload();
     }
 
     // --- Navigate to next ---

@@ -1,7 +1,7 @@
 # Ranker (Session-based Elo Rating System)
 
 **Ranker**는 1:1 대결 투표를 통해 실시간으로 순위를 산정하는 범용 랭킹 웹 애플리케이션입니다.
-영화, 음식, 게임, 애니메이션 등 **어떤 주제든** 사용자가 원하는 항목과 평가 기준을 자유롭게 설정하여 나만의 랭킹을 만들 수 있습니다. 
+영화, 음식, 게임, 애니메이션 등 **어떤 주제든** 사용자가 원하는 항목과 평가 기준을 자유롭게 설정하여 나만의 랭킹을 만들 수 있습니다.
 
 단일 데이터베이스 대신 **사용자별 세션 기반 JSON 저장소**를 채택하여, 누구나 독립적인 환경에서 자신만의 데이터를 구축하고 백업(Export/Import)할 수 있습니다.
 
@@ -43,10 +43,10 @@
 
 ## 🛠 기술 스택 (Tech Stack)
 
-- **Backend**: Python 3.13, FastAPI, aiofiles (비동기 파일 I/O)
-- **Data Storage**: Local JSON Files (`store.py`, In-memory Caching + Async File Sync)
-- **Frontend**: Jinja2 Templates, TailwindCSS v4 (CDN Browser Bundle), Chart.js
-- **Deployment**: Fly.io (Docker container with Volume Mount)
+- **Backend**: Python 3.13, FastAPI, aiofiles, Pydantic v2
+- **Data Storage**: Local JSON Files (`store.py`, per-session cache + async file sync)
+- **Frontend**: Jinja2 Templates, TailwindCSS v4 CLI build, Chart.js (jsDelivr CDN)
+- **Deployment**: Fly.io (Docker container + mounted volume)
 
 ---
 
@@ -59,13 +59,22 @@ cd battle-ranker
 ```
 
 ### 2. 개발 서버 실행
-환경 변수나 DB 초기화 설정 없이 바로 실행 가능합니다. (데이터는 자동으로 `ranker_data` Docker 볼륨에 저장됩니다.)
+환경 변수나 DB 초기화 설정 없이 바로 실행 가능합니다. 데이터는 `ranker_data` Docker 볼륨에 저장됩니다.
 ```bash
-docker compose up
+docker compose up --build
 ```
 브라우저에서 `http://localhost:8080`으로 접속하여 **"새로 시작"**을 클릭하면 즉시 사용할 수 있습니다.
 
-> **의존성 추가 시**: `uv add <패키지명>` — `pyproject.toml`과 `uv.lock`이 자동으로 갱신됩니다.
+> Python 의존성 추가 시: `uv add <패키지명>`
+>
+> Tailwind 의존성 변경 시: `npm install <패키지명> --save`
+
+### 3. 테스트 실행
+가장 간단한 검증 경로는 Docker 이미지 안에서 테스트를 실행하는 것입니다.
+```bash
+docker build -t ranker-test .
+docker run --rm ranker-test python -m unittest discover -s tests -p 'test_*.py'
+```
 
 ---
 
@@ -76,8 +85,9 @@ docker compose up
 ├── main.py              # 앱 진입점 및 세션 쿠키 관리 라우터
 ├── deps.py              # FastAPI 의존성 (세션 ID 검증 및 Store 주입)
 ├── store.py             # 세션별 JSON 데이터 읽기/쓰기 및 캐싱 로직
-├── schemas.py           # Pydantic 데이터 검증 스키마
+├── schemas.py           # Vote / Import / Response 검증 스키마
 ├── services.py          # 순수 비즈니스 로직 (Elo 연산, 매치메이킹, 정규화)
+├── template_env.py      # 공용 Jinja2 템플릿 환경
 ├── routers/             # API 라우터 모듈
 │   ├── battle.py        # 대결 페이지 및 투표 처리
 │   ├── ranking.py       # 순위 조회 및 통계 차트
@@ -91,8 +101,11 @@ docker compose up
 ├── Dockerfile           # 프로덕션 이미지 (Fly.io 배포용)
 ├── Dockerfile.dev       # 개발 이미지 (hot reload, docker compose 전용)
 ├── docker-compose.yml   # 로컬 개발 환경 오케스트레이션
+├── package.json         # Tailwind CLI 스크립트 및 Node 의존성
+├── package-lock.json    # Tailwind 의존성 잠금 파일
 ├── pyproject.toml       # 프로젝트 메타데이터 및 의존성 (uv)
 ├── uv.lock              # 의존성 잠금 파일
+├── tests/               # 기본 회귀 테스트
 └── fly.toml             # Fly.io 배포 설정
 ```
 
@@ -108,7 +121,7 @@ docker compose up
 2. **Draw Probability (무승부 확률 보정)**:
    - 두 항목의 점수 차이에 기반하여 가상의 무승부 확률(Gaussian Curve)을 계산하고, 이를 기반으로 승패에 따른 기대 점수를 보정합니다.
 3. **Inflation Control (점수 정규화)**:
-   - 투표가 진행됨에 따라 전체 점수가 상향 또는 하향 평준화되는 것을 막기 위해, 백그라운드에서 주기적으로 전체 평균을 목표 점수(`Normalize Target`)로 자동 보정합니다.
+   - 투표가 진행됨에 따라 전체 점수가 상향 또는 하향 평준화되는 것을 막기 위해, 세션별로 여러 표가 누적되면 백그라운드에서 전체 평균을 목표 점수(`Normalize Target`)로 자동 보정합니다.
 
 ---
 
@@ -120,4 +133,20 @@ docker compose up
 2. 앱 런칭: `fly launch`
 3. 배포 진행: `fly deploy`
 
-*주의: `fly.toml`에 정의된 대로 `[mounts]`를 통해 Fly Volume을 `/data` 경로에 마운트해야 사용자의 JSON 세션 파일들이 서버 재시작 후에도 날아가지 않고 유지됩니다.*
+주의:
+
+- `fly.toml`에 정의된 대로 `[mounts]`를 통해 Fly Volume을 `/data` 경로에 마운트해야 사용자의 JSON 세션 파일들이 서버 재시작 후에도 유지됩니다.
+- 현재 저장소 계층은 프로세스 로컬 메모리 캐시와 락을 사용하므로 **단일 uvicorn 워커** 전제를 둡니다. 프로덕션 Dockerfile은 이를 위해 `--workers 1`을 명시합니다.
+- HTTPS 배포에서는 `COOKIE_SECURE=true`를 사용해야 하며, 기본 Fly 설정에는 이 값이 포함되어 있습니다.
+
+## 🎨 프런트엔드 빌드
+
+- 프로덕션 이미지는 `package.json`과 `package-lock.json`을 복사한 뒤 `npm ci`로 Tailwind CLI 의존성을 설치합니다.
+- CSS는 `npm run build:css`로 `/static/output.css`를 생성합니다.
+- 로컬 개발에서는 `docker compose`의 `tailwind` 서비스가 `npm ci` 후 `npm run build:css:watch`를 실행합니다.
+
+## ✅ 입력 검증
+
+- `/battle/vote`는 Pydantic 스키마와 서버 발급 라운드 토큰으로 검증됩니다.
+- JSON import는 `schemas.py`의 세션 스키마를 통해 settings, criteria, items 전체를 검증합니다.
+- 잘못된 투표 페이로드, 누락된 rating key, 중복 item id 같은 데이터는 저장 전에 거부됩니다.

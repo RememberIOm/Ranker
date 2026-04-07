@@ -1,10 +1,11 @@
 # ── Stage 1: CSS 빌드 ──────────────────────────────────────────
 FROM node:22-alpine AS css-builder
 WORKDIR /build
-RUN npm install tailwindcss @tailwindcss/cli
+COPY package.json package-lock.json ./
+RUN npm ci
 COPY input.css .
 COPY templates/ templates/
-RUN mkdir -p static && ./node_modules/.bin/tailwindcss -i input.css -o static/output.css --minify
+RUN mkdir -p static && npm run build:css
 
 # ── Stage 2: Python 런타임 ─────────────────────────────────────
 FROM python:3.13-slim
@@ -29,4 +30,5 @@ ENV PATH="/app/.venv/bin:$PATH"
 
 EXPOSE 8080
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
+# store.py의 세션 캐시/락은 프로세스 로컬 상태이므로 단일 워커를 명시합니다.
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080", "--workers", "1"]

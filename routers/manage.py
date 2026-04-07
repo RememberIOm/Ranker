@@ -2,20 +2,19 @@
 # 관리 페이지: 항목 CRUD, 대량 추가, 평가 기준 편집, Elo 설정, JSON Import/Export
 # 세션별 DataStore를 사용합니다.
 
-import json
 import re
 import hashlib
 import unicodedata
 
 from fastapi import APIRouter, Request, Form, UploadFile, File, Depends
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
-from fastapi.templating import Jinja2Templates
+from pydantic import ValidationError
 
 from deps import require_store
 from store import DataStore
+from template_env import templates
 
 router = APIRouter(prefix="/manage", tags=["manage"])
-templates = Jinja2Templates(directory="templates")
 
 _SETTINGS_BOUNDS: dict[str, tuple] = {
     "elo_k_max": (1, 10000),
@@ -218,6 +217,6 @@ async def import_data(
         return HTMLResponse("파일 크기는 1MB를 초과할 수 없습니다.", status_code=413)
     try:
         await store.import_json(raw.decode("utf-8"))
-    except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
+    except (UnicodeDecodeError, ValidationError, ValueError):
         return HTMLResponse("유효하지 않은 JSON 파일입니다.", status_code=400)
     return RedirectResponse(url="/manage?tab=data", status_code=303)

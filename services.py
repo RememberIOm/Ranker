@@ -114,50 +114,9 @@ def get_match_pair(
     return item1, item2
 
 
-# --- Rank Calculation ---
-
-
-def get_item_rank_info(
-    store: DataStore, category_key: str, score: float
-) -> dict[str, Any]:
-    """특정 카테고리 점수 기준으로 등수/상위 퍼센트를 계산합니다."""
-    items = store.items
-    total = len(items) or 1
-    higher = sum(
-        1 for i in items if i["ratings"].get(category_key, 0) > score
-    )
-    rank = higher + 1
-    return {
-        "rank": rank,
-        "total": total,
-        "top_percent": round((rank / total) * 100, 1),
-    }
-
-
 # --- Score Normalization ---
 
 
 async def normalize_scores(store: DataStore) -> None:
     """점수 인플레이션 방지 (Mean Reversion) — 백그라운드 태스크"""
-    s = store.settings
-    items = store.items
-    if not items:
-        return
-
-    target = s["normalize_target"]
-    threshold = s["normalize_threshold"]
-    criteria_keys = [c["key"] for c in store.criteria]
-    modified = False
-
-    for key in criteria_keys:
-        values = [i["ratings"].get(key, target) for i in items]
-        avg = sum(values) / len(values)
-        diff = avg - target
-
-        if abs(diff) > threshold:
-            modified = True
-            for item in items:
-                item["ratings"][key] = item["ratings"].get(key, target) - diff
-
-    if modified:
-        await store.save()
+    await store.normalize_scores()

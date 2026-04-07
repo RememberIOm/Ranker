@@ -3,18 +3,29 @@
 # 각 사용자는 JSON 파일을 업로드하거나 새 세션을 시작하여 독립적으로 사용합니다.
 
 import asyncio
-import json
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
+from pydantic import ValidationError
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from deps import create_session_id, get_session_store, RequiresSessionException
 from store import get_store, session_exists, cleanup_expired_sessions
 from routers import battle, ranking, manage
+from template_env import templates
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+COOKIE_SECURE = _env_flag("COOKIE_SECURE", False)
 
 
 @asynccontextmanager
@@ -32,7 +43,6 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="static"), name="static")
-templates = Jinja2Templates(directory="templates")
 
 
 @app.exception_handler(RequiresSessionException)
@@ -49,9 +59,9 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; "
             "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
-            "style-src 'self' 'unsafe-inline'; "
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
             "img-src 'self' data:; "
-            "font-src 'self'; "
+            "font-src 'self' data: https://fonts.gstatic.com; "
             "connect-src 'self';"
         )
         return response
@@ -89,6 +99,7 @@ async def start_new_session():
         key="session_id", value=sid,
         max_age=7 * 24 * 60 * 60,  # 7일
         httponly=True, samesite="strict",
+        secure=COOKIE_SECURE,
     )
     return response
 
@@ -107,7 +118,7 @@ async def upload_session(file: UploadFile = File(...)):
         return HTMLResponse("파일 크기는 1MB를 초과할 수 없습니다.", status_code=413)
     try:
         await store.import_json(raw.decode("utf-8"))
-    except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
+    except (UnicodeDecodeError, ValidationError, ValueError):
         return HTMLResponse("유효하지 않은 JSON 파일입니다.", status_code=400)
 
     response = RedirectResponse(url="/battle", status_code=303)
@@ -115,6 +126,7 @@ async def upload_session(file: UploadFile = File(...)):
         key="session_id", value=sid,
         max_age=7 * 24 * 60 * 60,
         httponly=True, samesite="strict",
+        secure=COOKIE_SECURE,
     )
     return response
 
@@ -129,5 +141,5 @@ async def end_session(request: Request):
             store.delete_session()
 
     response = RedirectResponse(url="/", status_code=303)
-    response.delete_cookie("session_id")
+    response.delete_cookie("session_id", httponly=True, samesite="strict", secure=COOKIE_SECURE)
     return response

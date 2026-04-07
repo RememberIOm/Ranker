@@ -5,6 +5,10 @@
 **/.DS_Store
 **/venv
 **/.venv
+**/node_modules
+data
+static/output.css
+.git
 fly.toml
 docker-compose.yml
 Dockerfile.dev
