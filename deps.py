@@ -7,7 +7,7 @@ import uuid
 
 from fastapi import Cookie, Request
 
-from store import DataStore, get_store, session_exists
+from store import DataStore, InvalidSessionDataError, delete_session, get_store, session_exists
 
 _SESSION_ID_RE = re.compile(r'^[0-9a-f]{32}$')
 
@@ -36,7 +36,11 @@ async def get_session_store(
     """
     if not session_id or not _is_valid_session_id(session_id) or not session_exists(session_id):
         return None
-    return await get_store(session_id)
+    try:
+        return await get_store(session_id)
+    except InvalidSessionDataError:
+        delete_session(session_id)
+        return None
 
 
 async def require_store(
@@ -49,4 +53,8 @@ async def require_store(
     """
     if not session_id or not _is_valid_session_id(session_id) or not session_exists(session_id):
         raise RequiresSessionException()
-    return await get_store(session_id)
+    try:
+        return await get_store(session_id)
+    except InvalidSessionDataError:
+        delete_session(session_id)
+        raise RequiresSessionException() from None

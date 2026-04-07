@@ -50,3 +50,26 @@ class StoreValidationTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse((store.SESSION_DIR / f"{session_id}.json").exists())
         self.assertNotIn(session_id, store._session_cache)
         self.assertNotIn(session_id, store._locks)
+
+    async def test_load_legacy_session_repairs_missing_ratings(self) -> None:
+        session_id = "c" * 32
+        legacy_payload = """
+        {
+          "settings": {
+            "initial_rating": 1400
+          },
+          "criteria": [
+            {"key": "story", "label": "스토리", "color": "blue"},
+            {"key": "visual", "label": "작화", "color": "purple"}
+          ],
+          "items": [
+            {"id": 1, "name": "Alpha", "ratings": {"story": 1510}, "matches_played": 3}
+          ]
+        }
+        """
+        (store.SESSION_DIR / f"{session_id}.json").write_text(legacy_payload, encoding="utf-8")
+
+        session = await store.get_store(session_id)
+
+        self.assertEqual(session.items[0]["ratings"]["story"], 1510.0)
+        self.assertEqual(session.items[0]["ratings"]["visual"], 1400.0)

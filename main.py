@@ -13,7 +13,7 @@ from pydantic import ValidationError
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from deps import create_session_id, get_session_store, RequiresSessionException
-from store import get_store, session_exists, cleanup_expired_sessions
+from store import get_store, cleanup_expired_sessions
 from routers import battle, ranking, manage
 from template_env import templates
 
@@ -81,7 +81,7 @@ async def read_root(request: Request):
     인덱스 페이지: 세션이 이미 있으면 메인 화면, 없으면 업로드/시작 화면을 표시합니다.
     """
     session_id = request.cookies.get("session_id")
-    has_session = bool(session_id and session_exists(session_id))
+    has_session = bool(session_id and await get_session_store(request, session_id))
     return templates.TemplateResponse(request, "index.html", {
         "has_session": has_session,
     })

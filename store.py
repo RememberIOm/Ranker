@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import aiofiles
+from pydantic import ValidationError
 
 from schemas import BattleVoteRequest, SessionDataModel
 
@@ -43,6 +44,10 @@ class BattleItemNotFoundError(LookupError):
     """대결 중인 항목을 찾을 수 없을 때 발생합니다."""
 
 
+class InvalidSessionDataError(ValueError):
+    """세션 파일이 손상되었거나 현재 스키마로 복구할 수 없을 때 발생합니다."""
+
+
 def _get_lock(session_id: str) -> asyncio.Lock:
     """세션별 asyncio.Lock을 반환합니다 (lazy init)."""
     if session_id not in _locks:
@@ -53,6 +58,120 @@ def _get_lock(session_id: str) -> asyncio.Lock:
 def _default_data() -> dict[str, Any]:
     """초기 JSON 스키마 — 새 세션 또는 파일이 없을 때 생성됩니다."""
     return SessionDataModel().model_dump(mode="python")
+
+
+def _normalize_loaded_data(data: Any) -> dict[str, Any]:
+    """과거 세션 포맷을 현재 스키마로 최대한 보정합니다."""
+    defaults = _default_data()
+    if not isinstance(data, dict):
+        raise InvalidSessionDataError("세션 최상위 구조가 객체가 아닙니다.")
+
+    settings_raw = data.get("settings")
+    settings = defaults["settings"].copy()
+    if isinstance(settings_raw, dict):
+        for key in settings:
+            if key in settings_raw:
+                settings[key] = settings_raw[key]
+
+    criteria_raw = data.get("criteria")
+    criteria: list[dict[str, Any]] = []
+    if isinstance(criteria_raw, list):
+        seen_keys: set[str] = set()
+        for raw_criterion in criteria_raw:
+            if not isinstance(raw_criterion, dict):
+                continue
+
+            key = raw_criterion.get("key")
+            label = raw_criterion.get("label")
+            if not isinstance(key, str) or not key.strip():
+                continue
+            if not isinstance(label, str) or not label.strip():
+                continue
+
+            normalized_key = key.strip()
+            if normalized_key in seen_keys:
+                continue
+            seen_keys.add(normalized_key)
+
+            color = raw_criterion.get("color")
+            if not isinstance(color, str) or not color.strip():
+                color = "gray"
+
+            weight = raw_criterion.get("weight", 1.0)
+            try:
+                normalized_weight = float(weight)
+            except (TypeError, ValueError):
+                normalized_weight = 1.0
+            if normalized_weight <= 0:
+                normalized_weight = 1.0
+
+            criteria.append({
+                "key": normalized_key,
+                "label": label.strip(),
+                "color": color.strip(),
+                "weight": normalized_weight,
+            })
+
+    if not criteria:
+        criteria = defaults["criteria"]
+
+    initial_rating = settings.get("initial_rating", defaults["settings"]["initial_rating"])
+    try:
+        normalized_initial_rating = float(initial_rating)
+    except (TypeError, ValueError):
+        normalized_initial_rating = float(defaults["settings"]["initial_rating"])
+
+    items_raw = data.get("items")
+    items: list[dict[str, Any]] = []
+    if isinstance(items_raw, list):
+        seen_ids: set[int] = set()
+        next_generated_id = 1
+        allowed_rating_keys = [criterion["key"] for criterion in criteria]
+
+        for raw_item in items_raw:
+            if not isinstance(raw_item, dict):
+                continue
+
+            item_id = raw_item.get("id")
+            if not isinstance(item_id, int) or item_id <= 0 or item_id in seen_ids:
+                while next_generated_id in seen_ids:
+                    next_generated_id += 1
+                item_id = next_generated_id
+            seen_ids.add(item_id)
+            next_generated_id = max(next_generated_id, item_id + 1)
+
+            name = raw_item.get("name")
+            if not isinstance(name, str) or not name.strip():
+                name = f"Item {item_id}"
+
+            matches_played = raw_item.get("matches_played", 0)
+            if not isinstance(matches_played, int) or matches_played < 0:
+                matches_played = 0
+
+            ratings_raw = raw_item.get("ratings")
+            if not isinstance(ratings_raw, dict):
+                ratings_raw = {}
+
+            ratings: dict[str, float] = {}
+            for key in allowed_rating_keys:
+                value = ratings_raw.get(key, normalized_initial_rating)
+                try:
+                    ratings[key] = float(value)
+                except (TypeError, ValueError):
+                    ratings[key] = normalized_initial_rating
+
+            items.append({
+                "id": item_id,
+                "name": name.strip(),
+                "ratings": ratings,
+                "matches_played": matches_played,
+            })
+
+    return {
+        "settings": settings,
+        "criteria": criteria,
+        "items": items,
+    }
 
 
 class DataStore:
@@ -80,8 +199,12 @@ class DataStore:
         if self._path.exists():
             async with aiofiles.open(self._path, "r", encoding="utf-8") as f:
                 raw = await f.read()
-            # CPU-bound 파싱을 스레드풀에 위임하여 이벤트 루프 블로킹 방지
-            validated = await asyncio.to_thread(SessionDataModel.model_validate_json, raw)
+            try:
+                parsed = await asyncio.to_thread(json.loads, raw)
+                normalized = _normalize_loaded_data(parsed)
+                validated = await asyncio.to_thread(SessionDataModel.model_validate, normalized)
+            except (json.JSONDecodeError, ValidationError, InvalidSessionDataError) as exc:
+                raise InvalidSessionDataError(f"세션 파일을 읽을 수 없습니다: {self._path.name}") from exc
             return validated.model_dump(mode="python")
         return _default_data()
 
