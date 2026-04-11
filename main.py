@@ -13,7 +13,12 @@ from pydantic import ValidationError
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from deps import create_session_id, get_session_store, RequiresSessionException
-from store import get_store, cleanup_expired_sessions
+from store import (
+    SESSION_TTL_SECONDS,
+    cleanup_expired_sessions,
+    get_store,
+    session_exists,
+)
 from routers import battle, ranking, manage
 from template_env import templates
 
@@ -50,6 +55,28 @@ async def session_exception_handler(request: Request, exc: RequiresSessionExcept
     return RedirectResponse(url="/", status_code=303)
 
 
+class SessionCookieRefreshMiddleware(BaseHTTPMiddleware):
+    """유효한 세션 쿠키를 모든 응답에서 갱신하여 활성 사용자의 세션이 만료되지 않도록 합니다.
+
+    /static/* 경로는 세션과 무관하므로 제외 — 불필요한 디스크 stat과 Set-Cookie 헤더를 피함.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        # static 자원 요청은 세션과 무관 — 쿠키 갱신 스킵 (디스크 stat 절감)
+        if request.url.path.startswith("/static/"):
+            return response
+        session_id = request.cookies.get("session_id")
+        if session_id and session_exists(session_id):
+            response.set_cookie(
+                key="session_id", value=session_id,
+                max_age=SESSION_TTL_SECONDS,
+                httponly=True, samesite="strict",
+                secure=COOKIE_SECURE,
+            )
+        return response
+
+
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
@@ -68,6 +95,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 
 app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(SessionCookieRefreshMiddleware)
 
 # 라우터 등록
 app.include_router(battle.router)
@@ -97,7 +125,7 @@ async def start_new_session():
     response = RedirectResponse(url="/manage", status_code=303)
     response.set_cookie(
         key="session_id", value=sid,
-        max_age=7 * 24 * 60 * 60,  # 7일
+        max_age=SESSION_TTL_SECONDS,
         httponly=True, samesite="strict",
         secure=COOKIE_SECURE,
     )
@@ -124,7 +152,7 @@ async def upload_session(file: UploadFile = File(...)):
     response = RedirectResponse(url="/battle", status_code=303)
     response.set_cookie(
         key="session_id", value=sid,
-        max_age=7 * 24 * 60 * 60,
+        max_age=SESSION_TTL_SECONDS,
         httponly=True, samesite="strict",
         secure=COOKIE_SECURE,
     )

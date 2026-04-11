@@ -15,6 +15,7 @@ from store import (
 )
 from services import (
     get_match_pair,
+    get_item_rank,
     normalize_scores,
     get_match_probabilities,
 )
@@ -36,12 +37,16 @@ def _build_battle_context(
     criteria = store.criteria
     init = store.settings["initial_rating"]
 
-    # 각 기준별 확률 계산
+    # 각 기준별 확률 계산 (실제 무승부 이력 반영)
     criteria_info = []
     for c in criteria:
         r1 = item1["ratings"].get(c["key"], init)
         r2 = item2["ratings"].get(c["key"], init)
-        probs = get_match_probabilities(store, r1, r2)
+        probs = get_match_probabilities(
+            store, r1, r2,
+            battles=c.get("battles", 0),
+            draws=c.get("draws", 0),
+        )
         criteria_info.append({
             **c,
             "r1": round(r1),
@@ -49,9 +54,16 @@ def _build_battle_context(
             "probs": probs,
         })
 
+    # 순위 계산
+    rank1, total = get_item_rank(store, item1["id"])
+    rank2, _ = get_item_rank(store, item2["id"])
+
     return {
         "item1": item1,
         "item2": item2,
+        "rank1": rank1,
+        "rank2": rank2,
+        "total_items": total,
         "criteria_info": criteria_info,
         "focus_mode": focus_mode,
         "focus_id": focus_id,

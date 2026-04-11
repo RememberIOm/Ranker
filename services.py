@@ -29,14 +29,28 @@ def calculate_expected_score(rating_a: float, rating_b: float) -> float:
 
 
 def get_match_probabilities(
-    store: DataStore, rating_a: float, rating_b: float
+    store: DataStore,
+    rating_a: float,
+    rating_b: float,
+    battles: int = 0,
+    draws: int = 0,
 ) -> dict[str, float]:
-    """UI 표시용 승/무/패 확률 계산"""
+    """UI 표시용 승/무/패 확률 계산.
+
+    battles >= 20이면 해당 기준의 실제 무승부 비율로 draw_max를 보정합니다.
+    데이터가 부족하면 settings의 기본값(elo_draw_max)을 사용합니다.
+    """
     s = store.settings
+    if battles >= 20:
+        # 실측 무승부 비율 기반 보정 (0.05 ~ 0.5 범위로 클램핑)
+        draw_max = max(0.05, min(0.5, draws / battles))
+    else:
+        draw_max = s["elo_draw_max"]
+
     expected_a = calculate_expected_score(rating_a, rating_b)
     delta = abs(rating_a - rating_b)
 
-    p_draw = s["elo_draw_max"] * math.exp(-((delta / s["elo_draw_scale"]) ** 2))
+    p_draw = draw_max * math.exp(-((delta / s["elo_draw_scale"]) ** 2))
     p_win_a = max(0.0, expected_a - 0.5 * p_draw)
     p_win_b = max(0.0, (1.0 - expected_a) - 0.5 * p_draw)
 
@@ -112,6 +126,37 @@ def get_match_pair(
         item2 = sample2[0]
 
     return item1, item2
+
+
+# --- Ranking ---
+
+
+def get_item_rank(store: DataStore, item_id: int) -> tuple[int, int]:
+    """가중 합산 점수 기준으로 item_id의 순위를 반환합니다.
+
+    Returns:
+        (rank, total): rank=1이 최고, total은 전체 항목 수.
+        항목이 없으면 (0, 0) 반환.
+    """
+    items = store.items
+    if not items:
+        return 0, 0
+
+    criteria = store.criteria
+    total_weight = sum(c["weight"] for c in criteria) or 1.0
+    initial = store.settings["initial_rating"]
+
+    scores: list[tuple[float, int]] = []
+    for item in items:
+        weighted = sum(item["ratings"].get(c["key"], initial) * c["weight"] for c in criteria)
+        scores.append((weighted / total_weight, item["id"]))
+
+    scores.sort(key=lambda x: x[0], reverse=True)
+    total = len(scores)
+    for i, (_, iid) in enumerate(scores):
+        if iid == item_id:
+            return i + 1, total
+    return total, total
 
 
 # --- Score Normalization ---

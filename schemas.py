@@ -35,6 +35,8 @@ class CriterionModel(BaseModel):
     label: str = Field(min_length=1)
     color: str = Field(min_length=1)
     weight: float = Field(default=1.0, gt=0.0)
+    battles: int = Field(default=0, ge=0)
+    draws: int = Field(default=0, ge=0)
 
     @field_validator("key", "label", "color")
     @classmethod
@@ -73,12 +75,30 @@ class ItemModel(BaseModel):
         return stripped
 
 
+class ActiveRoundModel(BaseModel):
+    """진행 중인 배틀 라운드 — 파일에 영속화하여 VM 재시작 후에도 투표 가능."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    token: str = Field(min_length=16, max_length=255)
+    item1_id: int = Field(ge=1)
+    item2_id: int = Field(ge=1)
+    issued_at: float = Field(ge=0.0)
+
+    @model_validator(mode="after")
+    def validate_distinct_items(self) -> "ActiveRoundModel":
+        if self.item1_id == self.item2_id:
+            raise ValueError("active_round.item1_id와 item2_id는 달라야 합니다.")
+        return self
+
+
 class SessionDataModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     settings: SettingsModel = Field(default_factory=SettingsModel)
     criteria: list[CriterionModel] = Field(default_factory=_default_criteria)
     items: list[ItemModel] = Field(default_factory=list, max_length=10_000)
+    active_round: ActiveRoundModel | None = None
 
     @model_validator(mode="after")
     def validate_consistency(self) -> "SessionDataModel":

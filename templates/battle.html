@@ -39,6 +39,16 @@
                     class="text-lg md:text-2xl font-black text-gray-900 dark:text-white break-words whitespace-normal leading-snug">
                     {{ item1.name }}
                 </h3>
+                <div class="flex items-center justify-center gap-2 mt-2 flex-wrap">
+                    {% if total_items > 0 %}
+                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-brand-50 dark:bg-brand-900/30 text-brand-600 dark:text-brand-300 border border-brand-200 dark:border-brand-800">
+                        #{{ rank1 }}&thinsp;/&thinsp;{{ total_items }}
+                    </span>
+                    {% endif %}
+                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400">
+                        {{ item1.matches_played }}전
+                    </span>
+                </div>
             </div>
 
             <!-- VS Badge -->
@@ -57,6 +67,16 @@
                     class="text-lg md:text-2xl font-black text-gray-900 dark:text-white break-words whitespace-normal leading-snug">
                     {{ item2.name }}
                 </h3>
+                <div class="flex items-center justify-center gap-2 mt-2 flex-wrap">
+                    {% if total_items > 0 %}
+                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-pink-50 dark:bg-pink-900/30 text-pink-600 dark:text-pink-300 border border-pink-200 dark:border-pink-800">
+                        #{{ rank2 }}&thinsp;/&thinsp;{{ total_items }}
+                    </span>
+                    {% endif %}
+                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400">
+                        {{ item2.matches_played }}전
+                    </span>
+                </div>
             </div>
         </div>
     </div>
@@ -381,8 +401,12 @@
                 : '투표를 처리할 수 없습니다. 새로고침 후 다시 시도해주세요.';
 
         if (status === 401) {
-            alert('세션이 만료되었습니다. 시작 화면으로 이동합니다.');
-            window.location.href = '/';
+            // 서버 재시작/일시 오류 등으로 세션 조회가 실패한 경우.
+            // '/'로 리다이렉트하면 사용자가 데이터 소실로 오인하므로 현재 페이지를 새로고침한다.
+            // 세션 파일이 살아있으면 새로고침으로 정상 복구되고, 진짜로 만료된 경우에만
+            // require_store가 RequiresSessionException을 발생시켜 '/'로 이동된다.
+            alert('서버와의 연결이 일시적으로 끊겼습니다. 페이지를 새로고침합니다.');
+            location.reload();
             return;
         }
 

@@ -7,7 +7,7 @@ import uuid
 
 from fastapi import Cookie, Request
 
-from store import DataStore, InvalidSessionDataError, delete_session, get_store, session_exists
+from store import DataStore, InvalidSessionDataError, get_store, session_exists
 
 _SESSION_ID_RE = re.compile(r'^[0-9a-f]{32}$')
 
@@ -33,13 +33,13 @@ async def get_session_store(
     쿠키의 session_id로 DataStore를 반환합니다.
     세션이 없거나 유효하지 않으면 None을 반환합니다.
     JSON 응답이 필요한 엔드포인트(예: /battle/vote)에서 사용합니다.
+    파일 로드 오류는 절대 파일을 삭제하지 않습니다 — 사용자 데이터 보호.
     """
     if not session_id or not _is_valid_session_id(session_id) or not session_exists(session_id):
         return None
     try:
         return await get_store(session_id)
     except InvalidSessionDataError:
-        delete_session(session_id)
         return None
 
 
@@ -50,11 +50,11 @@ async def require_store(
     """
     세션이 없으면 RequiresSessionException을 발생시킵니다.
     HTML을 반환하는 라우터 엔드포인트에서 Depends(require_store)로 사용합니다.
+    파일 로드 오류는 절대 파일을 삭제하지 않습니다 — 사용자 데이터 보호.
     """
     if not session_id or not _is_valid_session_id(session_id) or not session_exists(session_id):
         raise RequiresSessionException()
     try:
         return await get_store(session_id)
     except InvalidSessionDataError:
-        delete_session(session_id)
         raise RequiresSessionException() from None

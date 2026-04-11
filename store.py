@@ -105,11 +105,24 @@ def _normalize_loaded_data(data: Any) -> dict[str, Any]:
             if normalized_weight <= 0:
                 normalized_weight = 1.0
 
+            battles_raw = raw_criterion.get("battles", 0)
+            draws_raw = raw_criterion.get("draws", 0)
+            try:
+                normalized_battles = max(0, int(battles_raw))
+            except (TypeError, ValueError):
+                normalized_battles = 0
+            try:
+                normalized_draws = max(0, int(draws_raw))
+            except (TypeError, ValueError):
+                normalized_draws = 0
+
             criteria.append({
                 "key": normalized_key,
                 "label": label.strip(),
                 "color": color.strip(),
                 "weight": normalized_weight,
+                "battles": normalized_battles,
+                "draws": normalized_draws,
             })
 
     if not criteria:
@@ -167,10 +180,38 @@ def _normalize_loaded_data(data: Any) -> dict[str, Any]:
                 "matches_played": matches_played,
             })
 
+    # active_round (진행 중인 배틀 라운드) 복원 — 파일에 영속화되어 VM 재시작 후에도 투표 가능.
+    # 검증 실패(같은 ID, 잘못된 토큰 등) 시 None으로 관대 복원 — 전체 파일 로드 실패를 피함.
+    active_round_raw = data.get("active_round")
+    active_round: dict[str, Any] | None = None
+    if isinstance(active_round_raw, dict):
+        token = active_round_raw.get("token")
+        try:
+            ar_item1_id = int(active_round_raw.get("item1_id", 0))
+            ar_item2_id = int(active_round_raw.get("item2_id", 0))
+            ar_issued_at = float(active_round_raw.get("issued_at", 0.0))
+        except (TypeError, ValueError):
+            ar_item1_id = ar_item2_id = 0
+            ar_issued_at = 0.0
+        if (
+            isinstance(token, str)
+            and 16 <= len(token) <= 255
+            and ar_item1_id >= 1
+            and ar_item2_id >= 1
+            and ar_item1_id != ar_item2_id
+        ):
+            active_round = {
+                "token": token,
+                "item1_id": ar_item1_id,
+                "item2_id": ar_item2_id,
+                "issued_at": ar_issued_at,
+            }
+
     return {
         "settings": settings,
         "criteria": criteria,
         "items": items,
+        "active_round": active_round,
     }
 
 
@@ -184,8 +225,7 @@ class DataStore:
     def __init__(self, session_id: str) -> None:
         self._session_id = session_id
         self._path = SESSION_DIR / f"{session_id}.json"
-        self._data: dict[str, Any] = {}  # create()에서 채워짐
-        self._active_round: dict[str, Any] | None = None
+        self._data: dict[str, Any] = {}  # create()에서 채워짐 (active_round 포함)
         self._votes_since_normalize = 0
 
     @classmethod
@@ -193,6 +233,9 @@ class DataStore:
         """비동기 팩토리 — 파일에서 데이터를 로드한 DataStore를 반환합니다."""
         instance = cls(session_id)
         instance._data = await instance._load()
+        # 서버 재시작 후 기존 세션 복원 시 첫 번째 투표에서 바로 정규화 실행
+        if instance._data["items"]:
+            instance._votes_since_normalize = NORMALIZE_EVERY_N_VOTES - 1
         return instance
 
     async def _load(self) -> dict[str, Any]:
@@ -225,7 +268,8 @@ class DataStore:
             await self._save_locked()
 
     def _invalidate_active_round(self) -> None:
-        self._active_round = None
+        """진행 중인 라운드를 무효화합니다. 호출자가 _save_locked()로 디스크 반영을 책임집니다."""
+        self._data["active_round"] = None
 
     def _get_item_from_data(self, item_id: int) -> dict[str, Any] | None:
         for item in self._data["items"]:
@@ -267,6 +311,16 @@ class DataStore:
                     item["ratings"].setdefault(key, initial)
                 for key in removed:
                     item["ratings"].pop(key, None)
+
+            # 기존 기준의 배틀 통계(draws/battles) 보존 — key가 동일하면 이력 유지
+            old_stats = {
+                c["key"]: {"battles": c.get("battles", 0), "draws": c.get("draws", 0)}
+                for c in self._data["criteria"]
+            }
+            for c in criteria:
+                if c["key"] in old_stats:
+                    c.setdefault("battles", old_stats[c["key"]]["battles"])
+                    c.setdefault("draws", old_stats[c["key"]]["draws"])
 
             self._data["criteria"] = criteria
             self._invalidate_active_round()
@@ -366,15 +420,20 @@ class DataStore:
             await self._save_locked()
 
     async def issue_battle_round(self, item1_id: int, item2_id: int) -> str:
+        """배틀 라운드 토큰을 발급하고 파일에 영속화합니다.
+
+        파일 저장으로 VM 재시작/Fly.io 자동 스케일다운 후에도 사용자가 이어서 투표 가능.
+        """
         lock = _get_lock(self._session_id)
         async with lock:
             token = secrets.token_urlsafe(24)
-            self._active_round = {
+            self._data["active_round"] = {
                 "token": token,
                 "item1_id": item1_id,
                 "item2_id": item2_id,
                 "issued_at": time.time(),
             }
+            await self._save_locked()
             return token
 
     async def apply_battle_vote(self, payload: BattleVoteRequest) -> tuple[dict[str, Any], bool]:
@@ -382,7 +441,7 @@ class DataStore:
 
         lock = _get_lock(self._session_id)
         async with lock:
-            active_round = self._active_round
+            active_round = self._data.get("active_round")
             if (
                 not active_round
                 or active_round["token"] != payload.round_token
@@ -441,6 +500,11 @@ class DataStore:
 
                 a1["ratings"][key] = new_r1
                 a2["ratings"][key] = new_r2
+
+                # 기준별 배틀 통계 누적 (무승부 확률 실측 보정용)
+                criterion["battles"] = criterion.get("battles", 0) + 1
+                if winner == "draw":
+                    criterion["draws"] = criterion.get("draws", 0) + 1
 
                 results.append({
                     "key": key,
@@ -518,6 +582,14 @@ class DataStore:
 # asyncio cooperative scheduling으로 await 없는 구간은 원자적 — 별도 lock 불필요
 
 
+def _utime_if_exists(path: Path) -> None:
+    """파일이 존재하면 mtime을 현재 시각으로 갱신합니다. 존재하지 않으면 무시."""
+    try:
+        os.utime(path, None)
+    except FileNotFoundError:
+        pass
+
+
 async def get_store(session_id: str) -> DataStore:
     """세션 ID에 해당하는 DataStore를 반환합니다 (캐시 활용)."""
     if session_id in _session_cache:
@@ -526,6 +598,9 @@ async def get_store(session_id: str) -> DataStore:
         return store
 
     store = await DataStore.create(session_id)
+    # 파일 mtime 갱신 — 서버 재시작 후에도 cleanup이 활성 세션을 삭제하지 않도록 방지.
+    # os.utime은 파일이 있을 때만 mtime을 갱신 — Path.touch(exist_ok=True)의 "빈 파일 생성" 경주 회피.
+    await asyncio.to_thread(_utime_if_exists, SESSION_DIR / f"{session_id}.json")
     _session_cache[session_id] = (store, time.time())
     return store
 
@@ -547,12 +622,23 @@ def delete_session(session_id: str) -> None:
 
 
 async def cleanup_expired_sessions() -> int:
-    """만료된 세션 파일을 정리합니다. 삭제된 개수를 반환합니다."""
+    """만료된 세션 파일을 정리합니다. 삭제된 개수를 반환합니다.
+
+    warm cache(최근 접근된 세션)는 파일 mtime이 오래됐어도 보존 — 투표 없이
+    /battle·/ranking만 조회하는 활성 사용자의 파일이 실수로 삭제되지 않도록 보호.
+    """
     now = time.time()
     removed = 0
     for f in SESSION_DIR.glob("*.json"):
+        session_id = f.stem
+        # 캐시에 있고 최근 접근된 세션은 mtime 무관하게 보존
+        cache_entry = _session_cache.get(session_id)
+        if cache_entry is not None:
+            _, last_access = cache_entry
+            if (now - last_access) <= SESSION_TTL_SECONDS:
+                continue
         if (now - f.stat().st_mtime) > SESSION_TTL_SECONDS:
-            delete_session(f.stem)
+            delete_session(session_id)
             removed += 1
 
     for session_id, (_, last_access) in list(_session_cache.items()):
