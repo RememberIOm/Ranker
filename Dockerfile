@@ -30,8 +30,12 @@ RUN useradd --system --uid 1000 --home /app --shell /usr/sbin/nologin appuser \
 ENV SESSION_DIR=/data/sessions
 ENV PATH="/app/.venv/bin:$PATH"
 
-USER appuser
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
 EXPOSE 8080
 
+# entrypoint.sh가 볼륨 소유권 보정 후 appuser로 권한 강하합니다.
 # store.py의 세션 캐시/락은 프로세스 로컬 상태이므로 단일 워커를 명시합니다.
+ENTRYPOINT ["/entrypoint.sh"]
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080", "--workers", "1"]
