@@ -81,19 +81,23 @@ def _build_battle_context(
 @router.get("", response_class=HTMLResponse)
 async def get_battle(request: Request, store: DataStore = Depends(require_store)):
     if not store.criteria:
-        return HTMLResponse(
-            "<div style='text-align:center;padding:50px;'>"
-            "<h2>평가 기준이 없습니다.</h2>"
-            "<a href='/manage'>관리 페이지에서 기준을 추가하세요.</a></div>"
-        )
+        return templates.TemplateResponse(request, "battle_empty.html", {
+            "icon": "📐",
+            "title": "평가 기준이 없습니다",
+            "description": "대결을 시작하려면 먼저 평가 기준을 추가해야 합니다.",
+            "link_url": "/manage?tab=criteria",
+            "link_text": "기준 추가하러 가기",
+        })
 
     item1, item2 = get_match_pair(store)
     if not item1 or not item2:
-        return HTMLResponse(
-            "<div style='text-align:center;padding:50px;'>"
-            "<h2>데이터가 부족합니다.</h2>"
-            "<a href='/manage'>관리 페이지에서 항목을 추가하세요.</a></div>"
-        )
+        return templates.TemplateResponse(request, "battle_empty.html", {
+            "icon": "📭",
+            "title": "항목이 부족합니다",
+            "description": "대결하려면 최소 2개 이상의 항목이 필요합니다.",
+            "link_url": "/manage?tab=items",
+            "link_text": "항목 추가하러 가기",
+        })
 
     round_token = await store.issue_battle_round(item1["id"], item2["id"])
     ctx = _build_battle_context(store, item1, item2, round_token)

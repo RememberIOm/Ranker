@@ -11,6 +11,13 @@
     <link rel="icon"
         href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚔️</text></svg>">
 
+    <!-- FOUC 방지: 페인트 전에 다크모드 클래스 적용 -->
+    <script>
+        if (localStorage.getItem('color-theme') === 'dark' || (!('color-theme' in localStorage) && matchMedia('(prefers-color-scheme: dark)').matches)) {
+            document.documentElement.classList.add('dark');
+        }
+    </script>
+
     <!-- Tailwind CSS (사전 빌드) -->
     <link rel="stylesheet" href="/static/output.css">
 
@@ -21,51 +28,56 @@
 <body
     class="bg-gray-50 text-gray-900 dark:bg-gray-900 dark:text-gray-100 transition-colors duration-300 min-h-screen flex flex-col">
 
+    <!-- 토스트 컨테이너 -->
+    <div id="toast-container" class="fixed top-20 left-1/2 -translate-x-1/2 z-[100] flex flex-col items-center gap-2 pointer-events-none" role="status" aria-live="polite"></div>
+
     <!-- 네비게이션 -->
     <nav
-        class="sticky top-0 z-50 w-full backdrop-blur-md bg-white/70 dark:bg-gray-900/70 border-b border-gray-200 dark:border-gray-800 transition-colors duration-300">
+        class="sticky top-0 z-50 w-full backdrop-blur-md bg-white/70 dark:bg-gray-900/70 border-b border-gray-200 dark:border-gray-800 transition-colors duration-300"
+        aria-label="메인 네비게이션">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex items-center justify-between h-16">
-                <div class="flex-shrink-0 cursor-pointer" onclick="location.href='/'">
+                <a href="/" class="flex-shrink-0">
                     <span
                         class="text-2xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-brand-600 to-pink-500">
                         Ranker
                     </span>
-                </div>
+                </a>
 
                 <div class="hidden md:block">
                     <div class="ml-10 flex items-baseline space-x-4">
                         <a href="/battle"
-                            class="hover:bg-brand-500 hover:text-white px-3 py-2 rounded-md text-sm font-medium transition-colors">⚔️
-                            Battle</a>
+                            class="hover:bg-brand-500 hover:text-white px-3 py-2 rounded-md text-sm font-medium transition-colors">
+                            <span aria-hidden="true">⚔️</span> Battle</a>
                         <a href="/ranking"
-                            class="hover:bg-brand-500 hover:text-white px-3 py-2 rounded-md text-sm font-medium transition-colors">🏆
-                            Ranking</a>
+                            class="hover:bg-brand-500 hover:text-white px-3 py-2 rounded-md text-sm font-medium transition-colors">
+                            <span aria-hidden="true">🏆</span> Ranking</a>
                         <a href="/manage"
-                            class="hover:bg-brand-500 hover:text-white px-3 py-2 rounded-md text-sm font-medium transition-colors">⚙️
-                            Manage</a>
+                            class="hover:bg-brand-500 hover:text-white px-3 py-2 rounded-md text-sm font-medium transition-colors">
+                            <span aria-hidden="true">⚙️</span> Manage</a>
                     </div>
                 </div>
 
                 <div class="flex items-center gap-2">
                     <!-- 세션 종료 버튼 -->
-                    <form action="/end-session" method="post"
-                        onsubmit="return confirm('세션을 종료하시겠습니까?\n데이터를 보존하려면 먼저 Manage → Data → Export로 저장해주세요.')">
+                    <form action="/end-session" method="post" id="end-session-form">
                         <button type="submit"
                             class="p-2 rounded-lg text-xs font-bold text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 transition"
+                            aria-label="세션 종료"
                             title="세션 종료">
-                            🚪
+                            <span aria-hidden="true">🚪</span>
                         </button>
                     </form>
                     <button id="theme-toggle"
-                        class="p-2 rounded-lg bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 transition focus:outline-none">
+                        class="p-2 rounded-lg bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 transition focus:outline-none focus:ring-2 focus:ring-brand-500"
+                        aria-label="테마 전환">
                         <svg id="theme-toggle-light-icon" class="w-5 h-5 hidden" fill="currentColor"
-                            viewBox="0 0 20 20">
+                            viewBox="0 0 20 20" aria-hidden="true">
                             <path
                                 d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 100 2h1z"
                                 fill-rule="evenodd" clip-rule="evenodd"></path>
                         </svg>
-                        <svg id="theme-toggle-dark-icon" class="w-5 h-5 hidden" fill="currentColor" viewBox="0 0 20 20">
+                        <svg id="theme-toggle-dark-icon" class="w-5 h-5 hidden" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
                             <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z"></path>
                         </svg>
                     </button>
@@ -93,15 +105,14 @@
     </footer>
 
     <script>
+        // --- 테마 토글 ---
         const themeToggleBtn = document.getElementById('theme-toggle');
         const darkIcon = document.getElementById('theme-toggle-dark-icon');
         const lightIcon = document.getElementById('theme-toggle-light-icon');
 
-        if (localStorage.getItem('color-theme') === 'dark' || (!('color-theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-            document.documentElement.classList.add('dark');
+        if (document.documentElement.classList.contains('dark')) {
             lightIcon.classList.remove('hidden');
         } else {
-            document.documentElement.classList.remove('dark');
             darkIcon.classList.remove('hidden');
         }
 
@@ -117,6 +128,96 @@
             }
             window.dispatchEvent(new Event('theme-changed'));
         });
+
+        // --- 세션 종료 확인 (confirm → 토스트 + 커스텀 confirm) ---
+        document.getElementById('end-session-form').addEventListener('submit', function (e) {
+            if (!this.dataset.confirmed) {
+                e.preventDefault();
+                showConfirm(
+                    '세션을 종료하시겠습니까?\n데이터를 보존하려면 먼저 Manage → Data → Export로 저장해주세요.',
+                    () => { this.dataset.confirmed = '1'; this.requestSubmit(); }
+                );
+            }
+        });
+
+        // --- 토스트 알림 시스템 ---
+        function showToast(message, type = 'info', duration = 3000) {
+            const container = document.getElementById('toast-container');
+            const colors = {
+                success: 'bg-green-600 text-white',
+                error:   'bg-red-600 text-white',
+                warning: 'bg-yellow-500 text-gray-900',
+                info:    'bg-gray-800 text-white dark:bg-gray-200 dark:text-gray-900',
+            };
+            const el = document.createElement('div');
+            el.className = `pointer-events-auto px-5 py-3 rounded-xl text-sm font-bold shadow-xl animate-toast-in ${colors[type] || colors.info}`;
+            el.textContent = message;
+            el.setAttribute('role', 'alert');
+            container.appendChild(el);
+            setTimeout(() => {
+                el.classList.remove('animate-toast-in');
+                el.classList.add('animate-toast-out');
+                el.addEventListener('animationend', () => el.remove());
+            }, duration);
+        }
+
+        // --- 커스텀 confirm 다이얼로그 ---
+        function showConfirm(message, onConfirm) {
+            const overlay = document.createElement('div');
+            overlay.className = 'fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[200] opacity-0 transition-opacity duration-200';
+            overlay.innerHTML = `
+                <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-sm w-full mx-4 p-6 border border-gray-200 dark:border-gray-700 transform scale-95 transition-transform duration-200" role="alertdialog" aria-modal="true" aria-label="확인">
+                    <p class="text-sm text-gray-700 dark:text-gray-300 mb-6 whitespace-pre-line leading-relaxed">${message}</p>
+                    <div class="flex gap-3 justify-end">
+                        <button data-action="cancel" class="px-5 py-2.5 rounded-xl text-sm font-bold bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition">취소</button>
+                        <button data-action="confirm" class="px-5 py-2.5 rounded-xl text-sm font-bold bg-red-600 text-white hover:bg-red-700 transition">확인</button>
+                    </div>
+                </div>`;
+            document.body.appendChild(overlay);
+            const inner = overlay.querySelector(':scope > div');
+
+            requestAnimationFrame(() => {
+                overlay.classList.remove('opacity-0');
+                inner.classList.remove('scale-95');
+                inner.classList.add('scale-100');
+            });
+
+            const confirmBtn = overlay.querySelector('[data-action="confirm"]');
+            const cancelBtn = overlay.querySelector('[data-action="cancel"]');
+            confirmBtn.focus();
+
+            function close() { overlay.remove(); }
+            cancelBtn.addEventListener('click', close);
+            confirmBtn.addEventListener('click', () => { close(); onConfirm(); });
+            overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+            overlay.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') close();
+                if (e.key === 'Tab') {
+                    const focusable = [cancelBtn, confirmBtn];
+                    const idx = focusable.indexOf(document.activeElement);
+                    if (e.shiftKey) focusable[(idx - 1 + focusable.length) % focusable.length].focus();
+                    else focusable[(idx + 1) % focusable.length].focus();
+                    e.preventDefault();
+                }
+            });
+        }
+
+        // --- fetchWithTimeout 유틸리티 ---
+        async function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
+            const controller = new AbortController();
+            const id = setTimeout(() => controller.abort(), timeoutMs);
+            try {
+                const res = await fetch(url, { ...options, signal: controller.signal });
+                return res;
+            } catch (err) {
+                if (err.name === 'AbortError') {
+                    throw new Error('서버 응답이 너무 오래 걸립니다. 잠시 후 다시 시도해주세요.');
+                }
+                throw err;
+            } finally {
+                clearTimeout(id);
+            }
+        }
     </script>
     {% block scripts %}{% endblock %}
 </body>

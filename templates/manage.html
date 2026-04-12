@@ -11,11 +11,12 @@
     </div>
 
     <!-- 탭 네비게이션 -->
-    <div class="flex space-x-1 bg-gray-100 dark:bg-gray-800 p-1 rounded-xl">
+    <div class="flex space-x-1 bg-gray-100 dark:bg-gray-800 p-1 rounded-xl" role="tablist" aria-label="관리 탭">
         {% set tabs = [('items', '📋 Items'), ('criteria', '📐 Criteria'), ('settings', '⚡ Elo Settings'), ('data', '💾
         Data')] %}
         {% for key, label in tabs %}
-        <a href="/manage?tab={{ key }}" class="flex-1 text-center px-4 py-2.5 rounded-lg text-sm font-bold transition-all
+        <a href="/manage?tab={{ key }}" role="tab" aria-selected="{{ 'true' if tab == key else 'false' }}"
+           class="flex-1 text-center px-4 py-2.5 rounded-lg text-sm font-bold transition-all
            {% if tab == key %}
                bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm
            {% else %}
@@ -87,8 +88,7 @@
                                 class="px-3 py-1.5 text-xs font-bold rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600 transition">
                                 Edit
                             </button>
-                            <form action="/manage/delete" method="post"
-                                onsubmit="return confirm('⚠️ ' + {{ item.name | tojson }} + ' 항목을 삭제하시겠습니까?')" class="inline">
+                            <form action="/manage/delete" method="post" class="inline delete-form" data-name="{{ item.name | e }}">
                                 <input type="hidden" name="item_id" value="{{ item.id }}">
                                 <button type="submit"
                                     class="px-3 py-1.5 text-xs font-bold rounded-lg bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-900/30 dark:text-red-300 dark:hover:bg-red-900/50 transition">
@@ -153,7 +153,7 @@
                                     border-gray-900 dark:border-white ring-2 ring-{{ clr }}-300 dark:ring-{{ clr }}-700 scale-110
                                 {% else %}
                                     border-transparent hover:border-gray-400 dark:hover:border-gray-500
-                                {% endif %}" title="{{ clr }}"></button>
+                                {% endif %}" title="{{ clr }}" aria-label="색상: {{ clr }}" {% if c.color == clr %}aria-pressed="true"{% else %}aria-pressed="false"{% endif %}></button>
                             {% endfor %}
                         </div>
                     </div>
@@ -164,8 +164,8 @@
                     </div>
                     <button type="button" onclick="this.closest('.criteria-row').remove()"
                         class="self-end p-2 text-red-500 hover:text-red-700 dark:hover:text-red-400 transition mb-0.5"
-                        title="삭제">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        title="삭제" aria-label="기준 삭제">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                 d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16">
                             </path>
@@ -432,8 +432,7 @@
                     JSON 파일을 업로드하여 전체 데이터를 교체합니다.
                     <span class="text-red-500 font-bold">⚠️ 기존 데이터가 덮어씌워집니다.</span>
                 </p>
-                <form action="/manage/import" method="post" enctype="multipart/form-data"
-                    onsubmit="return confirm('⚠️ 기존 데이터가 완전히 교체됩니다. 계속하시겠습니까?')"
+                <form action="/manage/import" method="post" enctype="multipart/form-data" id="import-form"
                     class="flex flex-col sm:flex-row gap-4">
                     <input type="file" name="file" accept=".json" required
                         class="flex-1 text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-bold file:bg-orange-50 file:text-orange-700 hover:file:bg-orange-100 dark:file:bg-orange-900/30 dark:file:text-orange-300">
@@ -462,6 +461,40 @@
                 document.getElementById(`input-name-${id}`).focus();
             }
         }
+
+        // 삭제 확인 — showConfirm 사용
+        document.querySelectorAll('.delete-form').forEach(form => {
+            form.addEventListener('submit', (e) => {
+                e.preventDefault();
+                const name = form.dataset.name;
+                showConfirm(`⚠️ ${name} 항목을 삭제하시겠습니까?`, () => form.submit());
+            });
+        });
+
+        // Import 확인
+        const importForm = document.getElementById('import-form');
+        if (importForm) {
+            importForm.addEventListener('submit', (e) => {
+                if (!importForm.dataset.confirmed) {
+                    e.preventDefault();
+                    showConfirm('⚠️ 기존 데이터가 완전히 교체됩니다. 계속하시겠습니까?', () => {
+                        importForm.dataset.confirmed = '1';
+                        importForm.requestSubmit();
+                    });
+                }
+            });
+        }
+
+        // 폼 제출 시 버튼 로딩 상태
+        document.querySelectorAll('form[method="post"]').forEach(form => {
+            form.addEventListener('submit', () => {
+                const btn = form.querySelector('button[type="submit"]');
+                if (btn && !btn.disabled) {
+                    btn.disabled = true;
+                    btn.style.opacity = '0.6';
+                }
+            });
+        });
 
         // 색상 스와치 선택
         function pickColor(btn, color) {

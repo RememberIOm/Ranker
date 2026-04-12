@@ -100,14 +100,16 @@
             <div class="flex items-stretch">
                 {# Left: Vote A #}
                 <button type="button" onclick="selectVote('{{ c.key }}', '1')" id="btn-{{ c.key }}-1"
+                    aria-pressed="false" aria-label="{{ c.label }} — {{ item1.name }} 선택"
                     class="vote-btn flex-1 py-4 px-3 flex flex-col items-center justify-center gap-1 transition-all duration-200 hover:bg-brand-50 dark:hover:bg-brand-900/20 border-r border-gray-100 dark:border-gray-700 group">
-                    <span class="text-xs text-gray-400 group-hover:text-brand-500 font-bold">A</span>
+                    <span class="text-xs text-gray-400 group-hover:text-brand-500 font-bold" aria-hidden="true">A</span>
                     <span class="text-sm font-mono font-bold text-gray-600 dark:text-gray-300">{{ c.r1 }}</span>
                     <span class="text-[10px] text-brand-400 font-semibold">{{ c.probs.win_a }}%</span>
                 </button>
 
                 {# Center: Label + Draw #}
                 <button type="button" onclick="selectVote('{{ c.key }}', 'draw')" id="btn-{{ c.key }}-draw"
+                    aria-pressed="false" aria-label="{{ c.label }} — 무승부 선택"
                     class="vote-btn w-36 md:w-44 py-4 px-2 flex flex-col items-center justify-center gap-1.5 transition-all duration-200 hover:bg-gray-50 dark:hover:bg-gray-700/50 border-r border-gray-100 dark:border-gray-700">
                     <span
                         class="text-base md:text-lg font-extrabold text-{{ c.color }}-600 dark:text-{{ c.color }}-400 tracking-wide">{{
@@ -117,8 +119,9 @@
 
                 {# Right: Vote B #}
                 <button type="button" onclick="selectVote('{{ c.key }}', '2')" id="btn-{{ c.key }}-2"
+                    aria-pressed="false" aria-label="{{ c.label }} — {{ item2.name }} 선택"
                     class="vote-btn flex-1 py-4 px-3 flex flex-col items-center justify-center gap-1 transition-all duration-200 hover:bg-pink-50 dark:hover:bg-pink-900/20 group">
-                    <span class="text-xs text-gray-400 group-hover:text-pink-500 font-bold">B</span>
+                    <span class="text-xs text-gray-400 group-hover:text-pink-500 font-bold" aria-hidden="true">B</span>
                     <span class="text-sm font-mono font-bold text-gray-600 dark:text-gray-300">{{ c.r2 }}</span>
                     <span class="text-[10px] text-pink-400 font-semibold">{{ c.probs.win_b }}%</span>
                 </button>
@@ -152,8 +155,8 @@
         <div
             class="bg-white/90 dark:bg-gray-800/90 backdrop-blur-lg rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 p-4 flex items-center justify-between gap-4">
             <div class="flex items-center gap-3 min-w-0">
-                <div class="relative w-10 h-10 shrink-0">
-                    <svg class="w-10 h-10 -rotate-90" viewBox="0 0 36 36">
+                <div class="relative w-10 h-10 shrink-0" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="{{ criteria_info|length }}" aria-label="투표 진행률">
+                    <svg class="w-10 h-10 -rotate-90" viewBox="0 0 36 36" aria-hidden="true">
                         <circle cx="18" cy="18" r="14" fill="none" stroke="currentColor"
                             class="text-gray-200 dark:text-gray-700" stroke-width="3"></circle>
                         <circle id="progress-ring" cx="18" cy="18" r="14" fill="none" stroke="currentColor"
@@ -179,7 +182,8 @@
 
 {# --- Result Modal --- #}
 <div id="result-modal"
-    class="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center z-50 hidden opacity-0 transition-opacity duration-300">
+    class="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center z-50 hidden opacity-0 transition-opacity duration-300"
+    role="dialog" aria-modal="true" aria-label="대결 결과" aria-hidden="true">
     <div
         class="bg-white dark:bg-gray-900 rounded-[2rem] shadow-2xl max-w-lg w-full mx-4 border border-gray-100 dark:border-gray-800 transform scale-95 transition-transform duration-300 relative overflow-hidden max-h-[85vh] flex flex-col">
 
@@ -305,12 +309,15 @@
     const totalCriteria = criteriaKeys.length;
     const votes = {};
     let nextUrl = '/battle';
+    let isSubmitting = false;
 
     // --- Vote Selection ---
     function selectVote(key, choice) {
         votes[key] = choice;
         ['1', 'draw', '2'].forEach(c => {
-            document.getElementById(`btn-${key}-${c}`).classList.remove('selected-1', 'selected-2', 'selected-draw');
+            const btn = document.getElementById(`btn-${key}-${c}`);
+            btn.classList.remove('selected-1', 'selected-2', 'selected-draw');
+            btn.setAttribute('aria-pressed', c === choice ? 'true' : 'false');
         });
         document.getElementById(`btn-${key}-${choice}`).classList.add(`selected-${choice}`);
         document.querySelector(`.criteria-card[data-key="${key}"]`).classList.add('voted');
@@ -325,7 +332,9 @@
         criteriaKeys.forEach(key => {
             delete votes[key];
             ['1', 'draw', '2'].forEach(c => {
-                document.getElementById(`btn-${key}-${c}`).classList.remove('selected-1', 'selected-2', 'selected-draw');
+                const btn = document.getElementById(`btn-${key}-${c}`);
+                btn.classList.remove('selected-1', 'selected-2', 'selected-draw');
+                btn.setAttribute('aria-pressed', 'false');
             });
             document.querySelector(`.criteria-card[data-key="${key}"]`).classList.remove('voted');
         });
@@ -338,6 +347,7 @@
         const pct = count / totalCriteria;
         const ring = document.getElementById('progress-ring');
         ring.style.strokeDashoffset = 87.96 * (1 - pct);
+        ring.closest('[role="progressbar"]').setAttribute('aria-valuenow', count);
         document.getElementById('progress-count').textContent = `${count}/${totalCriteria}`;
 
         const label = document.getElementById('progress-label');
@@ -357,13 +367,14 @@
 
     // --- Submit ---
     async function submitAllVotes() {
-        if (Object.keys(votes).length < totalCriteria) return;
+        if (Object.keys(votes).length < totalCriteria || isSubmitting) return;
+        isSubmitting = true;
         const submitBtn = document.getElementById('submit-btn');
         submitBtn.disabled = true;
-        submitBtn.textContent = '처리 중...';
+        submitBtn.innerHTML = '<span class="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2"></span>처리 중...';
 
         try {
-            const res = await fetch('/battle/vote', {
+            const res = await fetchWithTimeout('/battle/vote', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -382,9 +393,10 @@
             showResultModal(data);
         } catch (err) {
             console.error(err);
-            alert('투표를 저장하는 중 오류가 발생했습니다. 페이지를 새로고침한 뒤 다시 시도해주세요.');
-            location.reload();
+            showToast(err.message || '투표를 저장하는 중 오류가 발생했습니다. 다시 시도해주세요.', 'error', 5000);
+            // 투표 선택은 보존 — 재시도 가능
         } finally {
+            isSubmitting = false;
             const modal = document.getElementById('result-modal');
             if (modal.classList.contains('hidden')) {
                 updateProgress();
@@ -401,17 +413,17 @@
                 : '투표를 처리할 수 없습니다. 새로고침 후 다시 시도해주세요.';
 
         if (status === 401) {
-            // 서버 재시작/일시 오류 등으로 세션 조회가 실패한 경우.
-            // '/'로 리다이렉트하면 사용자가 데이터 소실로 오인하므로 현재 페이지를 새로고침한다.
-            // 세션 파일이 살아있으면 새로고침으로 정상 복구되고, 진짜로 만료된 경우에만
-            // require_store가 RequiresSessionException을 발생시켜 '/'로 이동된다.
-            alert('서버와의 연결이 일시적으로 끊겼습니다. 페이지를 새로고침합니다.');
-            location.reload();
+            showToast('서버와의 연결이 일시적으로 끊겼습니다. 새로고침합니다...', 'warning', 3000);
+            setTimeout(() => location.reload(), 1500);
+            return;
+        }
+        if (status === 409) {
+            showToast('대결이 만료되었습니다. 새로운 대결을 불러옵니다...', 'warning', 3000);
+            setTimeout(() => location.reload(), 1500);
             return;
         }
 
-        alert(detail);
-        location.reload();
+        showToast(detail, 'error', 5000);
     }
 
     // --- Navigate to next ---
@@ -443,7 +455,7 @@
                     <span class="text-xs font-bold ml-1 ${r.diff_r1 > 0 ? 'text-green-500' : r.diff_r1 < 0 ? 'text-red-500' : 'text-gray-400'}">${r.diff_r1 > 0 ? '+' : ''}${r.diff_r1}</span>
                 </div>
                 <div class="w-24 md:w-28 text-center shrink-0">
-                    <span class="text-xs font-bold ${winColor}">${winIcon}</span>
+                    <span class="text-xs font-bold ${winColor}" aria-hidden="true">${winIcon}</span>
                     <div class="text-[11px] font-bold text-gray-600 dark:text-gray-300">${r.label}</div>
                 </div>
                 <div class="flex-1 text-left">
@@ -461,6 +473,7 @@
         const modal = document.getElementById('result-modal');
         const inner = modal.querySelector(':scope > div');
         modal.classList.remove('hidden');
+        modal.setAttribute('aria-hidden', 'false');
         requestAnimationFrame(() => {
             modal.classList.remove('opacity-0');
             inner.classList.remove('scale-95');
@@ -470,7 +483,7 @@
         if (RESULT_AUTO_SKIP) {
             document.getElementById('auto-skip-area').classList.remove('hidden');
             document.getElementById('click-skip-area').classList.add('hidden');
-            const MODAL_ANIM_MS = 300; // transition-opacity duration-300
+            const MODAL_ANIM_MS = 300;
             setTimeout(() => {
                 document.getElementById('modal-progress').style.width = '100%';
             }, MODAL_ANIM_MS + 50);
@@ -478,6 +491,7 @@
         } else {
             document.getElementById('auto-skip-area').classList.add('hidden');
             document.getElementById('click-skip-area').classList.remove('hidden');
+            document.getElementById('next-battle-btn').focus();
 
             modal.addEventListener('click', function handler(e) {
                 if (e.target === modal) {
@@ -495,5 +509,17 @@
             });
         }
     }
+
+    // --- Keyboard shortcuts ---
+    document.addEventListener('keydown', (e) => {
+        // 모달이 열려있으면 무시
+        if (!document.getElementById('result-modal').classList.contains('hidden')) return;
+        // 입력 필드에서는 무시
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+        if (e.key === 'Enter' && !document.getElementById('submit-btn').disabled) {
+            e.preventDefault();
+            submitAllVotes();
+        }
+    });
 </script>
 {% endblock %}

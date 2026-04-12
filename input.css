@@ -44,3 +44,19 @@
     scrollbar-width: none;
     &::-webkit-scrollbar { display: none; }
 }
+
+/* 토스트 알림 애니메이션 */
+@keyframes toast-in {
+    from { transform: translateY(-1rem); opacity: 0; }
+    to   { transform: translateY(0); opacity: 1; }
+}
+@keyframes toast-out {
+    from { transform: translateY(0); opacity: 1; }
+    to   { transform: translateY(-1rem); opacity: 0; }
+}
+@utility animate-toast-in {
+    animation: toast-in 0.3s ease-out forwards;
+}
+@utility animate-toast-out {
+    animation: toast-out 0.25s ease-in forwards;
+}

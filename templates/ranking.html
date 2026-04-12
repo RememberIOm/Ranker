@@ -51,16 +51,23 @@
             <table class="w-full text-left border-collapse whitespace-nowrap">
                 <thead>
                     <tr class="bg-gray-50 dark:bg-gray-700/50 border-b border-gray-200 dark:border-gray-700 text-xs uppercase text-gray-500 dark:text-gray-400 font-semibold">
-                        <th class="p-4 text-center w-16">#</th>
-                        <th class="p-4">Title</th>
-                        <th class="p-4 text-center text-yellow-600 dark:text-yellow-400 bg-yellow-50/50 dark:bg-yellow-900/10 cursor-pointer hover:bg-yellow-100 dark:hover:bg-yellow-900/20 transition"
-                            onclick="location.href='/ranking?sort_by=total'">Total</th>
+                        <th class="p-4 text-center w-16" scope="col">#</th>
+                        <th class="p-4" scope="col">Title</th>
+                        <th class="p-4 text-center bg-yellow-50/50 dark:bg-yellow-900/10" scope="col">
+                            <a href="/ranking?sort_by=total"
+                               class="text-yellow-600 dark:text-yellow-400 hover:bg-yellow-100 dark:hover:bg-yellow-900/20 px-2 py-1 rounded transition inline-block"
+                               aria-current="{{ 'page' if sort_by == 'total' else 'false' }}">Total</a>
+                        </th>
                         {% for c in criteria %}
-                        <th class="p-4 text-center cursor-pointer hover:text-{{ c.color }}-500"
-                            onclick="location.href='/ranking?sort_by={{ c.key }}'">{{ c.label }}</th>
+                        <th class="p-4 text-center" scope="col">
+                            <a href="/ranking?sort_by={{ c.key }}"
+                               class="hover:text-{{ c.color }}-500 px-2 py-1 rounded transition inline-block
+                               {% if sort_by == c.key %}text-{{ c.color }}-600 dark:text-{{ c.color }}-400 font-extrabold{% endif %}"
+                               aria-current="{{ 'page' if sort_by == c.key else 'false' }}">{{ c.label }}</a>
+                        </th>
                         {% endfor %}
-                        <th class="p-4 text-center text-gray-400">Matches</th>
-                        <th class="p-4 text-center text-gray-400 w-16"></th>
+                        <th class="p-4 text-center text-gray-400" scope="col">Matches</th>
+                        <th class="p-4 text-center text-gray-400 w-16" scope="col"><span class="sr-only">Actions</span></th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-gray-100 dark:divide-gray-700">
@@ -94,25 +101,27 @@
                         </td>
                         <td class="p-4 text-center relative">
                             <div class="relative inline-block">
-                                <button onclick="this.nextElementSibling.classList.toggle('hidden')"
-                                    class="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition opacity-0 group-hover:opacity-100">
-                                    <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><circle cx="10" cy="4" r="2"/><circle cx="10" cy="10" r="2"/><circle cx="10" cy="16" r="2"/></svg>
+                                <button onclick="toggleDropdown(this)"
+                                    class="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition opacity-0 group-hover:opacity-100 focus:opacity-100"
+                                    aria-haspopup="true" aria-expanded="false" aria-label="{{ item.name }} 메뉴">
+                                    <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="4" r="2"/><circle cx="10" cy="10" r="2"/><circle cx="10" cy="16" r="2"/></svg>
                                 </button>
-                                <div class="hidden absolute right-0 top-8 z-30 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 py-1 w-32 text-left">
-                                    <a href="/battle/focus/{{ item.id }}"
+                                <div class="hidden absolute right-0 top-8 z-30 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 py-1 w-32 text-left" role="menu">
+                                    <a href="/battle/focus/{{ item.id }}" role="menuitem"
                                        class="block px-4 py-2 text-xs font-bold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition">
-                                        🎯 Focus
+                                        <span aria-hidden="true">🎯</span> Focus
                                     </a>
-                                    <button onclick="this.closest('.relative').querySelector('div').classList.add('hidden'); toggleRankEdit('{{ item.id }}')"
+                                    <button onclick="this.closest('.relative').querySelector('div[role=menu]').classList.add('hidden'); this.closest('.relative').querySelector('[aria-haspopup]').setAttribute('aria-expanded','false'); toggleRankEdit('{{ item.id }}')"
+                                       role="menuitem"
                                        class="block w-full text-left px-4 py-2 text-xs font-bold text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition">
-                                        ✏️ Edit
+                                        <span aria-hidden="true">✏️</span> Edit
                                     </button>
-                                    <form action="/manage/delete" method="post" onsubmit="return confirm('⚠️ ' + {{ item.name | tojson }} + ' 항목을 삭제하시겠습니까?')" class="block">
+                                    <form action="/manage/delete" method="post" class="block delete-form" data-name="{{ item.name | e }}">
                                         <input type="hidden" name="item_id" value="{{ item.id }}">
                                         <input type="hidden" name="redirect_url" value="/ranking?sort_by={{ sort_by }}">
-                                        <button type="submit"
+                                        <button type="submit" role="menuitem"
                                            class="block w-full text-left px-4 py-2 text-xs font-bold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 transition">
-                                            🗑️ Delete
+                                            <span aria-hidden="true">🗑️</span> Delete
                                         </button>
                                     </form>
                                 </div>
@@ -148,12 +157,40 @@
         }
     }
 
+    // --- Dropdown Toggle ---
+    function toggleDropdown(btn) {
+        const menu = btn.nextElementSibling;
+        const isOpen = !menu.classList.contains('hidden');
+        closeAllDropdowns();
+        if (!isOpen) {
+            menu.classList.remove('hidden');
+            btn.setAttribute('aria-expanded', 'true');
+        }
+    }
+
+    function closeAllDropdowns() {
+        document.querySelectorAll('[role="menu"]').forEach(menu => menu.classList.add('hidden'));
+        document.querySelectorAll('[aria-haspopup]').forEach(btn => btn.setAttribute('aria-expanded', 'false'));
+    }
+
     // 외부 클릭 시 드롭다운 닫기
     document.addEventListener('click', (e) => {
-        document.querySelectorAll('td .relative > div:last-child').forEach(menu => {
-            if (!menu.classList.contains('hidden') && !menu.parentElement.contains(e.target)) {
-                menu.classList.add('hidden');
-            }
+        if (!e.target.closest('[aria-haspopup]') && !e.target.closest('[role="menu"]')) {
+            closeAllDropdowns();
+        }
+    });
+
+    // Escape로 드롭다운 닫기
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') closeAllDropdowns();
+    });
+
+    // 삭제 확인 — showConfirm 사용
+    document.querySelectorAll('.delete-form').forEach(form => {
+        form.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const name = form.dataset.name;
+            showConfirm(`⚠️ ${name} 항목을 삭제하시겠습니까?`, () => form.submit());
         });
     });
     const labels = {{ chart_data.labels | tojson }};
