@@ -422,8 +422,13 @@ class DataStore:
         return json.dumps(self._data, ensure_ascii=False, indent=2)
 
     async def import_json(self, raw: str) -> None:
-        """JSON 문자열로부터 전체 데이터를 교체합니다."""
-        validated = SessionDataModel.model_validate_json(raw)
+        """JSON 문자열로부터 전체 데이터를 교체합니다.
+
+        _load()와 동일한 관대 파싱을 사용하여 이전 버전 Export 파일도 수용합니다.
+        """
+        parsed = json.loads(raw)
+        normalized = _normalize_loaded_data(parsed)
+        validated = SessionDataModel.model_validate(normalized)
         lock = _get_lock(self._session_id)
         async with lock:
             self._data = validated.model_dump(mode="python")

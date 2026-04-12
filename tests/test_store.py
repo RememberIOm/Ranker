@@ -22,22 +22,24 @@ class StoreValidationTests(unittest.IsolatedAsyncioTestCase):
         store.SESSION_DIR = self.original_session_dir
         self.tempdir.cleanup()
 
-    async def test_import_json_rejects_missing_ratings(self) -> None:
+    async def test_import_json_repairs_missing_ratings(self) -> None:
+        """import_json은 _load와 동일한 관대 파싱을 사용하여 누락된 ratings를 자동 보정합니다."""
         session = await store.get_store("a" * 32)
 
-        with self.assertRaises(ValidationError):
-            await session.import_json(
-                """
-                {
-                  "criteria": [
-                    {"key": "story", "label": "스토리", "color": "blue", "weight": 1.0}
-                  ],
-                  "items": [
-                    {"id": 1, "name": "Alpha", "ratings": {}, "matches_played": 0}
-                  ]
-                }
-                """
-            )
+        await session.import_json(
+            """
+            {
+              "criteria": [
+                {"key": "story", "label": "스토리", "color": "blue", "weight": 1.0}
+              ],
+              "items": [
+                {"id": 1, "name": "Alpha", "ratings": {}, "matches_played": 0}
+              ]
+            }
+            """
+        )
+
+        self.assertEqual(session.items[0]["ratings"]["story"], 1200.0)
 
     async def test_delete_session_clears_runtime_cache_and_lock(self) -> None:
         session_id = "b" * 32

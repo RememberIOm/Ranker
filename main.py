@@ -16,6 +16,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from deps import create_session_id, get_session_store, RequiresSessionException
 from store import (
     SESSION_TTL_SECONDS,
+    SessionSaveError,
     cleanup_expired_sessions,
     get_store,
     session_exists,
@@ -75,6 +76,12 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 @app.exception_handler(RequiresSessionException)
 async def session_exception_handler(request: Request, exc: RequiresSessionException):
     return RedirectResponse(url="/", status_code=303)
+
+
+@app.exception_handler(SessionSaveError)
+async def session_save_error_handler(request: Request, exc: SessionSaveError):
+    logger.error("session_save_failed — path=%s: %s", request.url.path, exc)
+    return HTMLResponse("세션 저장에 실패했습니다. 잠시 후 다시 시도해주세요.", status_code=500)
 
 
 class SessionCookieRefreshMiddleware(BaseHTTPMiddleware):
