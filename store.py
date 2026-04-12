@@ -4,6 +4,7 @@
 
 import asyncio
 import json
+import logging
 import os
 import secrets
 import time
@@ -12,6 +13,8 @@ from typing import Any
 
 import aiofiles
 from pydantic import ValidationError
+
+logger = logging.getLogger("ranker.store")
 
 from schemas import BattleVoteRequest, SessionDataModel
 
@@ -42,6 +45,10 @@ class StaleBattleRoundError(RuntimeError):
 
 class BattleItemNotFoundError(LookupError):
     """대결 중인 항목을 찾을 수 없을 때 발생합니다."""
+
+
+class SessionSaveError(RuntimeError):
+    """세션 파일 저장에 실패했을 때 발생합니다 (디스크 풀, 권한 거부 등)."""
 
 
 class InvalidSessionDataError(ValueError):
@@ -253,14 +260,18 @@ class DataStore:
 
     async def _save_locked(self) -> None:
         # CPU-bound 직렬화를 스레드풀에 위임하여 이벤트 루프 블로킹 방지 (_load와 일관성 유지)
-        serialized = await asyncio.to_thread(
-            json.dumps, self._data, ensure_ascii=False, indent=2
-        )
-        # 임시 파일에 먼저 쓰고 os.replace로 원자적 교체 — 충돌 시 파일 손상 방지
-        tmp_path = self._path.with_suffix(".tmp")
-        async with aiofiles.open(tmp_path, "w", encoding="utf-8") as f:
-            await f.write(serialized)
-        os.replace(tmp_path, self._path)
+        try:
+            serialized = await asyncio.to_thread(
+                json.dumps, self._data, ensure_ascii=False, indent=2
+            )
+            # 임시 파일에 먼저 쓰고 os.replace로 원자적 교체 — 충돌 시 파일 손상 방지
+            tmp_path = self._path.with_suffix(".tmp")
+            async with aiofiles.open(tmp_path, "w", encoding="utf-8") as f:
+                await f.write(serialized)
+            os.replace(tmp_path, self._path)
+        except OSError as exc:
+            logger.error("session_save_failed — session_id=%s: %s", self._session_id, exc)
+            raise SessionSaveError(f"세션 저장에 실패했습니다: {self._session_id}") from exc
 
     async def _save(self) -> None:
         lock = _get_lock(self._session_id)
@@ -645,4 +656,6 @@ async def cleanup_expired_sessions() -> int:
         if (now - last_access) > SESSION_TTL_SECONDS:
             _purge_runtime_state(session_id)
 
+    if removed:
+        logger.info("cleanup_expired_sessions — removed %d sessions", removed)
     return removed

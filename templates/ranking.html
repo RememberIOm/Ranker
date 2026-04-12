@@ -107,7 +107,7 @@
                                        class="block w-full text-left px-4 py-2 text-xs font-bold text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition">
                                         ✏️ Edit
                                     </button>
-                                    <form action="/manage/delete" method="post" onsubmit="return confirm('⚠️ \'{{ item.name }}\' 항목을 삭제하시겠습니까?')" class="block">
+                                    <form action="/manage/delete" method="post" onsubmit="return confirm('⚠️ ' + {{ item.name | tojson }} + ' 항목을 삭제하시겠습니까?')" class="block">
                                         <input type="hidden" name="item_id" value="{{ item.id }}">
                                         <input type="hidden" name="redirect_url" value="/ranking?sort_by={{ sort_by }}">
                                         <button type="submit"

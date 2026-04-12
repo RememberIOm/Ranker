@@ -2,6 +2,7 @@
 # 관리 페이지: 항목 CRUD, 대량 추가, 평가 기준 편집, Elo 설정, JSON Import/Export
 # 세션별 DataStore를 사용합니다.
 
+import logging
 import re
 import hashlib
 import unicodedata
@@ -11,8 +12,11 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from pydantic import ValidationError
 
 from deps import require_store
+from schemas import SettingsModel
 from store import DataStore
 from template_env import templates
+
+logger = logging.getLogger("ranker.manage")
 
 router = APIRouter(prefix="/manage", tags=["manage"])
 
@@ -122,15 +126,23 @@ async def update_criteria(request: Request, store: DataStore = Depends(require_s
         if not key:
             key = _generate_key(lbl, used_keys)
 
+        try:
+            weight_val = float(w) if w else 1.0
+        except ValueError:
+            return HTMLResponse(f"'{lbl}'의 가중치는 숫자여야 합니다.", status_code=400)
+
         used_keys.add(key)
         new_criteria.append({
             "key": key,
             "label": lbl,
             "color": clr.strip() or "gray",
-            "weight": float(w) if w else 1.0,
+            "weight": weight_val,
         })
 
-    await store.set_criteria(new_criteria)
+    try:
+        await store.set_criteria(new_criteria)
+    except ValidationError as exc:
+        return HTMLResponse(f"기준 저장 실패: {exc.errors()[0]['msg']}", status_code=400)
     return RedirectResponse(url="/manage?tab=criteria", status_code=303)
 
 
@@ -188,7 +200,14 @@ async def update_settings(request: Request, store: DataStore = Depends(require_s
     for key in bool_fields:
         patch[key] = key in form
 
-    await store.update_settings(patch)
+    # cross-field 재검증 — 예: elo_k_min <= elo_k_max
+    merged = {**store.settings, **patch}
+    try:
+        validated = SettingsModel(**merged).model_dump(mode="python")
+    except ValidationError as exc:
+        return HTMLResponse(f"설정 값이 올바르지 않습니다: {exc.errors()[0]['msg']}", status_code=400)
+
+    await store.update_settings(validated)
     return RedirectResponse(url="/manage?tab=settings", status_code=303)
 
 

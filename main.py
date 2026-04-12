@@ -3,6 +3,7 @@
 # 각 사용자는 JSON 파일을 업로드하거나 새 세션을 시작하여 독립적으로 사용합니다.
 
 import asyncio
+import logging
 import os
 from contextlib import asynccontextmanager
 
@@ -32,18 +33,39 @@ def _env_flag(name: str, default: bool = False) -> bool:
 
 COOKIE_SECURE = _env_flag("COOKIE_SECURE", False)
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s — %(message)s",
+)
+logger = logging.getLogger("ranker")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """앱 시작 시 만료 세션 주기적 정리 태스크를 스폰합니다."""
+    _log = logging.getLogger("ranker.lifespan")
+
     async def _periodic_cleanup():
         while True:
-            await asyncio.sleep(3600)  # 1시간마다
-            await cleanup_expired_sessions()
+            try:
+                await asyncio.sleep(3600)  # 1시간마다
+                removed = await cleanup_expired_sessions()
+                _log.info("cleanup_done — removed %d expired sessions", removed)
+            except asyncio.CancelledError:
+                _log.info("cleanup_cancelled")
+                raise
+            except Exception:
+                _log.exception("cleanup_failed")
 
     task = asyncio.create_task(_periodic_cleanup())
-    yield
-    task.cancel()
+    try:
+        yield
+    finally:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
 
 
 app = FastAPI(lifespan=lifespan)

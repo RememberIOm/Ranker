@@ -85,6 +85,17 @@ def calculate_elo_update(
     return new_a, new_b
 
 
+# --- Composite Rating ---
+
+
+def composite_rating(store: DataStore, item: dict[str, Any]) -> float:
+    """가중 복합 점수를 계산합니다. 매치메이킹과 랭킹에서 공통 사용."""
+    criteria = store.criteria
+    total_weight = sum(c["weight"] for c in criteria) or 1.0
+    initial = store.settings["initial_rating"]
+    return sum(item["ratings"].get(c["key"], initial) * c["weight"] for c in criteria) / total_weight
+
+
 # --- Matchmaking ---
 
 
@@ -95,7 +106,7 @@ def get_match_pair(
     """대결 상대를 선정합니다 (Power of Two Choices).
 
     item1: 2개 무작위 샘플 중 matches_played가 적은 쪽 (탐험 촉진)
-    item2: item1 제외 2개 무작위 샘플 중 첫 번째 기준 점수 차이가 작은 쪽 (공정 매칭)
+    item2: item1 제외 2개 무작위 샘플 중 가중 복합 점수 차이가 작은 쪽 (공정 매칭)
     """
     items = store.items
     if len(items) < 2:
@@ -114,14 +125,12 @@ def get_match_pair(
     if not others:
         return item1, None
 
-    # item2: Two Choices — 첫 번째 기준 점수 차이 작은 쪽 선택
-    ref_key = store.criteria[0]["key"] if store.criteria else None
+    # item2: Two Choices — 가중 복합 점수 차이 작은 쪽 선택
     sample2 = random.sample(others, min(2, len(others)))
 
-    if ref_key:
-        initial = store.settings["initial_rating"]
-        r1 = item1["ratings"].get(ref_key, initial)
-        item2 = min(sample2, key=lambda x: abs(x["ratings"].get(ref_key, initial) - r1))
+    if store.criteria:
+        r1 = composite_rating(store, item1)
+        item2 = min(sample2, key=lambda x: abs(composite_rating(store, x) - r1))
     else:
         item2 = sample2[0]
 
@@ -142,15 +151,9 @@ def get_item_rank(store: DataStore, item_id: int) -> tuple[int, int]:
     if not items:
         return 0, 0
 
-    criteria = store.criteria
-    total_weight = sum(c["weight"] for c in criteria) or 1.0
-    initial = store.settings["initial_rating"]
-
-    scores: list[tuple[float, int]] = []
-    for item in items:
-        weighted = sum(item["ratings"].get(c["key"], initial) * c["weight"] for c in criteria)
-        scores.append((weighted / total_weight, item["id"]))
-
+    scores: list[tuple[float, int]] = [
+        (composite_rating(store, item), item["id"]) for item in items
+    ]
     scores.sort(key=lambda x: x[0], reverse=True)
     total = len(scores)
     for i, (_, iid) in enumerate(scores):

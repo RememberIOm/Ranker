@@ -5,6 +5,7 @@ from fastapi import APIRouter, Request, Depends
 from fastapi.responses import HTMLResponse
 
 from deps import require_store
+from services import composite_rating
 from store import DataStore
 from template_env import templates
 
@@ -32,19 +33,14 @@ async def get_ranking(
             "chart_data": {"labels": [], "counts": [], "category": ""},
         })
 
-    # 가중 합산 방식으로 total 계산
-    weight_map = {c["key"]: c["weight"] for c in criteria}
-    total_weight = sum(weight_map.values()) or 1.0
-
+    # 가중 합산 방식으로 total 계산 — services.composite_rating과 동일 로직
     ranked = []
     for item in items:
         row: dict = {"name": item["name"], "matches": item["matches_played"], "id": item["id"]}
-        weighted_sum = 0.0
         for c in criteria:
             val = item["ratings"].get(c["key"], store.settings["initial_rating"])
             row[c["key"]] = round(val, 1)
-            weighted_sum += val * c["weight"]
-        row["total"] = round(weighted_sum / total_weight, 1)
+        row["total"] = round(composite_rating(store, item), 1)
         ranked.append(row)
 
     ranked.sort(key=lambda x: x.get(sort_by, 0), reverse=True)

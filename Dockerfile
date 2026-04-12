@@ -24,10 +24,13 @@ COPY . .
 COPY --from=css-builder /build/static/output.css /app/static/output.css
 
 # 세션 데이터 디렉토리 (Fly Volume이 /data에 마운트됨)
-RUN mkdir -p /data/sessions
+RUN useradd --system --uid 1000 --home /app --shell /usr/sbin/nologin appuser \
+    && mkdir -p /data/sessions \
+    && chown -R appuser:appuser /app /data
 ENV SESSION_DIR=/data/sessions
 ENV PATH="/app/.venv/bin:$PATH"
 
+USER appuser
 EXPOSE 8080
 
 # store.py의 세션 캐시/락은 프로세스 로컬 상태이므로 단일 워커를 명시합니다.

@@ -2,6 +2,8 @@
 # 모든 평가 기준을 한 라운드에 동시 비교하여 Elo 수렴 속도를 대폭 향상시킵니다.
 # 세션별 DataStore를 사용하여 멀티유저를 지원합니다.
 
+import logging
+
 from fastapi import APIRouter, Request, BackgroundTasks, Cookie, Depends, HTTPException
 from fastapi.responses import HTMLResponse
 
@@ -11,6 +13,7 @@ from store import (
     BattleItemNotFoundError,
     DataStore,
     InvalidBattleVoteError,
+    SessionSaveError,
     StaleBattleRoundError,
 )
 from services import (
@@ -20,6 +23,8 @@ from services import (
     get_match_probabilities,
 )
 from template_env import templates
+
+logger = logging.getLogger("ranker.battle")
 
 router = APIRouter(prefix="/battle", tags=["battle"])
 
@@ -128,12 +133,25 @@ async def vote(
     try:
         response_data, should_normalize = await store.apply_battle_vote(payload)
     except BattleItemNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        logger.warning("battle_item_not_found — session_id=%s", session_id)
+        raise HTTPException(status_code=404, detail="대결 항목을 찾을 수 없습니다.") from exc
     except StaleBattleRoundError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        logger.warning("stale_round — session_id=%s", session_id)
+        raise HTTPException(status_code=409, detail="대결이 만료되었습니다. 새로고침 후 다시 시도해주세요.") from exc
     except InvalidBattleVoteError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+        logger.warning("invalid_vote — session_id=%s: %s", session_id, exc)
+        raise HTTPException(status_code=422, detail="투표 데이터가 올바르지 않습니다.") from exc
+    except SessionSaveError as exc:
+        raise HTTPException(status_code=500, detail="세션 저장에 실패했습니다. 잠시 후 다시 시도해주세요.") from exc
 
     if should_normalize:
-        background_tasks.add_task(normalize_scores, store)
+        background_tasks.add_task(_normalize_scores_safe, store)
     return response_data
+
+
+async def _normalize_scores_safe(store: DataStore) -> None:
+    """백그라운드 정규화 태스크 — 예외를 로깅하고 삼킵니다."""
+    try:
+        await normalize_scores(store)
+    except Exception:
+        logger.exception("normalize_failed — session_id=%s", store._session_id)
