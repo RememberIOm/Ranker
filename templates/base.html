@@ -45,15 +45,18 @@
                 </a>
 
                 <div class="hidden md:block">
-                    <div class="ml-10 flex items-baseline space-x-4">
+                    <div class="ml-10 flex items-baseline space-x-2" id="desktop-nav">
                         <a href="/battle"
-                            class="hover:bg-brand-500 hover:text-white px-3 py-2 rounded-md text-sm font-medium transition-colors">
+                            class="nav-link hover:bg-brand-500/10 hover:text-brand-600 dark:hover:text-brand-400 px-3 py-2 rounded-lg text-sm font-medium transition-colors"
+                            data-path="/battle">
                             <span aria-hidden="true">⚔️</span> Battle</a>
                         <a href="/ranking"
-                            class="hover:bg-brand-500 hover:text-white px-3 py-2 rounded-md text-sm font-medium transition-colors">
+                            class="nav-link hover:bg-brand-500/10 hover:text-brand-600 dark:hover:text-brand-400 px-3 py-2 rounded-lg text-sm font-medium transition-colors"
+                            data-path="/ranking">
                             <span aria-hidden="true">🏆</span> Ranking</a>
                         <a href="/manage"
-                            class="hover:bg-brand-500 hover:text-white px-3 py-2 rounded-md text-sm font-medium transition-colors">
+                            class="nav-link hover:bg-brand-500/10 hover:text-brand-600 dark:hover:text-brand-400 px-3 py-2 rounded-lg text-sm font-medium transition-colors"
+                            data-path="/manage">
                             <span aria-hidden="true">⚙️</span> Manage</a>
                     </div>
                 </div>
@@ -85,10 +88,11 @@
             </div>
 
             <div
-                class="md:hidden flex justify-center space-x-6 py-2 border-t border-gray-200 dark:border-gray-800 text-xs font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400">
-                <a href="/battle">Battle</a>
-                <a href="/ranking">Ranking</a>
-                <a href="/manage">Manage</a>
+                class="md:hidden flex justify-center space-x-6 py-2 border-t border-gray-200 dark:border-gray-800 text-xs font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400"
+                id="mobile-nav">
+                <a href="/battle" data-path="/battle" class="nav-link py-2 border-b-2 border-transparent transition-colors">Battle</a>
+                <a href="/ranking" data-path="/ranking" class="nav-link py-2 border-b-2 border-transparent transition-colors">Ranking</a>
+                <a href="/manage" data-path="/manage" class="nav-link py-2 border-b-2 border-transparent transition-colors">Manage</a>
             </div>
         </div>
     </nav>
@@ -100,7 +104,7 @@
     <footer
         class="border-t border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 py-6 mt-12 transition-colors duration-300">
         <div class="container mx-auto text-center text-gray-500 dark:text-gray-400 text-sm">
-            <p>&copy; 2025 Ranker. All rights reserved.</p>
+            <p>&copy; 2025–2026 Ranker. All rights reserved.</p>
         </div>
     </footer>
 
@@ -201,6 +205,21 @@
                 }
             });
         }
+
+        // --- 네비게이션 활성 상태 ---
+        (function () {
+            const path = location.pathname;
+            document.querySelectorAll('#desktop-nav .nav-link').forEach(a => {
+                if (path.startsWith(a.dataset.path)) {
+                    a.classList.add('bg-brand-500/10', 'text-brand-600', 'dark:text-brand-400', 'font-semibold');
+                }
+            });
+            document.querySelectorAll('#mobile-nav .nav-link').forEach(a => {
+                if (path.startsWith(a.dataset.path)) {
+                    a.classList.add('text-brand-600', 'dark:text-brand-400', 'border-brand-500');
+                }
+            });
+        })();
 
         // --- fetchWithTimeout 유틸리티 ---
         async function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {

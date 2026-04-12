@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="space-y-8">
+<div class="max-w-7xl mx-auto space-y-8">
 
     <!-- 헤더 -->
     <div class="flex flex-col md:flex-row md:items-end justify-between gap-4">
@@ -11,23 +11,23 @@
         </div>
 
         <!-- 카테고리 필터 -->
-        <div class="flex space-x-2 overflow-x-auto pb-2 scrollbar-hide">
+        <div class="flex space-x-1 bg-gray-100 dark:bg-gray-800 p-1 rounded-xl overflow-x-auto scrollbar-hide">
             <a href="/ranking?sort_by=total"
-               class="px-4 py-2 rounded-lg text-sm font-bold whitespace-nowrap transition-all duration-200 border
+               class="px-4 py-2 rounded-lg text-sm font-bold whitespace-nowrap transition-all duration-200
                {% if sort_by == 'total' %}
-                   bg-yellow-500 text-white border-yellow-600 shadow-md transform scale-105
+                   bg-yellow-500 text-white shadow-sm
                {% else %}
-                   bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700
+                   text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300
                {% endif %}">
                 종합
             </a>
             {% for c in criteria %}
             <a href="/ranking?sort_by={{ c.key }}"
-               class="px-4 py-2 rounded-lg text-sm font-bold whitespace-nowrap transition-all duration-200 border
+               class="px-4 py-2 rounded-lg text-sm font-bold whitespace-nowrap transition-all duration-200
                {% if sort_by == c.key %}
-                   bg-{{ c.color }}-500 text-white border-{{ c.color }}-600 shadow-md transform scale-105
+                   bg-{{ c.color }}-500 text-white shadow-sm
                {% else %}
-                   bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700
+                   text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300
                {% endif %}">
                 {{ c.label }}
             </a>
@@ -36,7 +36,7 @@
     </div>
 
     <!-- 차트 영역 -->
-    <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+    <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700 p-6">
         <h2 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">
             Distribution: <span class="text-brand-600 dark:text-brand-400">{{ chart_data.category }}</span>
         </h2>
@@ -53,9 +53,10 @@
                     <tr class="bg-gray-50 dark:bg-gray-700/50 border-b border-gray-200 dark:border-gray-700 text-xs uppercase text-gray-500 dark:text-gray-400 font-semibold">
                         <th class="p-4 text-center w-16" scope="col">#</th>
                         <th class="p-4" scope="col">Title</th>
-                        <th class="p-4 text-center bg-yellow-50/50 dark:bg-yellow-900/10" scope="col">
+                        <th class="p-4 text-center bg-yellow-50/50 dark:bg-yellow-900/20" scope="col">
                             <a href="/ranking?sort_by=total"
-                               class="text-yellow-600 dark:text-yellow-400 hover:bg-yellow-100 dark:hover:bg-yellow-900/20 px-2 py-1 rounded transition inline-block"
+                               class="text-yellow-600 dark:text-yellow-400 hover:bg-yellow-100 dark:hover:bg-yellow-900/20 px-2 py-1 rounded transition inline-block
+                               {% if sort_by == 'total' %}font-extrabold{% endif %}"
                                aria-current="{{ 'page' if sort_by == 'total' else 'false' }}">Total</a>
                         </th>
                         {% for c in criteria %}
@@ -72,7 +73,7 @@
                 </thead>
                 <tbody class="divide-y divide-gray-100 dark:divide-gray-700">
                     {% for item in items %}
-                    <tr class="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors group">
+                    <tr class="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors group animate-slide-up" style="animation-delay: {{ loop.index0 * 40 }}ms">
                         <td class="p-4 text-center font-mono text-gray-400 text-sm">{{ loop.index }}</td>
                         <td class="p-4 font-bold text-gray-800 dark:text-gray-100 group-hover:text-brand-600 dark:group-hover:text-brand-400 transition-colors">
                             <span id="rank-view-{{ item.id }}">{{ item.name }}</span>
@@ -80,12 +81,12 @@
                                 <input type="hidden" name="item_id" value="{{ item.id }}">
                                 <input type="hidden" name="redirect_url" value="/ranking?sort_by={{ sort_by }}">
                                 <input type="text" name="new_name" value="{{ item.name }}" required
-                                    class="px-2 py-1 bg-white dark:bg-gray-900 border border-brand-400 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 outline-none text-gray-900 dark:text-white w-48">
-                                <button type="submit" class="px-2 py-1 bg-brand-600 text-white rounded-lg text-xs font-bold">Save</button>
-                                <button type="button" onclick="toggleRankEdit('{{ item.id }}')" class="px-2 py-1 bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-lg text-xs font-bold">Cancel</button>
+                                    class="px-3 py-1.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 dark:focus:ring-brand-400 outline-none text-gray-900 dark:text-white w-48">
+                                <button type="submit" class="px-3 py-1.5 bg-brand-600 text-white rounded-lg text-xs font-bold">Save</button>
+                                <button type="button" onclick="toggleRankEdit('{{ item.id }}')" class="px-3 py-1.5 bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-lg text-xs font-bold">Cancel</button>
                             </form>
                         </td>
-                        <td class="p-4 text-center font-mono font-bold text-lg text-yellow-600 dark:text-yellow-400 bg-yellow-50/30 dark:bg-yellow-900/10">
+                        <td class="p-4 text-center font-mono font-bold text-lg text-yellow-600 dark:text-yellow-400 bg-yellow-50/30 dark:bg-yellow-900/20">
                             {{ item.total }}
                         </td>
                         {% for c in criteria %}
@@ -106,7 +107,7 @@
                                     aria-haspopup="true" aria-expanded="false" aria-label="{{ item.name }} 메뉴">
                                     <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="4" r="2"/><circle cx="10" cy="10" r="2"/><circle cx="10" cy="16" r="2"/></svg>
                                 </button>
-                                <div class="hidden absolute right-0 top-8 z-30 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 py-1 w-32 text-left" role="menu">
+                                <div class="hidden absolute right-0 top-8 z-30 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 py-1 w-32 text-left dropdown-menu" role="menu">
                                     <a href="/battle/focus/{{ item.id }}" role="menuitem"
                                        class="block px-4 py-2 text-xs font-bold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition">
                                         <span aria-hidden="true">🎯</span> Focus
@@ -165,6 +166,17 @@
         if (!isOpen) {
             menu.classList.remove('hidden');
             btn.setAttribute('aria-expanded', 'true');
+            // 화면 하단 오버플로 시 위로 열기
+            const rect = menu.getBoundingClientRect();
+            if (rect.bottom > window.innerHeight - 8) {
+                menu.style.top = 'auto';
+                menu.style.bottom = '100%';
+                menu.style.marginBottom = '4px';
+            } else {
+                menu.style.top = '';
+                menu.style.bottom = '';
+                menu.style.marginBottom = '';
+            }
         }
     }
 
