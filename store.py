@@ -5,6 +5,7 @@
 import asyncio
 import json
 import logging
+import math
 import os
 import secrets
 import time
@@ -24,7 +25,7 @@ SESSION_DIR = Path(os.getenv("SESSION_DIR", "./data/sessions"))
 SESSION_DIR.mkdir(parents=True, exist_ok=True)
 
 # 세션 만료 시간 (7일)
-SESSION_TTL_SECONDS = 7 * 24 * 60 * 60
+SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_SECONDS", str(7 * 24 * 60 * 60)))
 NORMALIZE_EVERY_N_VOTES = max(1, int(os.getenv("NORMALIZE_EVERY_N_VOTES", "10")))
 
 # asyncio.Lock은 실행 중인 이벤트 루프 안에서 생성해야 하므로 lazy init
@@ -180,11 +181,22 @@ def _normalize_loaded_data(data: Any) -> dict[str, Any]:
                 except (TypeError, ValueError):
                     ratings[key] = normalized_initial_rating
 
+            criterion_matches_raw = raw_item.get("criterion_matches")
+            criterion_matches: dict[str, int] = {}
+            if isinstance(criterion_matches_raw, dict):
+                for key in allowed_rating_keys:
+                    val = criterion_matches_raw.get(key, 0)
+                    try:
+                        criterion_matches[key] = max(0, int(val))
+                    except (TypeError, ValueError):
+                        criterion_matches[key] = 0
+
             items.append({
                 "id": item_id,
                 "name": name.strip(),
                 "ratings": ratings,
                 "matches_played": matches_played,
+                "criterion_matches": criterion_matches,
             })
 
     # active_round (진행 중인 배틀 라운드) 복원 — 파일에 영속화되어 VM 재시작 후에도 투표 가능.
@@ -357,6 +369,7 @@ class DataStore:
                 "name": name.strip(),
                 "ratings": {c["key"]: initial for c in self._data["criteria"]},
                 "matches_played": 0,
+                "criterion_matches": {},
             }
             self._data["items"].append(item)
             self._invalidate_active_round()
@@ -379,6 +392,7 @@ class DataStore:
                     "name": stripped,
                     "ratings": {c["key"]: initial for c in self._data["criteria"]},
                     "matches_played": 0,
+                    "criterion_matches": {},
                 }
                 self._data["items"].append(item)
                 next_id += 1
@@ -505,13 +519,17 @@ class DataStore:
                     case _:
                         actual_score = 0.5
 
+                # Per-item-per-criterion 배틀 수로 K-Factor 결정
+                crit_matches_1 = a1.get("criterion_matches", {}).get(key, 0)
+                crit_matches_2 = a2.get("criterion_matches", {}).get(key, 0)
+
                 new_r1, new_r2 = calculate_elo_update(
                     self,
                     old_r1,
                     old_r2,
                     actual_score,
-                    a1["matches_played"],
-                    a2["matches_played"],
+                    crit_matches_1,
+                    crit_matches_2,
                 )
 
                 a1["ratings"][key] = new_r1
@@ -521,6 +539,14 @@ class DataStore:
                 criterion["battles"] = criterion.get("battles", 0) + 1
                 if winner == "draw":
                     criterion["draws"] = criterion.get("draws", 0) + 1
+
+                # Per-item-per-criterion 카운트 증가
+                if "criterion_matches" not in a1:
+                    a1["criterion_matches"] = {}
+                if "criterion_matches" not in a2:
+                    a2["criterion_matches"] = {}
+                a1["criterion_matches"][key] = crit_matches_1 + 1
+                a2["criterion_matches"][key] = crit_matches_2 + 1
 
                 results.append({
                     "key": key,
@@ -581,6 +607,18 @@ class DataStore:
                     modified = True
                     for item in items:
                         item["ratings"][key] = item["ratings"].get(key, target) - diff
+
+                # Variance stabilization — 극단적 분산 변화만 보정
+                target_std = 100.0
+                if len(values) >= 5:
+                    variance = sum((item["ratings"].get(key, target) - target) ** 2 for item in items) / len(items)
+                    current_std = math.sqrt(variance) if variance > 0 else 0.0
+                    if current_std > 0 and (current_std > target_std * 2 or current_std < target_std * 0.3):
+                        scale = target_std / current_std
+                        modified = True
+                        for item in items:
+                            old_val = item["ratings"].get(key, target)
+                            item["ratings"][key] = target + (old_val - target) * scale
 
             if modified:
                 await self._save_locked()

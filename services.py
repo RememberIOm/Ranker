@@ -37,15 +37,15 @@ def get_match_probabilities(
 ) -> dict[str, float]:
     """UI 표시용 승/무/패 확률 계산.
 
-    battles >= 20이면 해당 기준의 실제 무승부 비율로 draw_max를 보정합니다.
-    데이터가 부족하면 settings의 기본값(elo_draw_max)을 사용합니다.
+    Bayesian Beta prior로 실측 무승부 비율에 자연 수렴합니다.
+    사전분포 강도 10(≈20배틀에서 실측과 동등)으로 부드러운 전환을 구현합니다.
     """
     s = store.settings
-    if battles >= 20:
-        # 실측 무승부 비율 기반 보정 (0.05 ~ 0.5 범위로 클램핑)
-        draw_max = max(0.05, min(0.5, draws / battles))
-    else:
-        draw_max = s["elo_draw_max"]
+    # Bayesian Beta prior: elo_draw_max를 사전분포 중심으로 사용
+    prior_strength = 10
+    alpha = s["elo_draw_max"] * prior_strength + draws
+    beta_param = (1.0 - s["elo_draw_max"]) * prior_strength + (battles - draws)
+    draw_max = max(0.05, min(0.5, alpha / (alpha + beta_param)))
 
     expected_a = calculate_expected_score(rating_a, rating_b)
     delta = abs(rating_a - rating_b)
@@ -73,15 +73,16 @@ def calculate_elo_update(
     matches_a: int,
     matches_b: int,
 ) -> tuple[float, float]:
-    """Elo Rating 업데이트 — 개별 K-Factor 적용"""
+    """Elo Rating 업데이트 — K-Avg로 영합(zero-sum) 보장"""
     expected_a = calculate_expected_score(rating_a, rating_b)
     expected_b = calculate_expected_score(rating_b, rating_a)
 
     k_a = get_dynamic_k_factor(store, matches_a)
     k_b = get_dynamic_k_factor(store, matches_b)
+    k_avg = (k_a + k_b) / 2.0
 
-    new_a = rating_a + k_a * (actual_score - expected_a)
-    new_b = rating_b + k_b * ((1.0 - actual_score) - expected_b)
+    new_a = rating_a + k_avg * (actual_score - expected_a)
+    new_b = rating_b + k_avg * ((1.0 - actual_score) - expected_b)
     return new_a, new_b
 
 
@@ -105,12 +106,14 @@ def get_match_pair(
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     """대결 상대를 선정합니다 (Power of Two Choices).
 
-    item1: 2개 무작위 샘플 중 matches_played가 적은 쪽 (탐험 촉진)
-    item2: item1 제외 2개 무작위 샘플 중 가중 복합 점수 차이가 작은 쪽 (공정 매칭)
+    item1: sqrt(N) 적응형 샘플(최대 10) 중 matches_played가 적은 쪽 (탐험 촉진)
+    item2: item1 제외 동일 샘플 크기 중 가중 복합 점수 차이가 작은 쪽 (공정 매칭)
     """
     items = store.items
     if len(items) < 2:
         return (store.get_item(focus_id) if focus_id else None), None
+
+    sample_size = min(max(2, int(math.sqrt(len(items)))), 10)
 
     # item1: Two Choices — matches_played 적은 쪽 선택
     if focus_id:
@@ -118,7 +121,7 @@ def get_match_pair(
         if not item1:
             return None, None
     else:
-        sample = random.sample(items, min(2, len(items)))
+        sample = random.sample(items, min(sample_size, len(items)))
         item1 = min(sample, key=lambda x: x["matches_played"])
 
     others = [i for i in items if i["id"] != item1["id"]]
@@ -126,7 +129,7 @@ def get_match_pair(
         return item1, None
 
     # item2: Two Choices — 가중 복합 점수 차이 작은 쪽 선택
-    sample2 = random.sample(others, min(2, len(others)))
+    sample2 = random.sample(others, min(sample_size, len(others)))
 
     if store.criteria:
         r1 = composite_rating(store, item1)

@@ -102,7 +102,7 @@ static/
 - `SessionCookieRefreshMiddleware`: 모든 응답에서 유효한 세션 쿠키를 갱신 — 활성 사용자의 TTL 자동 연장
 - `DataStore`: 파일을 인메모리에 캐시, 변경 시 `aiofiles`로 비동기 저장
 - 세션별 `asyncio.Lock`으로 동시 쓰기 보호
-- 7일 경과 세션 자동 삭제 (`cleanup_expired_sessions`)
+- 7일 경과 세션 자동 삭제 (`cleanup_expired_sessions`) — TTL은 `SESSION_TTL_SECONDS` 환경변수로 조정 가능
 - 캐시 미스(서버 재시작) 시 파일 mtime 자동 touch → cleanup이 활성 세션 오삭제 방지
 - **데이터 보호 정책**: `InvalidSessionDataError` 발생 시 세션 파일을 절대 삭제하지 않음 — 파일 손상이 의심돼도 사용자가 재업로드로 복구할 수 있도록 보존
 - **`active_round` 영속화**: 진행 중인 배틀 라운드 토큰을 JSON에 저장 → Fly.io 자동 스케일다운으로 VM 재시작돼도 사용자가 이어서 투표 가능. `delete_item`/`set_criteria`/`import_json` 등 항목 변동 시 invalidate됨
@@ -110,15 +110,16 @@ static/
 - **구조적 로깅**: `ranker` 네임스페이스 (`ranker.store`, `ranker.battle`, `ranker.manage`, `ranker.lifespan`) — 모든 핵심 경로에 `logger.info/warning/error` 적용
 
 ### Elo 알고리즘 (services.py)
-- **다이나믹 K-Factor**: 초반 100 → 대전 수 증가 → 최소 30으로 수렴
-- **드로우 확률**: 기본값은 점수 차이 기반 가우시안 곡선 (draw_max=0.33). 기준별 실전 20+ 배틀 데이터 누적 시 실측 무승부 비율로 자동 보정
-- **기준별 통계**: `CriterionModel.battles` / `CriterionModel.draws` — 투표마다 누적, 기준 편집 시 동일 key의 이력 보존
-- **인플레이션 억제**: 배틀 후 백그라운드 태스크로 평균 회귀 (목표 1200). 서버 재시작 후 첫 번째 투표에서 즉시 정규화 실행
+- **다이나믹 K-Factor**: 초반 100 → 대전 수 증가 → 최소 30으로 수렴. **per-item-per-criterion 배틀 수** 기반으로 기준 추가 시에도 정확한 K 적용
+- **K-Avg 영합(zero-sum) 보장**: 두 항목의 K-Factor 평균을 사용하여 레이팅 총합 보존 — 인플레이션/디플레이션 근본 방지
+- **드로우 확률**: 점수 차이 기반 가우시안 곡선 (draw_max=0.33). **Bayesian Beta prior**로 실측 무승부 비율에 자연 수렴 (prior_strength=10, ~20배틀에서 실측과 동등)
+- **기준별 통계**: `CriterionModel.battles` / `CriterionModel.draws` — 투표마다 누적, 기준 편집 시 동일 key의 이력 보존. `ItemModel.criterion_matches`로 항목별 기준별 배틀 수 추적
+- **인플레이션 억제**: K-Avg로 근본 방지, 정규화(Mean Reversion + Variance Stabilization)는 안전망. 서버 재시작 후 첫 번째 투표에서 즉시 정규화 실행
 - **다중 기준 동시 반영**: 한 번의 투표로 모든 기준 Elo 갱신
 
 ### 매치메이킹 (Power of Two Choices)
-- **item1**: 무작위 2개 샘플 중 `matches_played` 적은 쪽 선택 → 탐험 촉진
-- **item2**: item1 제외 무작위 2개 샘플 중 **가중 복합 점수** 차이 작은 쪽 선택 → 공정 매칭
+- **item1**: sqrt(N) 적응형 샘플(최대 10) 중 `matches_played` 적은 쪽 선택 → 탐험 촉진
+- **item2**: item1 제외 동일 샘플 크기 중 **가중 복합 점수** 차이 작은 쪽 선택 → 공정 매칭
 - `services.composite_rating()` 헬퍼로 매치메이킹·랭킹·순위 계산에서 동일 로직 사용
 - 별도 설정값 없음 — `match_smart_rate`, `match_score_range` 제거됨
 

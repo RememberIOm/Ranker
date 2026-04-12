@@ -17,7 +17,7 @@ class SettingsModel(BaseModel):
     elo_draw_scale: float = Field(default=300.0, gt=0.0, le=10_000.0)
     initial_rating: float = Field(default=1200.0, ge=0.0, le=100_000.0)
     normalize_target: float = Field(default=1200.0, ge=0.0, le=100_000.0)
-    normalize_threshold: float = Field(default=1.0, ge=0.0, le=100_000.0)
+    normalize_threshold: float = Field(default=5.0, ge=0.0, le=100_000.0)
     result_auto_skip: bool = False
     result_skip_seconds: float = Field(default=3.0, ge=0.5, le=60.0)
 
@@ -65,6 +65,7 @@ class ItemModel(BaseModel):
     name: str = Field(min_length=1)
     ratings: dict[str, float] = Field(default_factory=dict)
     matches_played: int = Field(default=0, ge=0)
+    criterion_matches: dict[str, int] = Field(default_factory=dict)
 
     @field_validator("name")
     @classmethod
