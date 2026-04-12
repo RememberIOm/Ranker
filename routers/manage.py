@@ -21,14 +21,13 @@ logger = logging.getLogger("ranker.manage")
 router = APIRouter(prefix="/manage", tags=["manage"])
 
 _SETTINGS_BOUNDS: dict[str, tuple] = {
-    "elo_k_max": (1, 10000),
-    "elo_k_min": (1, 10000),
-    "elo_decay_factor": (1, 100000),  # > 0 필수 (division by zero 방지)
-    "elo_draw_max": (0.0, 1.0),
-    "elo_draw_scale": (1.0, 10000.0),  # > 0 필수 (division by zero 방지)
-    "initial_rating": (0.0, 100000.0),
-    "normalize_target": (0.0, 100000.0),
-    "normalize_threshold": (0.0, 100000.0),
+    "initial_sigma": (0.1, 10.0),
+    "draw_prior_max": (0.0, 1.0),
+    "draw_prior_strength": (1, 1000),
+    "draw_bandwidth": (0.1, 10.0),
+    "hierarchical_strength": (0.0, 100.0),
+    "display_center": (0.0, 100000.0),
+    "display_scale": (1.0, 10000.0),
     "result_skip_seconds": (0.5, 60.0),
 }
 
@@ -171,10 +170,10 @@ async def update_settings(request: Request, store: DataStore = Depends(require_s
     form = await request.form()
     patch: dict = {}
 
-    int_fields = {"elo_k_max", "elo_k_min", "elo_decay_factor"}
+    int_fields = {"draw_prior_strength"}
     float_fields = {
-        "elo_draw_max", "elo_draw_scale",
-        "initial_rating", "normalize_target", "normalize_threshold",
+        "initial_sigma", "draw_prior_max", "draw_bandwidth",
+        "hierarchical_strength", "display_center", "display_scale",
         "result_skip_seconds",
     }
     bool_fields = {"result_auto_skip"}
@@ -200,7 +199,7 @@ async def update_settings(request: Request, store: DataStore = Depends(require_s
     for key in bool_fields:
         patch[key] = key in form
 
-    # cross-field 재검증 — 예: elo_k_min <= elo_k_max
+    # Pydantic 모델로 재검증
     merged = {**store.settings, **patch}
     try:
         validated = SettingsModel(**merged).model_dump(mode="python")

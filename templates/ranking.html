@@ -88,11 +88,14 @@
                         </td>
                         <td class="p-4 text-center font-mono font-bold text-lg text-yellow-600 dark:text-yellow-400 bg-yellow-50/30 dark:bg-yellow-900/20">
                             {{ item.total }}
+                            {% if item.avg_sigma > 150 %}
+                            <span class="block text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400 font-semibold mt-0.5">불확실</span>
+                            {% endif %}
                         </td>
                         {% for c in criteria %}
                         <td class="p-4 text-center font-mono text-sm
                             {% if sort_by == c.key %} font-bold text-gray-900 dark:text-white {% else %} text-gray-500 dark:text-gray-400 {% endif %}">
-                            {{ item[c.key] }}
+                            {{ item[c.key] }}<span class="text-[10px] font-normal text-gray-400 ml-0.5">±{{ item[c.key ~ '_sigma']|round(0)|int }}</span>
                         </td>
                         {% endfor %}
                         <td class="p-4 text-center">

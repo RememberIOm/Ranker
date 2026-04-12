@@ -5,7 +5,6 @@
 import asyncio
 import json
 import logging
-import math
 import os
 import secrets
 import time
@@ -26,7 +25,6 @@ SESSION_DIR.mkdir(parents=True, exist_ok=True)
 
 # 세션 만료 시간 (7일)
 SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_SECONDS", str(7 * 24 * 60 * 60)))
-NORMALIZE_EVERY_N_VOTES = max(1, int(os.getenv("NORMALIZE_EVERY_N_VOTES", "10")))
 
 # asyncio.Lock은 실행 중인 이벤트 루프 안에서 생성해야 하므로 lazy init
 # cooperative scheduling 덕분에 await 없는 구간은 원자적 — dict 가드 불필요
@@ -77,9 +75,31 @@ def _normalize_loaded_data(data: Any) -> dict[str, Any]:
     settings_raw = data.get("settings")
     settings = defaults["settings"].copy()
     if isinstance(settings_raw, dict):
-        for key in settings:
-            if key in settings_raw:
-                settings[key] = settings_raw[key]
+        # Elo→BT 마이그레이션: 구 설정 키 감지 시 변환
+        if "elo_draw_max" in settings_raw and "draw_prior_max" not in settings_raw:
+            settings["draw_prior_max"] = settings_raw.get("elo_draw_max", 0.33)
+            settings["draw_prior_strength"] = 10
+            draw_scale = settings_raw.get("elo_draw_scale", 300.0)
+            try:
+                settings["draw_bandwidth"] = float(draw_scale) / 173.72
+            except (TypeError, ValueError):
+                settings["draw_bandwidth"] = 1.5
+            settings["initial_sigma"] = 2.0
+            settings["hierarchical_strength"] = 5.0
+            old_initial = settings_raw.get("initial_rating", 1200.0)
+            try:
+                settings["display_center"] = float(old_initial)
+            except (TypeError, ValueError):
+                settings["display_center"] = 1200.0
+            settings["display_scale"] = 173.72
+            if "result_auto_skip" in settings_raw:
+                settings["result_auto_skip"] = settings_raw["result_auto_skip"]
+            if "result_skip_seconds" in settings_raw:
+                settings["result_skip_seconds"] = settings_raw["result_skip_seconds"]
+        else:
+            for key in settings:
+                if key in settings_raw:
+                    settings[key] = settings_raw[key]
 
     criteria_raw = data.get("criteria")
     criteria: list[dict[str, Any]] = []
@@ -136,18 +156,22 @@ def _normalize_loaded_data(data: Any) -> dict[str, Any]:
     if not criteria:
         criteria = defaults["criteria"]
 
-    initial_rating = settings.get("initial_rating", defaults["settings"]["initial_rating"])
+    initial_sigma = settings.get("initial_sigma", defaults["settings"]["initial_sigma"])
     try:
-        normalized_initial_rating = float(initial_rating)
+        initial_sigma = float(initial_sigma)
     except (TypeError, ValueError):
-        normalized_initial_rating = float(defaults["settings"]["initial_rating"])
+        initial_sigma = float(defaults["settings"]["initial_sigma"])
+    initial_sigma_sq = initial_sigma ** 2
+
+    display_center = settings.get("display_center", 1200.0)
+    display_scale = settings.get("display_scale", 173.72)
 
     items_raw = data.get("items")
     items: list[dict[str, Any]] = []
     if isinstance(items_raw, list):
         seen_ids: set[int] = set()
         next_generated_id = 1
-        allowed_rating_keys = [criterion["key"] for criterion in criteria]
+        allowed_keys = [criterion["key"] for criterion in criteria]
 
         for raw_item in items_raw:
             if not isinstance(raw_item, dict):
@@ -169,32 +193,58 @@ def _normalize_loaded_data(data: Any) -> dict[str, Any]:
             if not isinstance(matches_played, int) or matches_played < 0:
                 matches_played = 0
 
-            ratings_raw = raw_item.get("ratings")
-            if not isinstance(ratings_raw, dict):
-                ratings_raw = {}
-
-            ratings: dict[str, float] = {}
-            for key in allowed_rating_keys:
-                value = ratings_raw.get(key, normalized_initial_rating)
-                try:
-                    ratings[key] = float(value)
-                except (TypeError, ValueError):
-                    ratings[key] = normalized_initial_rating
-
             criterion_matches_raw = raw_item.get("criterion_matches")
             criterion_matches: dict[str, int] = {}
             if isinstance(criterion_matches_raw, dict):
-                for key in allowed_rating_keys:
+                for key in allowed_keys:
                     val = criterion_matches_raw.get(key, 0)
                     try:
                         criterion_matches[key] = max(0, int(val))
                     except (TypeError, ValueError):
                         criterion_matches[key] = 0
 
+            # Elo→BT 마이그레이션: "ratings" 존재 + "mu" 부재 시 변환
+            mu_raw = raw_item.get("mu")
+            ratings_raw = raw_item.get("ratings")
+            is_legacy = (isinstance(ratings_raw, dict) and not isinstance(mu_raw, dict))
+
+            if is_legacy:
+                mu: dict[str, float] = {}
+                sigma_sq: dict[str, float] = {}
+                for key in allowed_keys:
+                    old_r = ratings_raw.get(key, display_center)
+                    try:
+                        old_r = float(old_r)
+                    except (TypeError, ValueError):
+                        old_r = display_center
+                    mu[key] = (old_r - display_center) / display_scale
+                    cm = criterion_matches.get(key, 0)
+                    sigma_sq[key] = max(0.1, initial_sigma_sq / (1.0 + cm * 0.25))
+            else:
+                if not isinstance(mu_raw, dict):
+                    mu_raw = {}
+                sigma_sq_raw = raw_item.get("sigma_sq")
+                if not isinstance(sigma_sq_raw, dict):
+                    sigma_sq_raw = {}
+                mu = {}
+                sigma_sq = {}
+                for key in allowed_keys:
+                    val = mu_raw.get(key, 0.0)
+                    try:
+                        mu[key] = float(val)
+                    except (TypeError, ValueError):
+                        mu[key] = 0.0
+                    sq_val = sigma_sq_raw.get(key, initial_sigma_sq)
+                    try:
+                        sigma_sq[key] = max(0.01, float(sq_val))
+                    except (TypeError, ValueError):
+                        sigma_sq[key] = initial_sigma_sq
+
             items.append({
                 "id": item_id,
                 "name": name.strip(),
-                "ratings": ratings,
+                "mu": mu,
+                "sigma_sq": sigma_sq,
                 "matches_played": matches_played,
                 "criterion_matches": criterion_matches,
             })
@@ -245,16 +295,12 @@ class DataStore:
         self._session_id = session_id
         self._path = SESSION_DIR / f"{session_id}.json"
         self._data: dict[str, Any] = {}  # create()에서 채워짐 (active_round 포함)
-        self._votes_since_normalize = 0
 
     @classmethod
     async def create(cls, session_id: str) -> "DataStore":
         """비동기 팩토리 — 파일에서 데이터를 로드한 DataStore를 반환합니다."""
         instance = cls(session_id)
         instance._data = await instance._load()
-        # 서버 재시작 후 기존 세션 복원 시 첫 번째 투표에서 바로 정규화 실행
-        if instance._data["items"]:
-            instance._votes_since_normalize = NORMALIZE_EVERY_N_VOTES - 1
         return instance
 
     async def _load(self) -> dict[str, Any]:
@@ -319,7 +365,7 @@ class DataStore:
         return self._data["criteria"]
 
     async def set_criteria(self, criteria: list[dict[str, Any]]) -> None:
-        """평가 기준 전체 교체 — 기존 아이템의 ratings도 동기화합니다."""
+        """평가 기준 전체 교체 — 기존 아이템의 mu/sigma_sq도 동기화합니다."""
         lock = _get_lock(self._session_id)
         async with lock:
             old_keys = {c["key"] for c in self._data["criteria"]}
@@ -327,13 +373,15 @@ class DataStore:
             added = new_keys - old_keys
             removed = old_keys - new_keys
 
-            initial = self._data["settings"]["initial_rating"]
+            initial_sq = self._data["settings"]["initial_sigma"] ** 2
 
             for item in self._data["items"]:
                 for key in added:
-                    item["ratings"].setdefault(key, initial)
+                    item["mu"].setdefault(key, 0.0)
+                    item["sigma_sq"].setdefault(key, initial_sq)
                 for key in removed:
-                    item["ratings"].pop(key, None)
+                    item["mu"].pop(key, None)
+                    item["sigma_sq"].pop(key, None)
 
             # 기존 기준의 배틀 통계(draws/battles) 보존 — key가 동일하면 이력 유지
             old_stats = {
@@ -363,11 +411,12 @@ class DataStore:
     async def add_item(self, name: str) -> dict[str, Any]:
         lock = _get_lock(self._session_id)
         async with lock:
-            initial = self._data["settings"]["initial_rating"]
+            initial_sq = self._data["settings"]["initial_sigma"] ** 2
             item = {
                 "id": self._next_id(),
                 "name": name.strip(),
-                "ratings": {c["key"]: initial for c in self._data["criteria"]},
+                "mu": {c["key"]: 0.0 for c in self._data["criteria"]},
+                "sigma_sq": {c["key"]: initial_sq for c in self._data["criteria"]},
                 "matches_played": 0,
                 "criterion_matches": {},
             }
@@ -381,8 +430,8 @@ class DataStore:
         lock = _get_lock(self._session_id)
         async with lock:
             count = 0
-            initial = self._data["settings"]["initial_rating"]
-            next_id = self._next_id()  # O(N) 호출을 루프 밖으로 이동 — 루프 내 반복 시 O(N×M) 방지
+            initial_sq = self._data["settings"]["initial_sigma"] ** 2
+            next_id = self._next_id()
             for name in names:
                 stripped = name.strip()
                 if not stripped:
@@ -390,7 +439,8 @@ class DataStore:
                 item = {
                     "id": next_id,
                     "name": stripped,
-                    "ratings": {c["key"]: initial for c in self._data["criteria"]},
+                    "mu": {c["key"]: 0.0 for c in self._data["criteria"]},
+                    "sigma_sq": {c["key"]: initial_sq for c in self._data["criteria"]},
                     "matches_played": 0,
                     "criterion_matches": {},
                 }
@@ -467,7 +517,7 @@ class DataStore:
             return token
 
     async def apply_battle_vote(self, payload: BattleVoteRequest) -> tuple[dict[str, Any], bool]:
-        from services import calculate_elo_update
+        from services import bt_update, hierarchical_shrinkage, display_rating, display_uncertainty
 
         lock = _get_lock(self._session_id)
         async with lock:
@@ -501,39 +551,34 @@ class DataStore:
                     f"투표가 누락된 기준이 있습니다: {sorted(missing_keys)}"
                 )
 
-            initial = self._data["settings"]["initial_rating"]
+            initial_sq = self._data["settings"]["initial_sigma"] ** 2
             results: list[dict[str, Any]] = []
 
             for criterion in criteria:
                 key = criterion["key"]
                 winner = payload.votes[key]
 
-                old_r1 = a1["ratings"].get(key, initial)
-                old_r2 = a2["ratings"].get(key, initial)
+                old_mu1 = a1["mu"].get(key, 0.0)
+                old_sq1 = a1["sigma_sq"].get(key, initial_sq)
+                old_mu2 = a2["mu"].get(key, 0.0)
+                old_sq2 = a2["sigma_sq"].get(key, initial_sq)
 
                 match winner:
                     case "1":
-                        actual_score = 1.0
+                        outcome = 1.0
                     case "2":
-                        actual_score = 0.0
+                        outcome = 0.0
                     case _:
-                        actual_score = 0.5
+                        outcome = 0.5
 
-                # Per-item-per-criterion 배틀 수로 K-Factor 결정
-                crit_matches_1 = a1.get("criterion_matches", {}).get(key, 0)
-                crit_matches_2 = a2.get("criterion_matches", {}).get(key, 0)
-
-                new_r1, new_r2 = calculate_elo_update(
-                    self,
-                    old_r1,
-                    old_r2,
-                    actual_score,
-                    crit_matches_1,
-                    crit_matches_2,
+                new_mu1, new_sq1, new_mu2, new_sq2 = bt_update(
+                    old_mu1, old_sq1, old_mu2, old_sq2, outcome,
                 )
 
-                a1["ratings"][key] = new_r1
-                a2["ratings"][key] = new_r2
+                a1["mu"][key] = new_mu1
+                a1["sigma_sq"][key] = new_sq1
+                a2["mu"][key] = new_mu2
+                a2["sigma_sq"][key] = new_sq2
 
                 # 기준별 배틀 통계 누적 (무승부 확률 실측 보정용)
                 criterion["battles"] = criterion.get("battles", 0) + 1
@@ -545,30 +590,38 @@ class DataStore:
                     a1["criterion_matches"] = {}
                 if "criterion_matches" not in a2:
                     a2["criterion_matches"] = {}
-                a1["criterion_matches"][key] = crit_matches_1 + 1
-                a2["criterion_matches"][key] = crit_matches_2 + 1
+                a1["criterion_matches"][key] = a1["criterion_matches"].get(key, 0) + 1
+                a2["criterion_matches"][key] = a2["criterion_matches"].get(key, 0) + 1
+
+                old_disp1 = display_rating(self, old_mu1)
+                new_disp1 = display_rating(self, new_mu1)
+                old_disp2 = display_rating(self, old_mu2)
+                new_disp2 = display_rating(self, new_mu2)
 
                 results.append({
                     "key": key,
                     "label": criterion["label"],
                     "color": criterion["color"],
                     "winner": winner,
-                    "old_r1": round(old_r1),
-                    "new_r1": round(new_r1),
-                    "diff_r1": round(new_r1 - old_r1),
-                    "old_r2": round(old_r2),
-                    "new_r2": round(new_r2),
-                    "diff_r2": round(new_r2 - old_r2),
+                    "old_r1": round(old_disp1, 1),
+                    "new_r1": round(new_disp1, 1),
+                    "diff_r1": round(new_disp1 - old_disp1, 1),
+                    "old_r2": round(old_disp2, 1),
+                    "new_r2": round(new_disp2, 1),
+                    "diff_r2": round(new_disp2 - old_disp2, 1),
+                    "sigma1": round(display_uncertainty(self, new_sq1), 1),
+                    "sigma2": round(display_uncertainty(self, new_sq2), 1),
                 })
+
+            # 모든 기준 업데이트 후 계층적 축소
+            if self._data["settings"]["hierarchical_strength"] > 0:
+                hierarchical_shrinkage(self, a1)
+                hierarchical_shrinkage(self, a2)
 
             a1["matches_played"] += 1
             a2["matches_played"] += 1
             self._invalidate_active_round()
             await self._save_locked()
-            self._votes_since_normalize += 1
-            should_normalize = self._votes_since_normalize >= NORMALIZE_EVERY_N_VOTES
-            if should_normalize:
-                self._votes_since_normalize = 0
 
             return (
                 {
@@ -580,49 +633,8 @@ class DataStore:
                     "total_items": len(self._data["items"]),
                     "next_url": payload.redirect_to or "/battle",
                 },
-                should_normalize,
+                False,  # 정규화 불필요 — Bayesian prior가 대체
             )
-
-    async def normalize_scores(self) -> None:
-        """점수 인플레이션 방지 (Mean Reversion)."""
-        lock = _get_lock(self._session_id)
-        async with lock:
-            items = self._data["items"]
-            if not items:
-                self._votes_since_normalize = 0
-                return
-
-            settings = self._data["settings"]
-            target = settings["normalize_target"]
-            threshold = settings["normalize_threshold"]
-            criteria_keys = [criterion["key"] for criterion in self._data["criteria"]]
-            modified = False
-
-            for key in criteria_keys:
-                values = [item["ratings"].get(key, target) for item in items]
-                avg = sum(values) / len(values)
-                diff = avg - target
-
-                if abs(diff) > threshold:
-                    modified = True
-                    for item in items:
-                        item["ratings"][key] = item["ratings"].get(key, target) - diff
-
-                # Variance stabilization — 극단적 분산 변화만 보정
-                target_std = 100.0
-                if len(values) >= 5:
-                    variance = sum((item["ratings"].get(key, target) - target) ** 2 for item in items) / len(items)
-                    current_std = math.sqrt(variance) if variance > 0 else 0.0
-                    if current_std > 0 and (current_std > target_std * 2 or current_std < target_std * 0.3):
-                        scale = target_std / current_std
-                        modified = True
-                        for item in items:
-                            old_val = item["ratings"].get(key, target)
-                            item["ratings"][key] = target + (old_val - target) * scale
-
-            if modified:
-                await self._save_locked()
-            self._votes_since_normalize = 0
 
     def delete_session(self) -> None:
         """세션 데이터 파일을 삭제합니다."""

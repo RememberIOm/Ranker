@@ -5,12 +5,14 @@ from pathlib import Path
 
 import store
 from services import (
-    calculate_elo_update,
-    calculate_expected_score,
+    bt_update,
     composite_rating,
-    get_dynamic_k_factor,
+    display_rating,
+    display_uncertainty,
     get_match_pair,
     get_match_probabilities,
+    hierarchical_shrinkage,
+    sigmoid,
 )
 
 
@@ -33,106 +35,132 @@ class ServiceTestBase(unittest.IsolatedAsyncioTestCase):
         return await store.get_store(session_id)
 
 
-class TestDynamicKFactor(ServiceTestBase):
-    async def test_k_factor_at_zero_matches(self) -> None:
-        s = await self._make_store()
-        k = get_dynamic_k_factor(s, 0)
-        self.assertAlmostEqual(k, s.settings["elo_k_max"], places=5)
+class TestSigmoid(unittest.TestCase):
+    def test_zero(self) -> None:
+        self.assertAlmostEqual(sigmoid(0.0), 0.5)
 
-    async def test_k_factor_converges_to_k_min(self) -> None:
-        s = await self._make_store()
-        k = get_dynamic_k_factor(s, 10_000)
-        self.assertAlmostEqual(k, s.settings["elo_k_min"], delta=0.01)
+    def test_large_positive(self) -> None:
+        self.assertAlmostEqual(sigmoid(100.0), 1.0, places=5)
 
-    async def test_k_factor_monotonically_decreasing(self) -> None:
-        s = await self._make_store()
-        prev = get_dynamic_k_factor(s, 0)
-        for n in range(1, 200):
-            current = get_dynamic_k_factor(s, n)
-            self.assertLessEqual(current, prev)
-            prev = current
+    def test_large_negative(self) -> None:
+        self.assertAlmostEqual(sigmoid(-100.0), 0.0, places=5)
+
+    def test_clamp_extreme(self) -> None:
+        """극단값에서도 오버플로우 없이 동작"""
+        self.assertEqual(sigmoid(1000.0), 1.0 / (1.0 + math.exp(-500.0)))
+        self.assertGreater(sigmoid(-1000.0), 0.0)
 
 
-class TestEloUpdate(ServiceTestBase):
-    async def test_zero_sum_property(self) -> None:
-        """K-Avg 사용으로 (new_a - old_a) + (new_b - old_b) == 0 보장"""
-        s = await self._make_store()
-        old_a, old_b = 1200.0, 1200.0
-        for actual_score in [1.0, 0.5, 0.0]:
-            new_a, new_b = calculate_elo_update(s, old_a, old_b, actual_score, 0, 0)
-            total_change = (new_a - old_a) + (new_b - old_b)
-            self.assertAlmostEqual(total_change, 0.0, places=10)
-
-    async def test_zero_sum_with_asymmetric_matches(self) -> None:
-        """매치 수가 크게 다른 경우에도 영합 유지"""
-        s = await self._make_store()
-        old_a, old_b = 1300.0, 1100.0
-        for actual_score in [1.0, 0.5, 0.0]:
-            new_a, new_b = calculate_elo_update(s, old_a, old_b, actual_score, 0, 100)
-            total_change = (new_a - old_a) + (new_b - old_b)
-            self.assertAlmostEqual(total_change, 0.0, places=10)
-
+class TestBTUpdate(ServiceTestBase):
     async def test_winner_gains_loser_loses(self) -> None:
-        s = await self._make_store()
-        new_a, new_b = calculate_elo_update(s, 1200.0, 1200.0, 1.0, 10, 10)
-        self.assertGreater(new_a, 1200.0)
-        self.assertLess(new_b, 1200.0)
+        mu_a, sq_a, mu_b, sq_b = bt_update(0.0, 4.0, 0.0, 4.0, 1.0)
+        self.assertGreater(mu_a, 0.0)
+        self.assertLess(mu_b, 0.0)
 
-    async def test_draw_minimal_change_equal_ratings(self) -> None:
+    async def test_symmetric_draw_no_mu_change(self) -> None:
+        """동일 μ, outcome=0.5 → μ 변화 없음 (symmetric)"""
+        mu_a, sq_a, mu_b, sq_b = bt_update(0.0, 4.0, 0.0, 4.0, 0.5)
+        self.assertAlmostEqual(mu_a, 0.0, places=10)
+        self.assertAlmostEqual(mu_b, 0.0, places=10)
+
+    async def test_variance_always_decreases(self) -> None:
+        """모든 outcome에서 σ² 감소"""
+        for outcome in [1.0, 0.5, 0.0]:
+            _, sq_a, _, sq_b = bt_update(0.5, 4.0, -0.3, 3.0, outcome)
+            self.assertLess(sq_a, 4.0)
+            self.assertLess(sq_b, 3.0)
+
+    async def test_high_uncertainty_bigger_update(self) -> None:
+        """높은 σ² → 큰 μ 변화"""
+        mu_high, _, _, _ = bt_update(0.0, 10.0, 0.0, 10.0, 1.0)
+        mu_low, _, _, _ = bt_update(0.0, 0.1, 0.0, 0.1, 1.0)
+        self.assertGreater(abs(mu_high), abs(mu_low))
+
+    async def test_sigma_floor(self) -> None:
+        """σ² ≥ 0.01 보장"""
+        # 아주 작은 sigma에서도 floor 유지
+        _, sq_a, _, sq_b = bt_update(0.0, 0.01, 0.0, 0.01, 1.0)
+        self.assertGreaterEqual(sq_a, 0.01)
+        self.assertGreaterEqual(sq_b, 0.01)
+
+    async def test_convergence(self) -> None:
+        """반복 승리 → μ_a >> μ_b"""
+        mu_a, sq_a, mu_b, sq_b = 0.0, 4.0, 0.0, 4.0
+        for _ in range(50):
+            mu_a, sq_a, mu_b, sq_b = bt_update(mu_a, sq_a, mu_b, sq_b, 1.0)
+        self.assertGreater(mu_a, 0.5)
+        self.assertLess(mu_b, -0.5)
+
+
+class TestHierarchicalShrinkage(ServiceTestBase):
+    async def test_pulls_toward_cross_mean(self) -> None:
         s = await self._make_store()
-        new_a, new_b = calculate_elo_update(s, 1200.0, 1200.0, 0.5, 50, 50)
-        self.assertAlmostEqual(new_a, 1200.0, places=5)
-        self.assertAlmostEqual(new_b, 1200.0, places=5)
+        item = {
+            "mu": {"story": 2.0, "visual": 0.0, "ost": 0.0, "voice": 0.0, "char": 0.0, "fun": 0.0},
+            "sigma_sq": {"story": 1.0, "visual": 1.0, "ost": 1.0, "voice": 1.0, "char": 1.0, "fun": 1.0},
+        }
+        old_story_mu = item["mu"]["story"]
+        hierarchical_shrinkage(s, item)
+        # story가 2.0 → cross_mean 방향(< 2.0)으로 이동
+        self.assertLess(item["mu"]["story"], old_story_mu)
+
+    async def test_zero_strength_no_change(self) -> None:
+        s = await self._make_store()
+        await s.update_settings({"hierarchical_strength": 0.0})
+        item = {
+            "mu": {"story": 2.0, "visual": 0.0, "ost": 0.0, "voice": 0.0, "char": 0.0, "fun": 0.0},
+            "sigma_sq": {"story": 1.0, "visual": 1.0, "ost": 1.0, "voice": 1.0, "char": 1.0, "fun": 1.0},
+        }
+        hierarchical_shrinkage(s, item)
+        self.assertAlmostEqual(item["mu"]["story"], 2.0)
+
+
+class TestDisplayConversion(ServiceTestBase):
+    async def test_mu_zero_gives_center(self) -> None:
+        s = await self._make_store()
+        self.assertAlmostEqual(display_rating(s, 0.0), s.settings["display_center"])
+
+    async def test_uncertainty_positive(self) -> None:
+        s = await self._make_store()
+        u = display_uncertainty(s, 4.0)
+        self.assertGreater(u, 0.0)
+        self.assertAlmostEqual(u, 2.0 * s.settings["display_scale"])
 
 
 class TestDrawProbability(ServiceTestBase):
     async def test_prior_at_zero_battles(self) -> None:
-        """배틀 0회 시 draw_max == elo_draw_max"""
         s = await self._make_store()
-        result = get_match_probabilities(s, 1200.0, 1200.0, battles=0, draws=0)
-        # draw% 가 elo_draw_max(0.33) 기반 — 동일 레이팅이므로 draw 확률이 높아야 함
+        result = get_match_probabilities(s, 0.0, 4.0, 0.0, 4.0, battles=0, draws=0)
         self.assertGreater(result["draw"], 20.0)
 
     async def test_empirical_dominates_at_high_battles(self) -> None:
-        """200배틀, 20무승부(10%) → draw_max가 0.33에서 ~0.1로 수렴"""
         s = await self._make_store()
-        result_low = get_match_probabilities(s, 1200.0, 1200.0, battles=200, draws=20)
-        result_default = get_match_probabilities(s, 1200.0, 1200.0, battles=0, draws=0)
+        result_low = get_match_probabilities(s, 0.0, 4.0, 0.0, 4.0, battles=200, draws=20)
+        result_default = get_match_probabilities(s, 0.0, 4.0, 0.0, 4.0, battles=0, draws=0)
         self.assertLess(result_low["draw"], result_default["draw"])
 
-    async def test_smooth_transition_no_discontinuity(self) -> None:
-        """19→20→21배틀 전환 시 불연속 없음"""
+    async def test_smooth_transition(self) -> None:
         s = await self._make_store()
-        draws = 7  # ~35% draw rate, close to default 0.33
+        draws = 7
         results = []
         for b in range(15, 25):
-            r = get_match_probabilities(s, 1200.0, 1200.0, battles=b, draws=draws)
+            r = get_match_probabilities(s, 0.0, 4.0, 0.0, 4.0, battles=b, draws=draws)
             results.append(r["draw"])
-        # 인접 배틀 간 draw% 차이가 5% 미만이어야 부드러운 전환
         for i in range(len(results) - 1):
             self.assertLess(abs(results[i + 1] - results[i]), 5.0)
 
     async def test_clamping(self) -> None:
-        """극단적 입력에서도 draw_max가 [0.05, 0.5] 범위 유지"""
         s = await self._make_store()
-        # 모든 배틀이 무승부
-        result = get_match_probabilities(s, 1200.0, 1200.0, battles=100, draws=100)
+        result = get_match_probabilities(s, 0.0, 4.0, 0.0, 4.0, battles=100, draws=100)
         self.assertLessEqual(result["draw"], 100.0)
-        # 무승부 0건
-        result = get_match_probabilities(s, 1200.0, 1200.0, battles=100, draws=0)
+        result = get_match_probabilities(s, 0.0, 4.0, 0.0, 4.0, battles=100, draws=0)
         self.assertGreaterEqual(result["draw"], 0.0)
 
 
 class TestMatchmaking(ServiceTestBase):
     async def test_adaptive_sample_size(self) -> None:
-        """sqrt(N) 기반 샘플 크기 계산 검증"""
-        from services import get_match_pair
-        # 4 items -> max(2, sqrt(4)) = 2, capped at 10 -> 2
         self.assertEqual(min(max(2, int(math.sqrt(4))), 10), 2)
-        # 100 items -> max(2, sqrt(100)) = 10, capped at 10 -> 10
         self.assertEqual(min(max(2, int(math.sqrt(100))), 10), 10)
-        # 10000 items -> max(2, sqrt(10000)) = 100, capped at 10 -> 10
-        self.assertEqual(min(max(2, int(math.sqrt(10000))), 10), 10)
 
     async def test_returns_pair_with_two_items(self) -> None:
         s = await self._make_store()

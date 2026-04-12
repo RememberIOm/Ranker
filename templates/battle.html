@@ -104,7 +104,7 @@
                     aria-pressed="false" aria-label="{{ c.label }} — {{ item1.name }} 선택"
                     class="vote-btn flex-1 py-4 px-3 flex flex-col items-center justify-center gap-1 transition-all duration-200 hover:bg-brand-50 dark:hover:bg-brand-900/20 border-r border-gray-200 dark:border-gray-700 group">
                     <span class="text-xs text-gray-400 group-hover:text-brand-500 font-bold" aria-hidden="true">A</span>
-                    <span class="text-sm font-mono font-bold text-gray-600 dark:text-gray-300">{{ c.r1 }}</span>
+                    <span class="text-sm font-mono font-bold text-gray-600 dark:text-gray-300">{{ c.r1|round(0)|int }}<span class="text-[10px] font-normal text-gray-400 ml-0.5">±{{ c.sigma1|round(0)|int }}</span></span>
                     <span class="text-[11px] text-brand-400 font-semibold">{{ c.probs.win_a }}%</span>
                 </button>
 
@@ -123,7 +123,7 @@
                     aria-pressed="false" aria-label="{{ c.label }} — {{ item2.name }} 선택"
                     class="vote-btn flex-1 py-4 px-3 flex flex-col items-center justify-center gap-1 transition-all duration-200 hover:bg-pink-50 dark:hover:bg-pink-900/20 group">
                     <span class="text-xs text-gray-400 group-hover:text-pink-500 font-bold" aria-hidden="true">B</span>
-                    <span class="text-sm font-mono font-bold text-gray-600 dark:text-gray-300">{{ c.r2 }}</span>
+                    <span class="text-sm font-mono font-bold text-gray-600 dark:text-gray-300">{{ c.r2|round(0)|int }}<span class="text-[10px] font-normal text-gray-400 ml-0.5">±{{ c.sigma2|round(0)|int }}</span></span>
                     <span class="text-[11px] text-pink-400 font-semibold">{{ c.probs.win_b }}%</span>
                 </button>
             </div>
@@ -450,18 +450,20 @@
             const winIcon = r.winner === '1' ? '◀' : r.winner === '2' ? '▶' : '=';
             const winColor = r.winner === '1' ? 'text-brand-500' : r.winner === '2' ? 'text-pink-500' : 'text-gray-400';
 
+            const d1 = r.diff_r1 > 0 ? `+${r.diff_r1.toFixed(1)}` : r.diff_r1.toFixed(1);
+            const d2 = r.diff_r2 > 0 ? `+${r.diff_r2.toFixed(1)}` : r.diff_r2.toFixed(1);
             row.innerHTML = `
                 <div class="flex-1 text-right">
-                    <span class="font-mono text-sm font-bold text-gray-700 dark:text-gray-200">${r.new_r1}</span>
-                    <span class="text-xs font-bold ml-1 ${r.diff_r1 > 0 ? 'text-green-500' : r.diff_r1 < 0 ? 'text-red-500' : 'text-gray-400'}">${r.diff_r1 > 0 ? '+' : ''}${r.diff_r1}</span>
+                    <span class="font-mono text-sm font-bold text-gray-700 dark:text-gray-200">${Math.round(r.new_r1)}</span><span class="text-[10px] text-gray-400 ml-0.5">±${Math.round(r.sigma1)}</span>
+                    <span class="text-xs font-bold ml-1 ${r.diff_r1 > 0 ? 'text-green-500' : r.diff_r1 < 0 ? 'text-red-500' : 'text-gray-400'}">${d1}</span>
                 </div>
                 <div class="w-24 md:w-28 text-center shrink-0">
                     <span class="text-xs font-bold ${winColor}" aria-hidden="true">${winIcon}</span>
                     <div class="text-[11px] font-bold text-gray-600 dark:text-gray-300">${r.label}</div>
                 </div>
                 <div class="flex-1 text-left">
-                    <span class="text-xs font-bold mr-1 ${r.diff_r2 > 0 ? 'text-green-500' : r.diff_r2 < 0 ? 'text-red-500' : 'text-gray-400'}">${r.diff_r2 > 0 ? '+' : ''}${r.diff_r2}</span>
-                    <span class="font-mono text-sm font-bold text-gray-700 dark:text-gray-200">${r.new_r2}</span>
+                    <span class="text-xs font-bold mr-1 ${r.diff_r2 > 0 ? 'text-green-500' : r.diff_r2 < 0 ? 'text-red-500' : 'text-gray-400'}">${d2}</span>
+                    <span class="font-mono text-sm font-bold text-gray-700 dark:text-gray-200">${Math.round(r.new_r2)}</span><span class="text-[10px] text-gray-400 ml-0.5">±${Math.round(r.sigma2)}</span>
                 </div>
             `;
             container.appendChild(row);

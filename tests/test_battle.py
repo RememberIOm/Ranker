@@ -12,7 +12,6 @@ class BattleVoteValidationTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
         self.original_session_dir = store.SESSION_DIR
-        self.original_normalize_every_n_votes = store.NORMALIZE_EVERY_N_VOTES
         store.SESSION_DIR = Path(self.tempdir.name)
         store.SESSION_DIR.mkdir(parents=True, exist_ok=True)
         store._session_cache.clear()
@@ -21,7 +20,6 @@ class BattleVoteValidationTests(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self) -> None:
         store._session_cache.clear()
         store._locks.clear()
-        store.NORMALIZE_EVERY_N_VOTES = self.original_normalize_every_n_votes
         store.SESSION_DIR = self.original_session_dir
         self.tempdir.cleanup()
 
@@ -66,31 +64,42 @@ class BattleVoteValidationTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(store.StaleBattleRoundError):
             await session.apply_battle_vote(payload)
 
-    async def test_apply_battle_vote_batches_normalization(self) -> None:
-        store.NORMALIZE_EVERY_N_VOTES = 2
+    async def test_apply_battle_vote_never_normalizes(self) -> None:
+        """Bayesian BT에서는 정규화가 불필요 — should_normalize 항상 False"""
         session = await self._seed_session("e" * 32)
         item1 = session.items[0]
         item2 = session.items[1]
         votes = {criterion["key"]: "1" for criterion in session.criteria}
 
-        first_token = await session.issue_battle_round(item1["id"], item2["id"])
-        first_payload = BattleVoteRequest(
-            item1_id=item1["id"],
-            item2_id=item2["id"],
-            round_token=first_token,
-            votes=votes,
-            redirect_to="/battle",
-        )
-        _, first_should_normalize = await session.apply_battle_vote(first_payload)
-        self.assertFalse(first_should_normalize)
+        for _ in range(5):
+            token = await session.issue_battle_round(item1["id"], item2["id"])
+            payload = BattleVoteRequest(
+                item1_id=item1["id"],
+                item2_id=item2["id"],
+                round_token=token,
+                votes=votes,
+                redirect_to="/battle",
+            )
+            _, should_normalize = await session.apply_battle_vote(payload)
+            self.assertFalse(should_normalize)
 
-        second_token = await session.issue_battle_round(item1["id"], item2["id"])
-        second_payload = BattleVoteRequest(
+    async def test_vote_result_contains_sigma(self) -> None:
+        """투표 결과에 sigma1/sigma2 필드가 포함됨"""
+        session = await self._seed_session("f" * 32)
+        item1 = session.items[0]
+        item2 = session.items[1]
+        votes = {criterion["key"]: "1" for criterion in session.criteria}
+        token = await session.issue_battle_round(item1["id"], item2["id"])
+        payload = BattleVoteRequest(
             item1_id=item1["id"],
             item2_id=item2["id"],
-            round_token=second_token,
+            round_token=token,
             votes=votes,
             redirect_to="/battle",
         )
-        _, second_should_normalize = await session.apply_battle_vote(second_payload)
-        self.assertTrue(second_should_normalize)
+        result, _ = await session.apply_battle_vote(payload)
+        for r in result["results"]:
+            self.assertIn("sigma1", r)
+            self.assertIn("sigma2", r)
+            self.assertGreater(r["sigma1"], 0)
+            self.assertGreater(r["sigma2"], 0)

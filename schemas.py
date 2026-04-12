@@ -10,22 +10,15 @@ VoteChoice = Literal["1", "2", "draw"]
 class SettingsModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    elo_k_max: int = Field(default=100, ge=1, le=10_000)
-    elo_k_min: int = Field(default=30, ge=1, le=10_000)
-    elo_decay_factor: int = Field(default=50, ge=1, le=100_000)
-    elo_draw_max: float = Field(default=0.33, ge=0.0, le=1.0)
-    elo_draw_scale: float = Field(default=300.0, gt=0.0, le=10_000.0)
-    initial_rating: float = Field(default=1200.0, ge=0.0, le=100_000.0)
-    normalize_target: float = Field(default=1200.0, ge=0.0, le=100_000.0)
-    normalize_threshold: float = Field(default=5.0, ge=0.0, le=100_000.0)
+    initial_sigma: float = Field(default=2.0, gt=0.0, le=10.0)
+    draw_prior_max: float = Field(default=0.33, ge=0.0, le=1.0)
+    draw_prior_strength: int = Field(default=10, ge=1, le=1000)
+    draw_bandwidth: float = Field(default=1.5, gt=0.0, le=10.0)
+    hierarchical_strength: float = Field(default=5.0, ge=0.0, le=100.0)
+    display_center: float = Field(default=1200.0, ge=0.0, le=100_000.0)
+    display_scale: float = Field(default=173.72, gt=0.0, le=10_000.0)
     result_auto_skip: bool = False
     result_skip_seconds: float = Field(default=3.0, ge=0.5, le=60.0)
-
-    @model_validator(mode="after")
-    def validate_bounds(self) -> "SettingsModel":
-        if self.elo_k_min > self.elo_k_max:
-            raise ValueError("elo_k_min은 elo_k_max보다 클 수 없습니다.")
-        return self
 
 
 class CriterionModel(BaseModel):
@@ -63,7 +56,8 @@ class ItemModel(BaseModel):
 
     id: int = Field(ge=1)
     name: str = Field(min_length=1)
-    ratings: dict[str, float] = Field(default_factory=dict)
+    mu: dict[str, float] = Field(default_factory=dict)
+    sigma_sq: dict[str, float] = Field(default_factory=dict)
     matches_played: int = Field(default=0, ge=0)
     criterion_matches: dict[str, int] = Field(default_factory=dict)
 
@@ -107,7 +101,7 @@ class SessionDataModel(BaseModel):
         if len(set(criterion_keys)) != len(criterion_keys):
             raise ValueError("criteria.key는 중복될 수 없습니다.")
 
-        allowed_rating_keys = set(criterion_keys)
+        allowed_keys = set(criterion_keys)
         item_ids: set[int] = set()
 
         for item in self.items:
@@ -115,17 +109,18 @@ class SessionDataModel(BaseModel):
                 raise ValueError(f"중복된 item id가 있습니다: {item.id}")
             item_ids.add(item.id)
 
-            rating_keys = set(item.ratings)
-            missing_keys = allowed_rating_keys - rating_keys
-            unknown_keys = rating_keys - allowed_rating_keys
-            if missing_keys:
-                raise ValueError(
-                    f"item {item.id}에 누락된 rating key가 있습니다: {sorted(missing_keys)}"
-                )
-            if unknown_keys:
-                raise ValueError(
-                    f"item {item.id}에 정의되지 않은 rating key가 있습니다: {sorted(unknown_keys)}"
-                )
+            for field_name in ("mu", "sigma_sq"):
+                keys = set(getattr(item, field_name))
+                missing = allowed_keys - keys
+                unknown = keys - allowed_keys
+                if missing:
+                    raise ValueError(
+                        f"item {item.id}에 누락된 {field_name} key가 있습니다: {sorted(missing)}"
+                    )
+                if unknown:
+                    raise ValueError(
+                        f"item {item.id}에 정의되지 않은 {field_name} key가 있습니다: {sorted(unknown)}"
+                    )
 
         return self
 
@@ -156,18 +151,20 @@ class BattleVoteRequest(BaseModel):
 
 
 class CriteriaResult(BaseModel):
-    """개별 기준의 Elo 변동 결과"""
+    """개별 기준의 Bayesian BT 변동 결과"""
 
     key: str
     label: str
     color: str
     winner: VoteChoice
-    old_r1: int
-    new_r1: int
-    diff_r1: int
-    old_r2: int
-    new_r2: int
-    diff_r2: int
+    old_r1: float
+    new_r1: float
+    diff_r1: float
+    old_r2: float
+    new_r2: float
+    diff_r2: float
+    sigma1: float
+    sigma2: float
 
 
 class BattleVoteResponse(BaseModel):

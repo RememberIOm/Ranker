@@ -75,7 +75,7 @@ main.py          # FastAPI 앱 + 세션 쿠키 라우트 (/, /start, /upload, /e
 deps.py          # 의존성 주입 (세션 검증, DataStore 주입)
 store.py         # 세션별 JSON 저장소 + 인메모리 캐시 + TTL 정리
 schemas.py       # Pydantic 응답 스키마
-services.py      # 순수 비즈니스 로직 (Elo, 매치메이킹, 정규화)
+services.py      # 순수 비즈니스 로직 (Bayesian BT, 매치메이킹, 계층적 축소)
 entrypoint.sh    # Docker 엔트리포인트 — Fly 볼륨 소유권 보정 + 권한 강하
 input.css        # Tailwind CSS v4 소스 (빌드 → static/output.css)
 routers/
@@ -109,22 +109,24 @@ static/
 - **`SessionSaveError`**: `_save_locked`의 OS 계열 예외를 감싸 로깅 후 라우터에서 사용자 친화 500 응답으로 매핑
 - **구조적 로깅**: `ranker` 네임스페이스 (`ranker.store`, `ranker.battle`, `ranker.manage`, `ranker.lifespan`) — 모든 핵심 경로에 `logger.info/warning/error` 적용
 
-### Elo 알고리즘 (services.py)
-- **다이나믹 K-Factor**: 초반 100 → 대전 수 증가 → 최소 30으로 수렴. **per-item-per-criterion 배틀 수** 기반으로 기준 추가 시에도 정확한 K 적용
-- **K-Avg 영합(zero-sum) 보장**: 두 항목의 K-Factor 평균을 사용하여 레이팅 총합 보존 — 인플레이션/디플레이션 근본 방지
-- **드로우 확률**: 점수 차이 기반 가우시안 곡선 (draw_max=0.33). **Bayesian Beta prior**로 실측 무승부 비율에 자연 수렴 (prior_strength=10, ~20배틀에서 실측과 동등)
-- **기준별 통계**: `CriterionModel.battles` / `CriterionModel.draws` — 투표마다 누적, 기준 편집 시 동일 key의 이력 보존. `ItemModel.criterion_matches`로 항목별 기준별 배틀 수 추적
-- **인플레이션 억제**: K-Avg로 근본 방지, 정규화(Mean Reversion + Variance Stabilization)는 안전망. 서버 재시작 후 첫 번째 투표에서 즉시 정규화 실행
-- **다중 기준 동시 반영**: 한 번의 투표로 모든 기준 Elo 갱신
+### Bayesian Bradley-Terry 알고리즘 (services.py)
+- **Online Laplace Approximation**: 항목별·기준별 사후분포 `(μ, σ²)` 유지 — μ는 실력 추정, σ²는 불확실성
+- **업데이트 공식**: `p = sigmoid(μ_a - μ_b)`, Fisher 정보 `w = p(1-p)`, gradient `g = outcome - p` → 정밀도·평균 동시 업데이트
+- **σ² 하한**: 0.01 (과도한 확신 방지, 표시 약 ±17점)
+- **드로우 확률**: logit 스케일 차이 기반 가우시안 감쇠 + **Bayesian Beta prior**로 실측 무승부 비율에 자연 수렴 (draw_prior_strength 기본 10)
+- **계층적 축소 (Hierarchical Shrinkage)**: 투표 후 기준 간 정밀도 가중 평균(cross_mean) 방향으로 각 기준 μ를 축소 — 데이터 부족 기준 보강. `hierarchical_strength=0`이면 비활성
+- **기준별 통계**: `CriterionModel.battles` / `CriterionModel.draws` — 투표마다 누적. `ItemModel.criterion_matches`로 항목별 기준별 배틀 수 추적
+- **정규화 불필요**: Bayesian prior가 인플레이션 방지 역할을 대체 — 별도 Mean Reversion/Variance Stabilization 없음
+- **표시 변환**: logit → 친숙한 스케일 (`μ × display_scale + display_center`, 기본 173.72/1200)
+- **다중 기준 동시 반영**: 한 번의 투표로 모든 기준 BT 업데이트 + 계층적 축소
 
-### 매치메이킹 (Power of Two Choices)
-- **item1**: sqrt(N) 적응형 샘플(최대 10) 중 `matches_played` 적은 쪽 선택 → 탐험 촉진
+### 매치메이킹 (불확실성 기반 Power of Two Choices)
+- **item1**: sqrt(N) 적응형 샘플(최대 10) 중 **평균 σ² 최대** 선택 → 정보 획득 극대화
 - **item2**: item1 제외 동일 샘플 크기 중 **가중 복합 점수** 차이 작은 쪽 선택 → 공정 매칭
 - `services.composite_rating()` 헬퍼로 매치메이킹·랭킹·순위 계산에서 동일 로직 사용
-- 별도 설정값 없음 — `match_smart_rate`, `match_score_range` 제거됨
 
 ### 가중 복합 점수
-- `services.composite_rating()`: 기준별 weight를 곱해 가중 합산 — 단일 진실 소스
+- `services.composite_rating()`: 기준별 display_rating에 weight를 곱해 가중 합산 — 단일 진실 소스
 - `/ranking`, `get_item_rank`, 매치메이킹에서 모두 동일 헬퍼 사용
 - 라운딩은 표시 계층(ranking.html 렌더 시점)에서만 수행
 

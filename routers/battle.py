@@ -4,7 +4,7 @@
 
 import logging
 
-from fastapi import APIRouter, Request, BackgroundTasks, Cookie, Depends, HTTPException
+from fastapi import APIRouter, Request, Cookie, Depends, HTTPException
 from fastapi.responses import HTMLResponse
 
 from deps import get_session_store, require_store
@@ -19,8 +19,9 @@ from store import (
 from services import (
     get_match_pair,
     get_item_rank,
-    normalize_scores,
     get_match_probabilities,
+    display_rating,
+    display_uncertainty,
 )
 from template_env import templates
 
@@ -40,22 +41,26 @@ def _build_battle_context(
 ) -> dict:
     """배틀 페이지 템플릿 컨텍스트를 구성합니다."""
     criteria = store.criteria
-    init = store.settings["initial_rating"]
+    initial_sq = store.settings["initial_sigma"] ** 2
 
     # 각 기준별 확률 계산 (실제 무승부 이력 반영)
     criteria_info = []
     for c in criteria:
-        r1 = item1["ratings"].get(c["key"], init)
-        r2 = item2["ratings"].get(c["key"], init)
+        mu1 = item1["mu"].get(c["key"], 0.0)
+        sq1 = item1["sigma_sq"].get(c["key"], initial_sq)
+        mu2 = item2["mu"].get(c["key"], 0.0)
+        sq2 = item2["sigma_sq"].get(c["key"], initial_sq)
         probs = get_match_probabilities(
-            store, r1, r2,
+            store, mu1, sq1, mu2, sq2,
             battles=c.get("battles", 0),
             draws=c.get("draws", 0),
         )
         criteria_info.append({
             **c,
-            "r1": round(r1),
-            "r2": round(r2),
+            "r1": round(display_rating(store, mu1), 1),
+            "r2": round(display_rating(store, mu2), 1),
+            "sigma1": round(display_uncertainty(store, sq1), 1),
+            "sigma2": round(display_uncertainty(store, sq2), 1),
             "probs": probs,
         })
 
@@ -126,7 +131,6 @@ async def focus_battle(item_id: int, request: Request, store: DataStore = Depend
 async def vote(
     payload: BattleVoteRequest,
     request: Request,
-    background_tasks: BackgroundTasks,
     session_id: str | None = Cookie(default=None),
 ):
     """모든 criteria에 대한 투표를 한번에 수신하여 일괄 업데이트합니다."""
@@ -135,7 +139,7 @@ async def vote(
         raise HTTPException(status_code=401, detail="No active session")
 
     try:
-        response_data, should_normalize = await store.apply_battle_vote(payload)
+        response_data, _ = await store.apply_battle_vote(payload)
     except BattleItemNotFoundError as exc:
         logger.warning("battle_item_not_found — session_id=%s", session_id)
         raise HTTPException(status_code=404, detail="대결 항목을 찾을 수 없습니다.") from exc
@@ -148,14 +152,4 @@ async def vote(
     except SessionSaveError as exc:
         raise HTTPException(status_code=500, detail="세션 저장에 실패했습니다. 잠시 후 다시 시도해주세요.") from exc
 
-    if should_normalize:
-        background_tasks.add_task(_normalize_scores_safe, store)
     return response_data
-
-
-async def _normalize_scores_safe(store: DataStore) -> None:
-    """백그라운드 정규화 태스크 — 예외를 로깅하고 삼킵니다."""
-    try:
-        await normalize_scores(store)
-    except Exception:
-        logger.exception("normalize_failed — session_id=%s", store._session_id)

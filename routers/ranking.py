@@ -5,7 +5,7 @@ from fastapi import APIRouter, Request, Depends
 from fastapi.responses import HTMLResponse
 
 from deps import require_store
-from services import composite_rating
+from services import composite_rating, display_rating, display_uncertainty
 from store import DataStore
 from template_env import templates
 
@@ -34,13 +34,21 @@ async def get_ranking(
         })
 
     # 가중 합산 방식으로 total 계산 — services.composite_rating과 동일 로직
+    initial_sq = store.settings["initial_sigma"] ** 2
     ranked = []
     for item in items:
         row: dict = {"name": item["name"], "matches": item["matches_played"], "id": item["id"]}
         for c in criteria:
-            val = item["ratings"].get(c["key"], store.settings["initial_rating"])
-            row[c["key"]] = round(val, 1)
+            mu_val = item["mu"].get(c["key"], 0.0)
+            sq_val = item["sigma_sq"].get(c["key"], initial_sq)
+            row[c["key"]] = round(display_rating(store, mu_val), 1)
+            row[c["key"] + "_sigma"] = round(display_uncertainty(store, sq_val), 1)
         row["total"] = round(composite_rating(store, item), 1)
+        avg_sigma = sum(
+            display_uncertainty(store, item["sigma_sq"].get(c["key"], initial_sq))
+            for c in criteria
+        ) / len(criteria) if criteria else 0
+        row["avg_sigma"] = round(avg_sigma, 1)
         ranked.append(row)
 
     ranked.sort(key=lambda x: x.get(sort_by, 0), reverse=True)
