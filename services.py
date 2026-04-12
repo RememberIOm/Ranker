@@ -43,8 +43,8 @@ def bt_update(
     prec_a_new = 1.0 / sigma_sq_a + w
     prec_b_new = 1.0 / sigma_sq_b + w
 
-    mu_a_new = (mu_a / sigma_sq_a + g) / prec_a_new
-    mu_b_new = (mu_b / sigma_sq_b - g) / prec_b_new
+    mu_a_new = mu_a + g / prec_a_new
+    mu_b_new = mu_b - g / prec_b_new
 
     sigma_sq_a_new = max(_SIGMA_SQ_FLOOR, 1.0 / prec_a_new)
     sigma_sq_b_new = max(_SIGMA_SQ_FLOOR, 1.0 / prec_b_new)
@@ -85,7 +85,6 @@ def hierarchical_shrinkage(store: DataStore, item: dict[str, Any]) -> None:
         old_prec = precisions[k]
         new_prec = old_prec + strength
         item["mu"][k] = (mus[k] * old_prec + cross_mean * strength) / new_prec
-        item["sigma_sq"][k] = max(_SIGMA_SQ_FLOOR, 1.0 / new_prec)
 
 
 # --- Display Conversion ---

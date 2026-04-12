@@ -91,6 +91,21 @@ class TestBTUpdate(ServiceTestBase):
         self.assertGreater(mu_a, 0.5)
         self.assertLess(mu_b, -0.5)
 
+    async def test_no_shrink_to_zero_when_g_zero(self) -> None:
+        """g=0 (예측 적중) 시 μ 불변 — 0 방향 수축 없음"""
+        mu_a, mu_b = 1.5, 0.3
+        p = sigmoid(mu_a - mu_b)  # outcome = p → g = 0
+        new_a, _, new_b, _ = bt_update(mu_a, 2.0, mu_b, 2.0, p)
+        self.assertAlmostEqual(new_a, mu_a, places=10)
+        self.assertAlmostEqual(new_b, mu_b, places=10)
+
+    async def test_nonzero_mu_update_magnitude(self) -> None:
+        """μ≠0에서 업데이트 크기가 충분히 큼 (회귀 테스트)"""
+        mu_a, _, _, _ = bt_update(1.0, 2.0, 0.0, 2.0, 1.0)
+        # 올바른 공식: mu_a = 1.0 + g/prec_new ≈ 1.197
+        # 이전 버그 공식은 ≈ 1.024 를 반환했음
+        self.assertGreater(mu_a, 1.1)
+
 
 class TestHierarchicalShrinkage(ServiceTestBase):
     async def test_pulls_toward_cross_mean(self) -> None:
@@ -103,6 +118,18 @@ class TestHierarchicalShrinkage(ServiceTestBase):
         hierarchical_shrinkage(s, item)
         # story가 2.0 → cross_mean 방향(< 2.0)으로 이동
         self.assertLess(item["mu"]["story"], old_story_mu)
+
+    async def test_preserves_sigma_sq(self) -> None:
+        """계층적 축소는 σ²를 변경하지 않음 — 불확실성 감소는 bt_update만"""
+        s = await self._make_store()
+        item = {
+            "mu": {"story": 2.0, "visual": 0.0, "ost": 0.0, "voice": 0.0, "char": 0.0, "fun": 0.0},
+            "sigma_sq": {"story": 1.0, "visual": 1.0, "ost": 1.0, "voice": 1.0, "char": 1.0, "fun": 1.0},
+        }
+        old_sigmas = dict(item["sigma_sq"])
+        hierarchical_shrinkage(s, item)
+        for k in old_sigmas:
+            self.assertAlmostEqual(item["sigma_sq"][k], old_sigmas[k])
 
     async def test_zero_strength_no_change(self) -> None:
         s = await self._make_store()
