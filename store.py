@@ -499,20 +499,26 @@ class DataStore:
             self._invalidate_active_round()
             await self._save_locked()
 
-    async def issue_battle_round(self, item1_id: int, item2_id: int) -> str:
+    async def issue_battle_round(
+        self, item1_id: int, item2_id: int, item3_id: int | None = None,
+    ) -> str:
         """배틀 라운드 토큰을 발급하고 파일에 영속화합니다.
 
         파일 저장으로 VM 재시작/Fly.io 자동 스케일다운 후에도 사용자가 이어서 투표 가능.
+        3-way 모드에서는 item3_id를 함께 저장합니다.
         """
         lock = _get_lock(self._session_id)
         async with lock:
             token = secrets.token_urlsafe(24)
-            self._data["active_round"] = {
+            round_data: dict[str, Any] = {
                 "token": token,
                 "item1_id": item1_id,
                 "item2_id": item2_id,
                 "issued_at": time.time(),
             }
+            if item3_id is not None:
+                round_data["item3_id"] = item3_id
+            self._data["active_round"] = round_data
             await self._save_locked()
             return token
 
@@ -635,6 +641,166 @@ class DataStore:
                 },
                 False,  # 정규화 불필요 — Bayesian prior가 대체
             )
+
+    async def apply_three_way_vote(self, payload: "ThreeWayBattleVoteRequest") -> dict[str, Any]:
+        """3-way 배틀 투표를 처리합니다.
+
+        기준별 best/worst 선택을 3개 쌍대비교로 분해하여 BT 업데이트합니다.
+        best > middle (1.0), best > worst (1.0), middle > worst (1.0).
+        """
+        from schemas import ThreeWayBattleVoteRequest  # noqa: F811
+        from services import bt_update, hierarchical_shrinkage, display_rating, display_uncertainty
+
+        lock = _get_lock(self._session_id)
+        async with lock:
+            active_round = self._data.get("active_round")
+            if (
+                not active_round
+                or active_round["token"] != payload.round_token
+                or active_round["item1_id"] != payload.item1_id
+                or active_round["item2_id"] != payload.item2_id
+                or active_round.get("item3_id") != payload.item3_id
+            ):
+                raise StaleBattleRoundError("이 대결은 만료되었거나 이미 처리되었습니다. 새로고침 후 다시 시도해주세요.")
+
+            item_ids = [payload.item1_id, payload.item2_id, payload.item3_id]
+            items_3 = [self._get_item_from_data(iid) for iid in item_ids]
+            if not all(items_3):
+                self._invalidate_active_round()
+                raise BattleItemNotFoundError("대결 항목을 찾을 수 없습니다.")
+
+            criteria = self._data["criteria"]
+            allowed_keys = {c["key"] for c in criteria}
+            submitted_keys = set(payload.votes)
+            unknown_keys = submitted_keys - allowed_keys
+            missing_keys = allowed_keys - submitted_keys
+
+            if unknown_keys:
+                raise InvalidBattleVoteError(
+                    f"알 수 없는 투표 기준이 포함되어 있습니다: {sorted(unknown_keys)}"
+                )
+            if missing_keys:
+                raise InvalidBattleVoteError(
+                    f"투표가 누락된 기준이 있습니다: {sorted(missing_keys)}"
+                )
+
+            initial_sq = self._data["settings"]["initial_sigma"] ** 2
+            results: list[dict[str, Any]] = []
+            id_str = {iid: str(iid) for iid in item_ids}
+
+            for criterion in criteria:
+                key = criterion["key"]
+                vote = payload.votes[key]
+
+                # best/worst ID 추출
+                best_id: int | None = None
+                worst_id: int | None = None
+                for id_key, role in vote.items():
+                    item_id = int(id_key)
+                    if role == "best":
+                        best_id = item_id
+                    elif role == "worst":
+                        worst_id = item_id
+
+                if best_id is None or worst_id is None:
+                    raise InvalidBattleVoteError(
+                        f"기준 '{key}'에 best와 worst가 모두 필요합니다."
+                    )
+                if best_id not in item_ids or worst_id not in item_ids:
+                    raise InvalidBattleVoteError(
+                        f"기준 '{key}'의 투표 ID가 대결 항목에 없습니다."
+                    )
+                if best_id == worst_id:
+                    raise InvalidBattleVoteError(
+                        f"기준 '{key}'에서 best와 worst가 같을 수 없습니다."
+                    )
+
+                middle_id = [iid for iid in item_ids if iid != best_id and iid != worst_id][0]
+
+                # 이전 rating 저장
+                old_ratings: dict[str, float] = {}
+                for item in items_3:
+                    old_ratings[id_str[item["id"]]] = display_rating(
+                        self, item["mu"].get(key, 0.0)
+                    )
+
+                # 3개 쌍대비교: best>middle, best>worst, middle>worst
+                pairs = [
+                    (best_id, middle_id, 1.0),
+                    (best_id, worst_id, 1.0),
+                    (middle_id, worst_id, 1.0),
+                ]
+                item_by_id = {item["id"]: item for item in items_3}
+
+                for a_id, b_id, outcome in pairs:
+                    a = item_by_id[a_id]
+                    b = item_by_id[b_id]
+                    old_mu_a = a["mu"].get(key, 0.0)
+                    old_sq_a = a["sigma_sq"].get(key, initial_sq)
+                    old_mu_b = b["mu"].get(key, 0.0)
+                    old_sq_b = b["sigma_sq"].get(key, initial_sq)
+
+                    new_mu_a, new_sq_a, new_mu_b, new_sq_b = bt_update(
+                        old_mu_a, old_sq_a, old_mu_b, old_sq_b, outcome,
+                    )
+                    a["mu"][key] = new_mu_a
+                    a["sigma_sq"][key] = new_sq_a
+                    b["mu"][key] = new_mu_b
+                    b["sigma_sq"][key] = new_sq_b
+
+                # 기준별 배틀 통계 — 3 쌍 = 3 배틀
+                criterion["battles"] = criterion.get("battles", 0) + 3
+
+                # Per-item-per-criterion 카운트 — 각 항목은 2 쌍에 참여
+                for item in items_3:
+                    if "criterion_matches" not in item:
+                        item["criterion_matches"] = {}
+                    item["criterion_matches"][key] = item["criterion_matches"].get(key, 0) + 2
+
+                # 결과 수집
+                new_ratings: dict[str, float] = {}
+                diffs: dict[str, float] = {}
+                sigmas: dict[str, float] = {}
+                for item in items_3:
+                    k = id_str[item["id"]]
+                    new_r = display_rating(self, item["mu"].get(key, 0.0))
+                    new_ratings[k] = round(new_r, 1)
+                    diffs[k] = round(new_r - old_ratings[k], 1)
+                    sigmas[k] = round(display_uncertainty(self, item["sigma_sq"].get(key, initial_sq)), 1)
+
+                results.append({
+                    "key": key,
+                    "label": criterion["label"],
+                    "color": criterion["color"],
+                    "best_id": best_id,
+                    "worst_id": worst_id,
+                    "middle_id": middle_id,
+                    "ratings": new_ratings,
+                    "diffs": diffs,
+                    "sigmas": sigmas,
+                })
+
+            # 계층적 축소
+            if self._data["settings"]["hierarchical_strength"] > 0:
+                for item in items_3:
+                    hierarchical_shrinkage(self, item)
+
+            for item in items_3:
+                item["matches_played"] += 1
+            self._invalidate_active_round()
+            await self._save_locked()
+
+            return {
+                "a1_id": items_3[0]["id"],
+                "a2_id": items_3[1]["id"],
+                "a3_id": items_3[2]["id"],
+                "a1_name": items_3[0]["name"],
+                "a2_name": items_3[1]["name"],
+                "a3_name": items_3[2]["name"],
+                "results": results,
+                "total_items": len(self._data["items"]),
+                "next_url": payload.redirect_to or "/battle",
+            }
 
     def delete_session(self) -> None:
         """세션 데이터 파일을 삭제합니다."""

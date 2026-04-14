@@ -1,0 +1,619 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="relative flex flex-col items-center min-h-[80vh] py-6 px-4">
+
+    {# --- Focus Mode Banner --- #}
+    {% if focus_mode %}
+    <div class="fixed top-20 left-1/2 transform -translate-x-1/2 z-40 animate-bounce-in">
+        <div
+            class="bg-gradient-to-r from-blue-600 to-blue-500 text-white px-6 py-2 rounded-full text-sm font-bold shadow-xl flex items-center gap-2 ring-4 ring-blue-500/20">
+            <span class="animate-pulse">🎯</span>
+            <span>'{{ item1.name }}' 집중 평가 중</span>
+            <a href="/manage" class="ml-2 text-blue-200 hover:text-white underline text-xs">종료</a>
+        </div>
+    </div>
+    {% endif %}
+
+    {# --- Header: 3-way Display --- #}
+    <div class="w-full max-w-5xl mb-8">
+        <div class="text-center mb-6">
+            <div
+                class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-gray-100 dark:bg-gray-800 text-xs font-bold uppercase tracking-widest text-gray-500 dark:text-gray-400 mb-3">
+                <span>Battle Arena</span>
+                <span class="w-1 h-1 rounded-full bg-gray-400"></span>
+                <span>3-Way</span>
+            </div>
+            <h2 class="text-2xl md:text-4xl font-black text-gray-900 dark:text-white">
+                각 기준에서 Best와 Worst를 선택하세요
+            </h2>
+        </div>
+
+        {# --- Three Items Header --- #}
+        <div class="grid grid-cols-3 gap-3 items-stretch mb-2">
+            <!-- Item A -->
+            <div
+                class="flex flex-col bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-lg border-2 border-brand-500 dark:border-brand-400 text-center h-full justify-center">
+                <div class="text-xs font-bold text-brand-500 uppercase tracking-wider mb-2">A</div>
+                <h3
+                    class="text-base md:text-xl font-black text-gray-900 dark:text-white break-words whitespace-normal leading-snug">
+                    {{ item1.name }}
+                </h3>
+                <div class="flex items-center justify-center gap-2 mt-2 flex-wrap">
+                    {% if total_items > 0 %}
+                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-brand-50 dark:bg-brand-900/30 text-brand-600 dark:text-brand-300 border border-brand-200 dark:border-brand-800">
+                        #{{ rank1 }}&thinsp;/&thinsp;{{ total_items }}
+                    </span>
+                    {% endif %}
+                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400">
+                        {{ item1.matches_played }}전
+                    </span>
+                </div>
+            </div>
+
+            <!-- Item B -->
+            <div
+                class="flex flex-col bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-lg border-2 border-pink-500 dark:border-pink-400 text-center h-full justify-center">
+                <div class="text-xs font-bold text-pink-500 uppercase tracking-wider mb-2">B</div>
+                <h3
+                    class="text-base md:text-xl font-black text-gray-900 dark:text-white break-words whitespace-normal leading-snug">
+                    {{ item2.name }}
+                </h3>
+                <div class="flex items-center justify-center gap-2 mt-2 flex-wrap">
+                    {% if total_items > 0 %}
+                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-pink-50 dark:bg-pink-900/30 text-pink-600 dark:text-pink-300 border border-pink-200 dark:border-pink-800">
+                        #{{ rank2 }}&thinsp;/&thinsp;{{ total_items }}
+                    </span>
+                    {% endif %}
+                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400">
+                        {{ item2.matches_played }}전
+                    </span>
+                </div>
+            </div>
+
+            <!-- Item C -->
+            <div
+                class="flex flex-col bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-lg border-2 border-amber-500 dark:border-amber-400 text-center h-full justify-center">
+                <div class="text-xs font-bold text-amber-500 uppercase tracking-wider mb-2">C</div>
+                <h3
+                    class="text-base md:text-xl font-black text-gray-900 dark:text-white break-words whitespace-normal leading-snug">
+                    {{ item3.name }}
+                </h3>
+                <div class="flex items-center justify-center gap-2 mt-2 flex-wrap">
+                    {% if total_items > 0 %}
+                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                        #{{ rank3 }}&thinsp;/&thinsp;{{ total_items }}
+                    </span>
+                    {% endif %}
+                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400">
+                        {{ item3.matches_played }}전
+                    </span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# --- Criteria Vote Cards --- #}
+    <div class="w-full max-w-5xl space-y-3" id="criteria-list">
+        {% for c in criteria_info %}
+        <div class="criteria-card bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden transition-all duration-200 hover:shadow-md animate-slide-up"
+            style="animation-delay: {{ loop.index0 * 40 }}ms"
+            data-key="{{ c.key }}">
+
+            {# === 기준 라벨 === #}
+            <div class="px-4 pt-3 pb-1 flex items-center justify-between">
+                <span class="text-base font-extrabold text-{{ c.color }}-600 dark:text-{{ c.color }}-400 tracking-wide">{{ c.label }}</span>
+                <div class="flex items-center gap-2">
+                    <span class="role-badge hidden text-[10px] font-bold px-2 py-0.5 rounded-full" data-role="best" data-key="{{ c.key }}">BEST</span>
+                    <span class="role-badge hidden text-[10px] font-bold px-2 py-0.5 rounded-full" data-role="worst" data-key="{{ c.key }}">WORST</span>
+                </div>
+            </div>
+
+            {# === 3개 항목 버튼 === #}
+            <div class="grid grid-cols-3 gap-0">
+                {% for it in c.items %}
+                <button type="button" onclick="selectItem('{{ c.key }}', {{ it.id }})" id="btn-{{ c.key }}-{{ it.id }}"
+                    aria-pressed="false"
+                    class="vote-btn py-4 px-3 flex flex-col items-center justify-center gap-1 transition-all duration-200 hover:bg-gray-50 dark:hover:bg-gray-700/50 {% if not loop.last %}border-r border-gray-200 dark:border-gray-700{% endif %} group">
+                    <span class="text-xs text-gray-400 font-bold" aria-hidden="true">{{ ['A', 'B', 'C'][loop.index0] }}</span>
+                    <span class="text-sm font-mono font-bold text-gray-600 dark:text-gray-300">{{ it.r|round(0)|int }}<span class="text-[10px] font-normal text-gray-400 ml-0.5">&plusmn;{{ it.sigma|round(0)|int }}</span></span>
+                    <span class="role-icon text-xs hidden" data-item="{{ it.id }}" data-key="{{ c.key }}"></span>
+                </button>
+                {% endfor %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    {# --- Quick Actions --- #}
+    <div class="w-full max-w-5xl mt-4 flex flex-wrap items-center justify-center gap-3">
+        <button onclick="quickBest({{ item1.id }})"
+            class="px-4 py-2 rounded-xl text-xs font-bold bg-brand-50 text-brand-600 hover:bg-brand-100 dark:bg-brand-900/30 dark:text-brand-300 dark:hover:bg-brand-900/50 transition border border-brand-200 dark:border-brand-800">
+            전부 A Best
+        </button>
+        <button onclick="quickBest({{ item2.id }})"
+            class="px-4 py-2 rounded-xl text-xs font-bold bg-pink-50 text-pink-600 hover:bg-pink-100 dark:bg-pink-900/30 dark:text-pink-300 dark:hover:bg-pink-900/50 transition border border-pink-200 dark:border-pink-800">
+            전부 B Best
+        </button>
+        <button onclick="quickBest({{ item3.id }})"
+            class="px-4 py-2 rounded-xl text-xs font-bold bg-amber-50 text-amber-600 hover:bg-amber-100 dark:bg-amber-900/30 dark:text-amber-300 dark:hover:bg-amber-900/50 transition border border-amber-200 dark:border-amber-800">
+            전부 C Best
+        </button>
+        <button onclick="clearAll()"
+            class="px-4 py-2 rounded-xl text-xs font-bold text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition">
+            초기화
+        </button>
+    </div>
+
+    {# --- Progress & Submit --- #}
+    <div class="w-full max-w-5xl mt-6 sticky bottom-4 z-30">
+        <div
+            class="bg-white/90 dark:bg-gray-800/90 backdrop-blur-lg rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 p-4 flex items-center justify-between gap-4">
+            <div class="flex items-center gap-3 min-w-0">
+                <div class="relative w-10 h-10 shrink-0" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="{{ criteria_info|length }}" aria-label="투표 진행률">
+                    <svg class="w-10 h-10 -rotate-90" viewBox="0 0 36 36" aria-hidden="true">
+                        <circle cx="18" cy="18" r="14" fill="none" stroke="currentColor"
+                            class="text-gray-200 dark:text-gray-700" stroke-width="3"></circle>
+                        <circle id="progress-ring" cx="18" cy="18" r="14" fill="none" stroke="currentColor"
+                            class="text-brand-500 transition-all duration-300" stroke-width="3" stroke-dasharray="87.96"
+                            stroke-dashoffset="87.96" stroke-linecap="round"></circle>
+                    </svg>
+                    <span id="progress-count"
+                        class="absolute inset-0 flex items-center justify-center text-[11px] font-black text-gray-500 dark:text-gray-400">
+                        0/{{ criteria_info|length }}
+                    </span>
+                </div>
+                <span id="progress-label" class="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">
+                    각 기준에서 Best/Worst를 선택하세요
+                </span>
+            </div>
+            <button id="submit-btn" onclick="submitAllVotes()" disabled class="px-8 py-3 rounded-xl font-bold text-white shadow-lg transition-all duration-300
+                       bg-gray-300 dark:bg-gray-600 cursor-not-allowed">
+                ⚔️ 결과 확인
+            </button>
+        </div>
+    </div>
+</div>
+
+{# --- Result Modal --- #}
+<div id="result-modal"
+    class="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center z-50 hidden opacity-0 transition-opacity duration-300"
+    role="dialog" aria-modal="true" aria-label="대결 결과" aria-hidden="true">
+    <div
+        class="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl max-w-2xl w-full mx-4 border border-gray-200 dark:border-gray-800 transform scale-95 transition-transform duration-300 relative overflow-hidden max-h-[85vh] flex flex-col">
+
+        <div class="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-brand-500 via-amber-500 to-pink-500"></div>
+
+        <div class="p-6 pb-3">
+            <h3 class="text-xl font-black text-center">
+                <span
+                    class="bg-clip-text text-transparent bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-300">3-Way Battle Result</span>
+            </h3>
+        </div>
+
+        {# Header: item names #}
+        <div class="px-6 pb-3">
+            <div class="grid grid-cols-3 gap-2 text-center">
+                <div class="text-sm font-bold text-brand-600 dark:text-brand-400 break-words" id="result-name-1"></div>
+                <div class="text-sm font-bold text-pink-600 dark:text-pink-400 break-words" id="result-name-2"></div>
+                <div class="text-sm font-bold text-amber-600 dark:text-amber-400 break-words" id="result-name-3"></div>
+            </div>
+        </div>
+
+        {# Per-criteria results #}
+        <div class="overflow-y-auto px-6 pb-4 flex-1" id="result-list"></div>
+
+        {# Footer #}
+        <div class="px-6 pb-6">
+            <div id="auto-skip-area" class="hidden">
+                <div class="relative w-full h-1.5 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden mb-3">
+                    <div id="modal-progress"
+                        class="absolute left-0 top-0 h-full bg-gradient-to-r from-brand-500 via-amber-500 to-pink-500 w-0 transition-all ease-out"
+                        style="transition-duration: {{ (result_skip_seconds * 1000)|int }}ms"></div>
+                </div>
+                <p class="text-center text-[11px] text-gray-400 uppercase tracking-widest animate-pulse">
+                    {{ result_skip_seconds }}초 후 자동 이동...
+                </p>
+            </div>
+
+            <div id="click-skip-area" class="hidden">
+                <button id="next-battle-btn" onclick="goNext()"
+                    class="w-full py-3 rounded-xl font-bold text-white bg-gradient-to-r from-brand-600 via-amber-500 to-pink-500 hover:from-brand-700 hover:via-amber-600 hover:to-pink-600 shadow-lg transition-all duration-200 transform hover:scale-[1.02] active:scale-95">
+                    ⚔️ 다음 대결
+                </button>
+                <p class="text-center text-[11px] text-gray-400 mt-2">아무 곳이나 클릭하거나 스페이스바를 눌러도 넘어갑니다</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    @keyframes bounceIn {
+        0% { opacity: 0; transform: translate(-50%, -20px); }
+        50% { transform: translate(-50%, 5px); }
+        100% { opacity: 1; transform: translate(-50%, 0); }
+    }
+    .animate-bounce-in {
+        animation: bounceIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+    }
+
+    /* Best 선택 */
+    .vote-btn.selected-best {
+        background: linear-gradient(135deg, rgba(34, 197, 94, 0.15), rgba(34, 197, 94, 0.05));
+        box-shadow: inset 0 0 0 2px rgba(34, 197, 94, 0.5);
+    }
+    .dark .vote-btn.selected-best {
+        background: linear-gradient(135deg, rgba(34, 197, 94, 0.25), rgba(34, 197, 94, 0.1));
+    }
+
+    /* Worst 선택 */
+    .vote-btn.selected-worst {
+        background: linear-gradient(135deg, rgba(239, 68, 68, 0.15), rgba(239, 68, 68, 0.05));
+        box-shadow: inset 0 0 0 2px rgba(239, 68, 68, 0.5);
+    }
+    .dark .vote-btn.selected-worst {
+        background: linear-gradient(135deg, rgba(239, 68, 68, 0.25), rgba(239, 68, 68, 0.1));
+    }
+
+    /* Middle (자동 선택) */
+    .vote-btn.selected-middle {
+        background: linear-gradient(135deg, rgba(156, 163, 175, 0.15), rgba(156, 163, 175, 0.05));
+        box-shadow: inset 0 0 0 2px rgba(156, 163, 175, 0.3);
+    }
+    .dark .vote-btn.selected-middle {
+        background: linear-gradient(135deg, rgba(156, 163, 175, 0.2), rgba(156, 163, 175, 0.1));
+    }
+
+    .criteria-card.voted {
+        border-color: rgba(34, 197, 94, 0.3);
+    }
+    .dark .criteria-card.voted {
+        border-color: rgba(34, 197, 94, 0.4);
+    }
+</style>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // --- Settings from server ---
+    const RESULT_AUTO_SKIP = {{ 'true' if result_auto_skip else 'false' }};
+    const RESULT_SKIP_SECONDS = {{ result_skip_seconds }};
+
+    // --- State ---
+    const item1Id = {{ item1.id }};
+    const item2Id = {{ item2.id }};
+    const item3Id = {{ item3.id }};
+    const allItemIds = [item1Id, item2Id, item3Id];
+    const roundToken = {{ round_token | tojson }};
+    const redirectTo = {% if focus_mode %}{{ ("/battle/focus/" ~ focus_id) | tojson }}{% else %}""{% endif %};
+    const criteriaKeys = {{ criteria_info | map(attribute='key') | list | tojson }};
+    const totalCriteria = criteriaKeys.length;
+
+    // votes[criterionKey] = { best: itemId, worst: itemId }
+    const votes = {};
+    let nextUrl = '/battle';
+    let isSubmitting = false;
+
+    // --- Vote Selection ---
+    // 첫 클릭 = best, 두번째 클릭(다른 항목) = worst, 나머지 = middle
+    // 같은 항목 재클릭 = 해당 역할 해제
+    function selectItem(key, itemId) {
+        if (!votes[key]) votes[key] = {};
+        const v = votes[key];
+
+        if (v.best === itemId) {
+            // best 해제
+            delete v.best;
+            updateCardUI(key);
+            return;
+        }
+        if (v.worst === itemId) {
+            // worst 해제
+            delete v.worst;
+            updateCardUI(key);
+            return;
+        }
+
+        if (!v.best) {
+            v.best = itemId;
+        } else if (!v.worst) {
+            v.worst = itemId;
+        } else {
+            // 이미 둘 다 선택됨 — 이 항목을 worst로 교체
+            v.worst = itemId;
+        }
+
+        updateCardUI(key);
+    }
+
+    function updateCardUI(key) {
+        const v = votes[key] || {};
+
+        // 모든 버튼 초기화
+        allItemIds.forEach(id => {
+            const btn = document.getElementById(`btn-${key}-${id}`);
+            btn.classList.remove('selected-best', 'selected-worst', 'selected-middle');
+            btn.setAttribute('aria-pressed', 'false');
+
+            // role icon 숨기기
+            const icon = btn.querySelector(`.role-icon[data-item="${id}"]`);
+            if (icon) {
+                icon.classList.add('hidden');
+                icon.textContent = '';
+            }
+        });
+
+        const card = document.querySelector(`.criteria-card[data-key="${key}"]`);
+
+        if (v.best && v.worst) {
+            // 완성 상태
+            const middleId = allItemIds.find(id => id !== v.best && id !== v.worst);
+
+            // Best
+            const bestBtn = document.getElementById(`btn-${key}-${v.best}`);
+            bestBtn.classList.add('selected-best');
+            bestBtn.setAttribute('aria-pressed', 'true');
+            const bestIcon = bestBtn.querySelector(`.role-icon[data-item="${v.best}"]`);
+            if (bestIcon) { bestIcon.classList.remove('hidden'); bestIcon.textContent = '👑 Best'; }
+
+            // Worst
+            const worstBtn = document.getElementById(`btn-${key}-${v.worst}`);
+            worstBtn.classList.add('selected-worst');
+            worstBtn.setAttribute('aria-pressed', 'true');
+            const worstIcon = worstBtn.querySelector(`.role-icon[data-item="${v.worst}"]`);
+            if (worstIcon) { worstIcon.classList.remove('hidden'); worstIcon.textContent = '⬇ Worst'; }
+
+            // Middle
+            const midBtn = document.getElementById(`btn-${key}-${middleId}`);
+            midBtn.classList.add('selected-middle');
+            const midIcon = midBtn.querySelector(`.role-icon[data-item="${middleId}"]`);
+            if (midIcon) { midIcon.classList.remove('hidden'); midIcon.textContent = '— Middle'; }
+
+            card.classList.add('voted');
+        } else {
+            card.classList.remove('voted');
+
+            if (v.best) {
+                const bestBtn = document.getElementById(`btn-${key}-${v.best}`);
+                bestBtn.classList.add('selected-best');
+                bestBtn.setAttribute('aria-pressed', 'true');
+                const bestIcon = bestBtn.querySelector(`.role-icon[data-item="${v.best}"]`);
+                if (bestIcon) { bestIcon.classList.remove('hidden'); bestIcon.textContent = '👑 Best'; }
+            }
+            if (v.worst) {
+                const worstBtn = document.getElementById(`btn-${key}-${v.worst}`);
+                worstBtn.classList.add('selected-worst');
+                worstBtn.setAttribute('aria-pressed', 'true');
+                const worstIcon = worstBtn.querySelector(`.role-icon[data-item="${v.worst}"]`);
+                if (worstIcon) { worstIcon.classList.remove('hidden'); worstIcon.textContent = '⬇ Worst'; }
+            }
+        }
+
+        updateProgress();
+    }
+
+    function quickBest(bestId) {
+        // bestId를 모든 기준에서 Best로, 나머지 중 하나를 Worst로 자동 선택
+        const others = allItemIds.filter(id => id !== bestId);
+        criteriaKeys.forEach(key => {
+            votes[key] = { best: bestId, worst: others[others.length - 1] };
+            updateCardUI(key);
+        });
+    }
+
+    function clearAll() {
+        criteriaKeys.forEach(key => {
+            delete votes[key];
+            updateCardUI(key);
+        });
+    }
+
+    // --- Progress ---
+    function updateProgress() {
+        const count = criteriaKeys.filter(key => votes[key]?.best && votes[key]?.worst).length;
+        const pct = count / totalCriteria;
+        const ring = document.getElementById('progress-ring');
+        ring.style.strokeDashoffset = 87.96 * (1 - pct);
+        ring.closest('[role="progressbar"]').setAttribute('aria-valuenow', count);
+        document.getElementById('progress-count').textContent = `${count}/${totalCriteria}`;
+
+        const label = document.getElementById('progress-label');
+        if (count === 0) label.textContent = '각 기준에서 Best/Worst를 선택하세요';
+        else if (count < totalCriteria) label.textContent = `${totalCriteria - count}개 남았습니다`;
+        else label.textContent = '모든 기준 선택 완료!';
+
+        const btn = document.getElementById('submit-btn');
+        if (count === totalCriteria) {
+            btn.disabled = false;
+            btn.className = 'px-8 py-3 rounded-xl font-bold text-white shadow-lg transition-all duration-300 bg-gradient-to-r from-brand-600 via-amber-500 to-pink-500 hover:from-brand-700 hover:via-amber-600 hover:to-pink-600 cursor-pointer transform hover:scale-105 active:scale-95';
+        } else {
+            btn.disabled = true;
+            btn.className = 'px-8 py-3 rounded-xl font-bold text-white shadow-lg transition-all duration-300 bg-gray-300 dark:bg-gray-600 cursor-not-allowed';
+        }
+    }
+
+    // --- Submit ---
+    async function submitAllVotes() {
+        const completed = criteriaKeys.filter(key => votes[key]?.best && votes[key]?.worst).length;
+        if (completed < totalCriteria || isSubmitting) return;
+        isSubmitting = true;
+        const submitBtn = document.getElementById('submit-btn');
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<span class="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2"></span>처리 중...';
+
+        // 서버 전송용 포맷 변환: { criterion_key: { "item_id": "best", "item_id": "worst" } }
+        const serverVotes = {};
+        criteriaKeys.forEach(key => {
+            const v = votes[key];
+            serverVotes[key] = {};
+            serverVotes[key][String(v.best)] = 'best';
+            serverVotes[key][String(v.worst)] = 'worst';
+        });
+
+        try {
+            const res = await fetchWithTimeout('/battle/vote/3way', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    item1_id: item1Id,
+                    item2_id: item2Id,
+                    item3_id: item3Id,
+                    round_token: roundToken,
+                    votes: serverVotes,
+                    redirect_to: redirectTo || null,
+                }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                handleVoteError(res.status, data);
+                return;
+            }
+            showResultModal(data);
+        } catch (err) {
+            console.error(err);
+            showToast(err.message || '투표를 저장하는 중 오류가 발생했습니다. 다시 시도해주세요.', 'error', 5000);
+        } finally {
+            isSubmitting = false;
+            const modal = document.getElementById('result-modal');
+            if (modal.classList.contains('hidden')) {
+                updateProgress();
+                submitBtn.textContent = '⚔️ 결과 확인';
+            }
+        }
+    }
+
+    function handleVoteError(status, data) {
+        const detail = typeof data?.detail === 'string'
+            ? data.detail
+            : typeof data?.error === 'string'
+                ? data.error
+                : '투표를 처리할 수 없습니다. 새로고침 후 다시 시도해주세요.';
+
+        if (status === 401) {
+            showToast('서버와의 연결이 일시적으로 끊겼습니다. 새로고침합니다...', 'warning', 3000);
+            setTimeout(() => location.reload(), 1500);
+            return;
+        }
+        if (status === 409) {
+            showToast('대결이 만료되었습니다. 새로운 대결을 불러옵니다...', 'warning', 3000);
+            setTimeout(() => location.reload(), 1500);
+            return;
+        }
+        showToast(detail, 'error', 5000);
+    }
+
+    // --- Navigate ---
+    function goNext() {
+        window.location.href = nextUrl;
+    }
+
+    // --- Result Modal ---
+    function showResultModal(data) {
+        nextUrl = data.next_url;
+
+        document.getElementById('result-name-1').textContent = data.a1_name;
+        document.getElementById('result-name-2').textContent = data.a2_name;
+        document.getElementById('result-name-3').textContent = data.a3_name;
+
+        const idToName = {};
+        idToName[data.a1_id] = data.a1_name;
+        idToName[data.a2_id] = data.a2_name;
+        idToName[data.a3_id] = data.a3_name;
+
+        const idToColor = {};
+        idToColor[data.a1_id] = 'brand';
+        idToColor[data.a2_id] = 'pink';
+        idToColor[data.a3_id] = 'amber';
+
+        const container = document.getElementById('result-list');
+        container.innerHTML = '';
+
+        data.results.forEach((r, i) => {
+            const row = document.createElement('div');
+            row.className = 'py-3 border-b border-gray-200 dark:border-gray-800 last:border-0 opacity-0 translate-y-2';
+            row.style.transition = `all 0.3s ease ${i * 60}ms`;
+
+            // 기준 라벨
+            let html = `<div class="text-sm font-bold text-gray-600 dark:text-gray-300 mb-2">${r.label}</div>`;
+            html += '<div class="grid grid-cols-3 gap-2 text-center">';
+
+            [data.a1_id, data.a2_id, data.a3_id].forEach(id => {
+                const idStr = String(id);
+                const rating = r.ratings[idStr];
+                const diff = r.diffs[idStr];
+                const sigma = r.sigmas[idStr];
+                const dStr = diff > 0 ? `+${diff.toFixed(1)}` : diff.toFixed(1);
+                const dColor = diff > 0 ? 'text-green-500' : diff < 0 ? 'text-red-500' : 'text-gray-400';
+                const roleIcon = id === r.best_id ? '👑' : id === r.worst_id ? '⬇' : '';
+
+                html += `
+                    <div>
+                        <span class="font-mono text-sm font-bold text-gray-700 dark:text-gray-200">${Math.round(rating)}</span>
+                        <span class="text-[10px] text-gray-400 ml-0.5">&plusmn;${Math.round(sigma)}</span>
+                        <span class="text-xs font-bold ml-1 ${dColor}">${dStr}</span>
+                        ${roleIcon ? `<span class="text-xs ml-0.5">${roleIcon}</span>` : ''}
+                    </div>
+                `;
+            });
+
+            html += '</div>';
+            row.innerHTML = html;
+            container.appendChild(row);
+            requestAnimationFrame(() => requestAnimationFrame(() => {
+                row.style.opacity = '1';
+                row.style.transform = 'translateY(0)';
+            }));
+        });
+
+        const modal = document.getElementById('result-modal');
+        const inner = modal.querySelector(':scope > div');
+        modal.classList.remove('hidden');
+        modal.setAttribute('aria-hidden', 'false');
+        requestAnimationFrame(() => {
+            modal.classList.remove('opacity-0');
+            inner.classList.remove('scale-95');
+            inner.classList.add('scale-100');
+        });
+
+        if (RESULT_AUTO_SKIP) {
+            document.getElementById('auto-skip-area').classList.remove('hidden');
+            document.getElementById('click-skip-area').classList.add('hidden');
+            const MODAL_ANIM_MS = 300;
+            setTimeout(() => {
+                document.getElementById('modal-progress').style.width = '100%';
+            }, MODAL_ANIM_MS + 50);
+            setTimeout(goNext, MODAL_ANIM_MS + RESULT_SKIP_SECONDS * 1000);
+        } else {
+            document.getElementById('auto-skip-area').classList.add('hidden');
+            document.getElementById('click-skip-area').classList.remove('hidden');
+            document.getElementById('next-battle-btn').focus();
+
+            modal.addEventListener('click', function handler(e) {
+                if (e.target === modal) {
+                    modal.removeEventListener('click', handler);
+                    goNext();
+                }
+            });
+
+            document.addEventListener('keydown', function handler(e) {
+                if (e.code === 'Space' || e.code === 'Enter') {
+                    e.preventDefault();
+                    document.removeEventListener('keydown', handler);
+                    goNext();
+                }
+            });
+        }
+    }
+
+    // --- Keyboard shortcuts ---
+    document.addEventListener('keydown', (e) => {
+        if (!document.getElementById('result-modal').classList.contains('hidden')) return;
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+        if (e.key === 'Enter' && !document.getElementById('submit-btn').disabled) {
+            e.preventDefault();
+            submitAllVotes();
+        }
+    });
+</script>
+{% endblock %}

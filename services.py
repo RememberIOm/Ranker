@@ -160,52 +160,105 @@ def composite_rating(store: DataStore, item: dict[str, Any]) -> float:
 
 # --- Matchmaking ---
 
+_EIG_SAMPLE_THRESHOLD = 500
+
+
+def _pair_eig(
+    a: dict[str, Any],
+    b: dict[str, Any],
+    criteria_keys: list[str],
+    initial_sq: float,
+) -> float:
+    """두 항목 간 기대 정보 이득(Expected Information Gain)을 합산합니다.
+
+    EIG(i,j) = Σ_k 0.5·log(1 + w·σ²_a) + 0.5·log(1 + w·σ²_b)
+    여기서 w = p(1-p), p = sigmoid(μ_a - μ_b).
+    """
+    total = 0.0
+    for k in criteria_keys:
+        mu_a = a["mu"].get(k, 0.0)
+        sq_a = a["sigma_sq"].get(k, initial_sq)
+        mu_b = b["mu"].get(k, 0.0)
+        sq_b = b["sigma_sq"].get(k, initial_sq)
+        p = sigmoid(mu_a - mu_b)
+        w = p * (1.0 - p)
+        total += 0.5 * math.log1p(w * sq_a) + 0.5 * math.log1p(w * sq_b)
+    return total
+
 
 def get_match_pair(
     store: DataStore,
     focus_id: int | None = None,
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-    """대결 상대를 선정합니다 (불확실성 기반 Power of Two Choices).
+    """대결 상대를 선정합니다 (Expected Information Gain 최대화).
 
-    item1: sqrt(N) 적응형 샘플(최대 10) 중 평균 σ² 최대 (정보 획득 극대화)
-    item2: item1 제외 동일 샘플 크기 중 가중 복합 점수 차이가 작은 쪽 (공정 매칭)
+    모든 가능한 쌍의 EIG를 계산하여 정보 획득이 최대인 쌍을 반환합니다.
+    n > _EIG_SAMPLE_THRESHOLD일 때는 랜덤 샘플링으로 후보를 축소합니다.
     """
     items = store.items
     if len(items) < 2:
         return (store.get_item(focus_id) if focus_id else None), None
 
-    sample_size = min(max(2, int(math.sqrt(len(items)))), 10)
     criteria_keys = [c["key"] for c in store.criteria]
     initial_sq = store.settings["initial_sigma"] ** 2
 
-    def _avg_sigma_sq(item: dict[str, Any]) -> float:
-        if not criteria_keys:
-            return 0.0
-        return sum(item["sigma_sq"].get(k, initial_sq) for k in criteria_keys) / len(criteria_keys)
-
-    # item1: Two Choices — 평균 σ² 최대 선택 (가장 불확실한 항목 우선)
     if focus_id:
         item1 = store.get_item(focus_id)
         if not item1:
             return None, None
-    else:
-        sample = random.sample(items, min(sample_size, len(items)))
-        item1 = max(sample, key=_avg_sigma_sq)
+        candidates = [i for i in items if i["id"] != item1["id"]]
+        item2 = max(candidates, key=lambda x: _pair_eig(item1, x, criteria_keys, initial_sq))
+        return item1, item2
 
-    others = [i for i in items if i["id"] != item1["id"]]
+    # n이 클 때는 샘플링으로 후보 축소
+    pool = items
+    if len(items) > _EIG_SAMPLE_THRESHOLD:
+        pool = random.sample(items, _EIG_SAMPLE_THRESHOLD)
+
+    best_eig = -1.0
+    best_pair: tuple[dict[str, Any] | None, dict[str, Any] | None] = (None, None)
+    for i in range(len(pool)):
+        for j in range(i + 1, len(pool)):
+            eig = _pair_eig(pool[i], pool[j], criteria_keys, initial_sq)
+            if eig > best_eig:
+                best_eig = eig
+                best_pair = (pool[i], pool[j])
+
+    return best_pair
+
+
+def get_match_triple(
+    store: DataStore,
+    focus_id: int | None = None,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None, dict[str, Any] | None]:
+    """3-way 비교를 위한 3개 항목을 선정합니다 (EIG 기반).
+
+    1단계: EIG 최대 쌍 (item1, item2) 선택 (get_match_pair 재사용).
+    2단계: item1·item2 각각과의 EIG 합이 최대인 item3 선택.
+    """
+    items = store.items
+    if len(items) < 3:
+        return None, None, None
+
+    item1, item2 = get_match_pair(store, focus_id)
+    if not item1 or not item2:
+        return None, None, None
+
+    others = [i for i in items if i["id"] not in (item1["id"], item2["id"])]
     if not others:
-        return item1, None
+        return None, None, None
 
-    # item2: Two Choices — 가중 복합 점수 차이 작은 쪽 선택
-    sample2 = random.sample(others, min(sample_size, len(others)))
+    criteria_keys = [c["key"] for c in store.criteria]
+    initial_sq = store.settings["initial_sigma"] ** 2
+    item3 = max(
+        others,
+        key=lambda x: (
+            _pair_eig(item1, x, criteria_keys, initial_sq)
+            + _pair_eig(item2, x, criteria_keys, initial_sq)
+        ),
+    )
 
-    if store.criteria:
-        r1 = composite_rating(store, item1)
-        item2 = min(sample2, key=lambda x: abs(composite_rating(store, x) - r1))
-    else:
-        item2 = sample2[0]
-
-    return item1, item2
+    return item1, item2, item3
 
 
 # --- Ranking ---

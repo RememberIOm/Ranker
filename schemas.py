@@ -5,6 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 
 VoteChoice = Literal["1", "2", "draw"]
+ThreeWayRole = Literal["best", "worst"]
 
 
 class SettingsModel(BaseModel):
@@ -17,6 +18,7 @@ class SettingsModel(BaseModel):
     hierarchical_strength: float = Field(default=5.0, ge=0.0, le=100.0)
     display_center: float = Field(default=1200.0, ge=0.0, le=100_000.0)
     display_scale: float = Field(default=173.72, gt=0.0, le=10_000.0)
+    battle_mode: Literal["2way", "3way"] = "2way"
     result_auto_skip: bool = False
     result_skip_seconds: float = Field(default=3.0, ge=0.5, le=60.0)
 
@@ -78,12 +80,16 @@ class ActiveRoundModel(BaseModel):
     token: str = Field(min_length=16, max_length=255)
     item1_id: int = Field(ge=1)
     item2_id: int = Field(ge=1)
+    item3_id: int | None = Field(default=None, ge=1)
     issued_at: float = Field(ge=0.0)
 
     @model_validator(mode="after")
     def validate_distinct_items(self) -> "ActiveRoundModel":
-        if self.item1_id == self.item2_id:
-            raise ValueError("active_round.item1_id와 item2_id는 달라야 합니다.")
+        ids = [self.item1_id, self.item2_id]
+        if self.item3_id is not None:
+            ids.append(self.item3_id)
+        if len(set(ids)) != len(ids):
+            raise ValueError("active_round의 항목 ID는 모두 달라야 합니다.")
         return self
 
 
@@ -175,5 +181,65 @@ class BattleVoteResponse(BaseModel):
     a1_name: str
     a2_name: str
     results: list[CriteriaResult]
+    total_items: int
+    next_url: str
+
+
+# --- 3-way Battle ---
+
+
+class ThreeWayBattleVoteRequest(BaseModel):
+    """3-way 배틀 투표 요청 — 기준별 best/worst 선택."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    item1_id: int = Field(ge=1)
+    item2_id: int = Field(ge=1)
+    item3_id: int = Field(ge=1)
+    round_token: str = Field(min_length=16, max_length=255)
+    votes: dict[str, dict[str, ThreeWayRole]] = Field(min_length=1)
+    redirect_to: str | None = None
+
+    @field_validator("redirect_to")
+    @classmethod
+    def validate_redirect_to(cls, value: str | None) -> str | None:
+        if value in (None, ""):
+            return None
+        if value.startswith("/") and not value.startswith("//"):
+            return value
+        raise ValueError("redirect_to는 안전한 상대 경로여야 합니다.")
+
+    @model_validator(mode="after")
+    def validate_item_triple(self) -> "ThreeWayBattleVoteRequest":
+        ids = {self.item1_id, self.item2_id, self.item3_id}
+        if len(ids) != 3:
+            raise ValueError("3-way 대결에는 서로 다른 3개 항목이 필요합니다.")
+        return self
+
+
+class ThreeWayCriteriaResult(BaseModel):
+    """3-way 개별 기준 결과"""
+
+    key: str
+    label: str
+    color: str
+    best_id: int
+    worst_id: int
+    middle_id: int
+    ratings: dict[str, float]   # {item_id_str: new_display_rating}
+    diffs: dict[str, float]     # {item_id_str: rating_change}
+    sigmas: dict[str, float]    # {item_id_str: display_uncertainty}
+
+
+class ThreeWayBattleVoteResponse(BaseModel):
+    """3-way 배틀 투표 응답"""
+
+    a1_id: int
+    a2_id: int
+    a3_id: int
+    a1_name: str
+    a2_name: str
+    a3_name: str
+    results: list[ThreeWayCriteriaResult]
     total_items: int
     next_url: str

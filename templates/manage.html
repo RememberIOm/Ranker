@@ -318,6 +318,29 @@
                             </p>
                         </div>
                     </div>
+                    <div class="mb-6">
+                        <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">배틀 모드 (Battle Mode)</label>
+                        <p class="text-xs text-gray-500 dark:text-gray-400 mb-3 leading-relaxed">
+                            3-way 모드는 3개 항목을 동시에 비교하여 수렴 속도를 약 3배 향상시킵니다. 항목이 3개 미만이면 자동으로 2-way로 전환됩니다.
+                        </p>
+                        <div class="flex gap-3">
+                            <label class="flex-1 cursor-pointer">
+                                <input type="radio" name="battle_mode" value="2way" {% if settings.get('battle_mode', '2way') == '2way' %}checked{% endif %} class="sr-only peer">
+                                <div class="px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-700 text-center transition-all peer-checked:border-brand-500 peer-checked:bg-brand-50 dark:peer-checked:bg-brand-900/30 peer-checked:shadow-md">
+                                    <div class="text-sm font-bold text-gray-700 dark:text-gray-200">2-Way (1 vs 1)</div>
+                                    <div class="text-[11px] text-gray-400 mt-1">기본 — 두 항목을 비교</div>
+                                </div>
+                            </label>
+                            <label class="flex-1 cursor-pointer">
+                                <input type="radio" name="battle_mode" value="3way" {% if settings.get('battle_mode', '2way') == '3way' %}checked{% endif %} class="sr-only peer">
+                                <div class="px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-700 text-center transition-all peer-checked:border-brand-500 peer-checked:bg-brand-50 dark:peer-checked:bg-brand-900/30 peer-checked:shadow-md">
+                                    <div class="text-sm font-bold text-gray-700 dark:text-gray-200">3-Way (1 vs 1 vs 1)</div>
+                                    <div class="text-[11px] text-gray-400 mt-1">빠른 수렴 — Best/Worst 선택</div>
+                                </div>
+                            </label>
+                        </div>
+                    </div>
+
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-6 items-end">
                         <div class="pb-1">
                             <label class="flex items-center gap-3 cursor-pointer select-none">

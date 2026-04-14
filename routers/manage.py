@@ -177,6 +177,7 @@ async def update_settings(request: Request, store: DataStore = Depends(require_s
         "result_skip_seconds",
     }
     bool_fields = {"result_auto_skip"}
+    literal_fields = {"battle_mode": {"2way", "3way"}}
 
     for key in int_fields:
         val = form.get(key)
@@ -198,6 +199,11 @@ async def update_settings(request: Request, store: DataStore = Depends(require_s
 
     for key in bool_fields:
         patch[key] = key in form
+
+    for key, allowed in literal_fields.items():
+        val = form.get(key)
+        if val is not None and val in allowed:
+            patch[key] = val
 
     # Pydantic 모델로 재검증
     merged = {**store.settings, **patch}
