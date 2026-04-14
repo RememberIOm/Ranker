@@ -106,6 +106,9 @@
                 <div class="flex items-center gap-2">
                     <span class="role-badge hidden text-[10px] font-bold px-2 py-0.5 rounded-full" data-role="best" data-key="{{ c.key }}">BEST</span>
                     <span class="role-badge hidden text-[10px] font-bold px-2 py-0.5 rounded-full" data-role="worst" data-key="{{ c.key }}">WORST</span>
+                    <button type="button" onclick="toggleTied('{{ c.key }}')" id="tied-btn-{{ c.key }}"
+                        class="hidden text-[10px] font-bold px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-amber-100 hover:text-amber-600 dark:hover:bg-amber-900/30 dark:hover:text-amber-400 transition"
+                        title="나머지 두 항목이 비슷하면 클릭">≈ 나머지 비슷</button>
                 </div>
             </div>
 
@@ -264,6 +267,15 @@
         background: linear-gradient(135deg, rgba(156, 163, 175, 0.2), rgba(156, 163, 175, 0.1));
     }
 
+    /* Tied (비슷함) */
+    .vote-btn.selected-tied {
+        background: linear-gradient(135deg, rgba(245, 158, 11, 0.12), rgba(245, 158, 11, 0.04));
+        box-shadow: inset 0 0 0 2px rgba(245, 158, 11, 0.35);
+    }
+    .dark .vote-btn.selected-tied {
+        background: linear-gradient(135deg, rgba(245, 158, 11, 0.2), rgba(245, 158, 11, 0.08));
+    }
+
     .criteria-card.voted {
         border-color: rgba(34, 197, 94, 0.3);
     }
@@ -290,7 +302,8 @@
     const criteriaKeys = {{ criteria_info | map(attribute='key') | list | tojson }};
     const totalCriteria = criteriaKeys.length;
 
-    // votes[criterionKey] = { best: itemId, worst: itemId }
+    // votes[criterionKey] = { best: itemId, worst: itemId, tied: bool }
+    // tied=true: best만 선택, 나머지 둘은 비슷 (무승부 처리)
     const votes = {};
     let nextUrl = '/battle';
     let isSubmitting = false;
@@ -301,6 +314,9 @@
     function selectItem(key, itemId) {
         if (!votes[key]) votes[key] = {};
         const v = votes[key];
+
+        // tied 모드 해제
+        if (v.tied) v.tied = false;
 
         if (v.best === itemId) {
             // best 해제
@@ -327,16 +343,31 @@
         updateCardUI(key);
     }
 
+    function toggleTied(key) {
+        if (!votes[key]) return;
+        const v = votes[key];
+        if (!v.best) return;
+
+        if (v.tied) {
+            // tied 모드 해제
+            v.tied = false;
+        } else {
+            // tied 모드 활성화 — worst 제거
+            delete v.worst;
+            v.tied = true;
+        }
+        updateCardUI(key);
+    }
+
     function updateCardUI(key) {
         const v = votes[key] || {};
 
         // 모든 버튼 초기화
         allItemIds.forEach(id => {
             const btn = document.getElementById(`btn-${key}-${id}`);
-            btn.classList.remove('selected-best', 'selected-worst', 'selected-middle');
+            btn.classList.remove('selected-best', 'selected-worst', 'selected-middle', 'selected-tied');
             btn.setAttribute('aria-pressed', 'false');
 
-            // role icon 숨기기
             const icon = btn.querySelector(`.role-icon[data-item="${id}"]`);
             if (icon) {
                 icon.classList.add('hidden');
@@ -345,32 +376,48 @@
         });
 
         const card = document.querySelector(`.criteria-card[data-key="${key}"]`);
+        const tiedBtn = document.getElementById(`tied-btn-${key}`);
 
-        if (v.best && v.worst) {
-            // 완성 상태
-            const middleId = allItemIds.find(id => id !== v.best && id !== v.worst);
-
-            // Best
+        if (v.best && v.tied) {
+            // best only + tied 모드
             const bestBtn = document.getElementById(`btn-${key}-${v.best}`);
             bestBtn.classList.add('selected-best');
             bestBtn.setAttribute('aria-pressed', 'true');
             const bestIcon = bestBtn.querySelector(`.role-icon[data-item="${v.best}"]`);
             if (bestIcon) { bestIcon.classList.remove('hidden'); bestIcon.textContent = '👑 Best'; }
 
-            // Worst
+            allItemIds.filter(id => id !== v.best).forEach(id => {
+                const btn = document.getElementById(`btn-${key}-${id}`);
+                btn.classList.add('selected-tied');
+                const icon = btn.querySelector(`.role-icon[data-item="${id}"]`);
+                if (icon) { icon.classList.remove('hidden'); icon.textContent = '≈ Tied'; }
+            });
+
+            card.classList.add('voted');
+            tiedBtn.classList.add('hidden');
+        } else if (v.best && v.worst) {
+            // 기본 best/worst 모드
+            const middleId = allItemIds.find(id => id !== v.best && id !== v.worst);
+
+            const bestBtn = document.getElementById(`btn-${key}-${v.best}`);
+            bestBtn.classList.add('selected-best');
+            bestBtn.setAttribute('aria-pressed', 'true');
+            const bestIcon = bestBtn.querySelector(`.role-icon[data-item="${v.best}"]`);
+            if (bestIcon) { bestIcon.classList.remove('hidden'); bestIcon.textContent = '👑 Best'; }
+
             const worstBtn = document.getElementById(`btn-${key}-${v.worst}`);
             worstBtn.classList.add('selected-worst');
             worstBtn.setAttribute('aria-pressed', 'true');
             const worstIcon = worstBtn.querySelector(`.role-icon[data-item="${v.worst}"]`);
             if (worstIcon) { worstIcon.classList.remove('hidden'); worstIcon.textContent = '⬇ Worst'; }
 
-            // Middle
             const midBtn = document.getElementById(`btn-${key}-${middleId}`);
             midBtn.classList.add('selected-middle');
             const midIcon = midBtn.querySelector(`.role-icon[data-item="${middleId}"]`);
             if (midIcon) { midIcon.classList.remove('hidden'); midIcon.textContent = '— Middle'; }
 
             card.classList.add('voted');
+            tiedBtn.classList.add('hidden');
         } else {
             card.classList.remove('voted');
 
@@ -380,6 +427,10 @@
                 bestBtn.setAttribute('aria-pressed', 'true');
                 const bestIcon = bestBtn.querySelector(`.role-icon[data-item="${v.best}"]`);
                 if (bestIcon) { bestIcon.classList.remove('hidden'); bestIcon.textContent = '👑 Best'; }
+                // best가 선택된 상태에서 "나머지 비슷" 버튼 표시
+                tiedBtn.classList.remove('hidden');
+            } else {
+                tiedBtn.classList.add('hidden');
             }
             if (v.worst) {
                 const worstBtn = document.getElementById(`btn-${key}-${v.worst}`);
@@ -387,6 +438,7 @@
                 worstBtn.setAttribute('aria-pressed', 'true');
                 const worstIcon = worstBtn.querySelector(`.role-icon[data-item="${v.worst}"]`);
                 if (worstIcon) { worstIcon.classList.remove('hidden'); worstIcon.textContent = '⬇ Worst'; }
+                tiedBtn.classList.add('hidden');
             }
         }
 
@@ -409,9 +461,16 @@
         });
     }
 
+    // --- Helpers ---
+    function isVoteComplete(key) {
+        const v = votes[key];
+        if (!v || !v.best) return false;
+        return !!(v.worst || v.tied);
+    }
+
     // --- Progress ---
     function updateProgress() {
-        const count = criteriaKeys.filter(key => votes[key]?.best && votes[key]?.worst).length;
+        const count = criteriaKeys.filter(isVoteComplete).length;
         const pct = count / totalCriteria;
         const ring = document.getElementById('progress-ring');
         ring.style.strokeDashoffset = 87.96 * (1 - pct);
@@ -435,20 +494,27 @@
 
     // --- Submit ---
     async function submitAllVotes() {
-        const completed = criteriaKeys.filter(key => votes[key]?.best && votes[key]?.worst).length;
+        const completed = criteriaKeys.filter(isVoteComplete).length;
         if (completed < totalCriteria || isSubmitting) return;
         isSubmitting = true;
         const submitBtn = document.getElementById('submit-btn');
         submitBtn.disabled = true;
         submitBtn.innerHTML = '<span class="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2"></span>처리 중...';
 
-        // 서버 전송용 포맷 변환: { criterion_key: { "item_id": "best", "item_id": "worst" } }
+        // 서버 전송용 포맷 변환
         const serverVotes = {};
         criteriaKeys.forEach(key => {
             const v = votes[key];
             serverVotes[key] = {};
             serverVotes[key][String(v.best)] = 'best';
-            serverVotes[key][String(v.worst)] = 'worst';
+            if (v.tied) {
+                // best only 모드: 나머지 둘은 tied
+                allItemIds.filter(id => id !== v.best).forEach(id => {
+                    serverVotes[key][String(id)] = 'tied';
+                });
+            } else {
+                serverVotes[key][String(v.worst)] = 'worst';
+            }
         });
 
         try {

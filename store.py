@@ -202,6 +202,8 @@ def _normalize_loaded_data(data: Any) -> dict[str, Any]:
                         criterion_matches[key] = max(0, int(val))
                     except (TypeError, ValueError):
                         criterion_matches[key] = 0
+            else:
+                criterion_matches = {key: 0 for key in allowed_keys}
 
             # Elo→BT 마이그레이션: "ratings" 존재 + "mu" 부재 시 변환
             mu_raw = raw_item.get("mu")
@@ -275,6 +277,19 @@ def _normalize_loaded_data(data: Any) -> dict[str, Any]:
                 "item2_id": ar_item2_id,
                 "issued_at": ar_issued_at,
             }
+            # 3-way 배틀의 item3_id 복원
+            raw_item3 = active_round_raw.get("item3_id")
+            if raw_item3 is not None:
+                try:
+                    ar_item3_id = int(raw_item3)
+                except (TypeError, ValueError):
+                    ar_item3_id = 0
+                if (
+                    ar_item3_id >= 1
+                    and ar_item3_id != ar_item1_id
+                    and ar_item3_id != ar_item2_id
+                ):
+                    active_round["item3_id"] = ar_item3_id
 
     return {
         "settings": settings,
@@ -692,44 +707,69 @@ class DataStore:
                 key = criterion["key"]
                 vote = payload.votes[key]
 
-                # best/worst ID 추출
+                # best/worst/tied ID 추출
                 best_id: int | None = None
                 worst_id: int | None = None
+                tied_ids: list[int] = []
                 for id_key, role in vote.items():
                     item_id = int(id_key)
                     if role == "best":
                         best_id = item_id
                     elif role == "worst":
                         worst_id = item_id
+                    elif role == "tied":
+                        tied_ids.append(item_id)
 
-                if best_id is None or worst_id is None:
-                    raise InvalidBattleVoteError(
-                        f"기준 '{key}'에 best와 worst가 모두 필요합니다."
-                    )
-                if best_id not in item_ids or worst_id not in item_ids:
-                    raise InvalidBattleVoteError(
-                        f"기준 '{key}'의 투표 ID가 대결 항목에 없습니다."
-                    )
-                if best_id == worst_id:
-                    raise InvalidBattleVoteError(
-                        f"기준 '{key}'에서 best와 worst가 같을 수 없습니다."
-                    )
+                # "best only" 모드: best 1명 + tied 2명 → 나머지 둘은 무승부
+                if best_id is not None and worst_id is None and len(tied_ids) == 2:
+                    if best_id not in item_ids or any(t not in item_ids for t in tied_ids):
+                        raise InvalidBattleVoteError(
+                            f"기준 '{key}'의 투표 ID가 대결 항목에 없습니다."
+                        )
+                    tied_a, tied_b = tied_ids
+                    middle_id = tied_a  # best_only 모드에서는 middle 개념 없음 (표시용)
+                    worst_id = tied_b
 
-                middle_id = [iid for iid in item_ids if iid != best_id and iid != worst_id][0]
+                    old_ratings: dict[str, float] = {}
+                    for item in items_3:
+                        old_ratings[id_str[item["id"]]] = display_rating(
+                            self, item["mu"].get(key, 0.0)
+                        )
 
-                # 이전 rating 저장
-                old_ratings: dict[str, float] = {}
-                for item in items_3:
-                    old_ratings[id_str[item["id"]]] = display_rating(
-                        self, item["mu"].get(key, 0.0)
-                    )
+                    pairs = [
+                        (best_id, tied_a, 1.0),   # best > tied_a
+                        (best_id, tied_b, 1.0),   # best > tied_b
+                        (tied_a, tied_b, 0.5),     # tied_a ≈ tied_b (무승부)
+                    ]
+                else:
+                    # 기본 모드: best/worst 필수
+                    if best_id is None or worst_id is None:
+                        raise InvalidBattleVoteError(
+                            f"기준 '{key}'에 best와 worst가 모두 필요합니다."
+                        )
+                    if best_id not in item_ids or worst_id not in item_ids:
+                        raise InvalidBattleVoteError(
+                            f"기준 '{key}'의 투표 ID가 대결 항목에 없습니다."
+                        )
+                    if best_id == worst_id:
+                        raise InvalidBattleVoteError(
+                            f"기준 '{key}'에서 best와 worst가 같을 수 없습니다."
+                        )
 
-                # 3개 쌍대비교: best>middle, best>worst, middle>worst
-                pairs = [
-                    (best_id, middle_id, 1.0),
-                    (best_id, worst_id, 1.0),
-                    (middle_id, worst_id, 1.0),
-                ]
+                    middle_id = [iid for iid in item_ids if iid != best_id and iid != worst_id][0]
+
+                    old_ratings: dict[str, float] = {}
+                    for item in items_3:
+                        old_ratings[id_str[item["id"]]] = display_rating(
+                            self, item["mu"].get(key, 0.0)
+                        )
+
+                    # 3개 쌍대비교: best>middle, best>worst, middle>worst
+                    pairs = [
+                        (best_id, middle_id, 1.0),
+                        (best_id, worst_id, 1.0),
+                        (middle_id, worst_id, 1.0),
+                    ]
                 item_by_id = {item["id"]: item for item in items_3}
 
                 for a_id, b_id, outcome in pairs:
@@ -750,6 +790,9 @@ class DataStore:
 
                 # 기준별 배틀 통계 — 3 쌍 = 3 배틀
                 criterion["battles"] = criterion.get("battles", 0) + 3
+                # best_only 모드에서는 tied 쌍이 무승부 → draws 1 증가
+                if any(outcome == 0.5 for _, _, outcome in pairs):
+                    criterion["draws"] = criterion.get("draws", 0) + 1
 
                 # Per-item-per-criterion 카운트 — 각 항목은 2 쌍에 참여
                 for item in items_3:

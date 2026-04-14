@@ -11,6 +11,7 @@ from services import (
     display_uncertainty,
     get_match_pair,
     get_match_probabilities,
+    get_match_triple,
     hierarchical_shrinkage,
     sigmoid,
 )
@@ -241,6 +242,134 @@ class TestPerCriterionMatches(ServiceTestBase):
         for c in s.criteria:
             self.assertEqual(s.items[0]["criterion_matches"][c["key"]], 1)
             self.assertEqual(s.items[1]["criterion_matches"][c["key"]], 1)
+
+
+class TestAdaptiveHierarchicalShrinkage(ServiceTestBase):
+    async def test_more_matches_less_shrinkage(self) -> None:
+        """관측 수가 많은 기준은 축소가 적게 적용됨"""
+        s = await self._make_store()
+        # 동일 시작점, 다른 criterion_matches
+        item = {
+            "mu": {"story": 2.0, "visual": 2.0, "ost": 0.0, "voice": 0.0, "char": 0.0, "fun": 0.0},
+            "sigma_sq": {"story": 1.0, "visual": 1.0, "ost": 1.0, "voice": 1.0, "char": 1.0, "fun": 1.0},
+            "criterion_matches": {"story": 50, "visual": 0, "ost": 0, "voice": 0, "char": 0, "fun": 0},
+        }
+        hierarchical_shrinkage(s, item)
+        # story(50회)는 visual(0회)보다 덜 축소 → cross_mean에서 더 멀리 유지
+        self.assertGreater(item["mu"]["story"], item["mu"]["visual"])
+
+
+class TestTripleMatchmaking(ServiceTestBase):
+    async def test_returns_triple_with_three_items(self) -> None:
+        s = await self._make_store()
+        await s.add_item("Alpha")
+        await s.add_item("Beta")
+        await s.add_item("Gamma")
+        item1, item2, item3 = get_match_triple(s)
+        self.assertIsNotNone(item1)
+        self.assertIsNotNone(item2)
+        self.assertIsNotNone(item3)
+        ids = {item1["id"], item2["id"], item3["id"]}
+        self.assertEqual(len(ids), 3)
+
+    async def test_returns_none_with_two_items(self) -> None:
+        s = await self._make_store()
+        await s.add_item("Alpha")
+        await s.add_item("Beta")
+        item1, item2, item3 = get_match_triple(s)
+        self.assertIsNone(item1)
+
+    async def test_exhaustive_finds_better_triple(self) -> None:
+        """소규모 풀에서 완전 탐색이 탐욕적보다 같거나 나은 삼중항을 찾음"""
+        s = await self._make_store()
+        for i in range(10):
+            await s.add_item(f"Item{i}")
+        # 다양한 불확실성 설정
+        for i, item in enumerate(s.items):
+            for c in s.criteria:
+                item["sigma_sq"][c["key"]] = 1.0 + i * 0.5
+        item1, item2, item3 = get_match_triple(s)
+        self.assertIsNotNone(item1)
+        self.assertIsNotNone(item2)
+        self.assertIsNotNone(item3)
+
+
+class TestActiveRoundItem3Persistence(ServiceTestBase):
+    async def test_item3_id_survives_reload(self) -> None:
+        """3-way active_round의 item3_id가 세션 재로드 후 보존됨"""
+        session_id = "f" * 32
+        s = await store.get_store(session_id)
+        await s.add_item("Alpha")
+        await s.add_item("Beta")
+        await s.add_item("Gamma")
+        item1, item2, item3 = s.items[0], s.items[1], s.items[2]
+        token = await s.issue_battle_round(item1["id"], item2["id"], item3["id"])
+
+        # 캐시 제거 후 디스크에서 다시 로드
+        store._session_cache.clear()
+        store._locks.clear()
+        s2 = await store.get_store(session_id)
+
+        ar = s2._data["active_round"]
+        self.assertIsNotNone(ar)
+        self.assertEqual(ar["token"], token)
+        self.assertEqual(ar["item1_id"], item1["id"])
+        self.assertEqual(ar["item2_id"], item2["id"])
+        self.assertEqual(ar["item3_id"], item3["id"])
+
+    async def test_2way_round_no_item3(self) -> None:
+        """2-way active_round는 item3_id가 None"""
+        session_id = "g" * 32
+        s = await store.get_store(session_id)
+        await s.add_item("Alpha")
+        await s.add_item("Beta")
+        token = await s.issue_battle_round(s.items[0]["id"], s.items[1]["id"])
+
+        store._session_cache.clear()
+        store._locks.clear()
+        s2 = await store.get_store(session_id)
+
+        ar = s2._data["active_round"]
+        self.assertIsNotNone(ar)
+        self.assertIsNone(ar["item3_id"])
+
+
+class TestThreeWayTiedVote(ServiceTestBase):
+    async def test_best_only_tied_vote(self) -> None:
+        """3-way 'best only' 투표: best > tied_a, best > tied_b, tied_a ≈ tied_b"""
+        s = await self._make_store()
+        await s.add_item("Alpha")
+        await s.add_item("Beta")
+        await s.add_item("Gamma")
+        items = s.items
+        token = await s.issue_battle_round(items[0]["id"], items[1]["id"], items[2]["id"])
+
+        from schemas import ThreeWayBattleVoteRequest
+        # best=item1, tied=item2 & item3
+        votes = {}
+        for c in s.criteria:
+            votes[c["key"]] = {
+                str(items[0]["id"]): "best",
+                str(items[1]["id"]): "tied",
+                str(items[2]["id"]): "tied",
+            }
+        payload = ThreeWayBattleVoteRequest(
+            item1_id=items[0]["id"],
+            item2_id=items[1]["id"],
+            item3_id=items[2]["id"],
+            round_token=token,
+            votes=votes,
+        )
+        resp_data = await s.apply_three_way_vote(payload)
+
+        # best(item1)는 레이팅 상승
+        for r in resp_data["results"]:
+            best_diff = r["diffs"][str(items[0]["id"])]
+            self.assertGreater(best_diff, 0)
+
+        # draws 통계가 증가 (tied 쌍 = 무승부)
+        for c in s.criteria:
+            self.assertGreater(c["draws"], 0)
 
 
 if __name__ == "__main__":

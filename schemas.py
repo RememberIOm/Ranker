@@ -5,7 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 
 VoteChoice = Literal["1", "2", "draw"]
-ThreeWayRole = Literal["best", "worst"]
+ThreeWayRole = Literal["best", "worst", "tied"]
 
 
 class SettingsModel(BaseModel):

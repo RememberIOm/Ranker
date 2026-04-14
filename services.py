@@ -57,9 +57,10 @@ def hierarchical_shrinkage(store: DataStore, item: dict[str, Any]) -> None:
 
     모든 기준의 정밀도 가중 평균(cross_mean)을 계산하고,
     각 기준의 μ를 cross_mean 방향으로 축소합니다 (in-place).
+    축소 강도는 기준별 관측 수에 반비례하여 적응 — 데이터 풍부 기준은 덜 축소됩니다.
     """
-    strength = store.settings["hierarchical_strength"]
-    if strength <= 0:
+    base_strength = store.settings["hierarchical_strength"]
+    if base_strength <= 0:
         return
 
     criteria = store.criteria
@@ -80,11 +81,14 @@ def hierarchical_shrinkage(store: DataStore, item: dict[str, Any]) -> None:
 
     cross_mean = sum(mus[k] * precisions[k] for k in precisions) / total_prec
 
+    criterion_matches = item.get("criterion_matches", {})
     for c in criteria:
         k = c["key"]
         old_prec = precisions[k]
-        new_prec = old_prec + strength
-        item["mu"][k] = (mus[k] * old_prec + cross_mean * strength) / new_prec
+        # 적응형 강도: 관측 수가 많을수록 축소 감소
+        effective_strength = base_strength / (1.0 + criterion_matches.get(k, 0))
+        new_prec = old_prec + effective_strength
+        item["mu"][k] = (mus[k] * old_prec + cross_mean * effective_strength) / new_prec
 
 
 # --- Display Conversion ---
@@ -161,6 +165,7 @@ def composite_rating(store: DataStore, item: dict[str, Any]) -> float:
 # --- Matchmaking ---
 
 _EIG_SAMPLE_THRESHOLD = 500
+_TRIPLE_EXHAUSTIVE_THRESHOLD = 80
 
 
 def _pair_eig(
@@ -227,38 +232,98 @@ def get_match_pair(
     return best_pair
 
 
+def _triple_eig(
+    a: dict[str, Any],
+    b: dict[str, Any],
+    c: dict[str, Any],
+    criteria_keys: list[str],
+    initial_sq: float,
+) -> float:
+    """삼중항의 총 EIG = 3개 쌍 EIG 합."""
+    return (
+        _pair_eig(a, b, criteria_keys, initial_sq)
+        + _pair_eig(a, c, criteria_keys, initial_sq)
+        + _pair_eig(b, c, criteria_keys, initial_sq)
+    )
+
+
 def get_match_triple(
     store: DataStore,
     focus_id: int | None = None,
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None, dict[str, Any] | None]:
     """3-way 비교를 위한 3개 항목을 선정합니다 (EIG 기반).
 
-    1단계: EIG 최대 쌍 (item1, item2) 선택 (get_match_pair 재사용).
-    2단계: item1·item2 각각과의 EIG 합이 최대인 item3 선택.
+    소규모 풀(n ≤ _TRIPLE_EXHAUSTIVE_THRESHOLD): O(n³) 완전 탐색으로 전역 최적 삼중항 선택.
+    대규모 풀: top-K 쌍 기반 탐욕적 선택으로 근사.
     """
     items = store.items
     if len(items) < 3:
         return None, None, None
 
-    item1, item2 = get_match_pair(store, focus_id)
-    if not item1 or not item2:
-        return None, None, None
-
-    others = [i for i in items if i["id"] not in (item1["id"], item2["id"])]
-    if not others:
-        return None, None, None
-
     criteria_keys = [c["key"] for c in store.criteria]
     initial_sq = store.settings["initial_sigma"] ** 2
-    item3 = max(
-        others,
-        key=lambda x: (
-            _pair_eig(item1, x, criteria_keys, initial_sq)
-            + _pair_eig(item2, x, criteria_keys, initial_sq)
-        ),
-    )
 
-    return item1, item2, item3
+    # focus 모드: focus 항목 고정 + 나머지에서 최적 쌍 탐색
+    if focus_id:
+        item1 = store.get_item(focus_id)
+        if not item1:
+            return None, None, None
+        others = [i for i in items if i["id"] != item1["id"]]
+        if len(others) < 2:
+            return None, None, None
+        best_eig = -1.0
+        best_pair = (others[0], others[1])
+        for i in range(len(others)):
+            for j in range(i + 1, len(others)):
+                eig = _triple_eig(item1, others[i], others[j], criteria_keys, initial_sq)
+                if eig > best_eig:
+                    best_eig = eig
+                    best_pair = (others[i], others[j])
+        return item1, best_pair[0], best_pair[1]
+
+    # 소규모 풀: O(n³) 완전 탐색
+    pool = items
+    if len(items) > _EIG_SAMPLE_THRESHOLD:
+        pool = random.sample(items, _EIG_SAMPLE_THRESHOLD)
+
+    if len(pool) <= _TRIPLE_EXHAUSTIVE_THRESHOLD:
+        best_eig = -1.0
+        best_triple: tuple[dict[str, Any], ...] = (pool[0], pool[1], pool[2])
+        for i in range(len(pool)):
+            for j in range(i + 1, len(pool)):
+                for k in range(j + 1, len(pool)):
+                    eig = _triple_eig(pool[i], pool[j], pool[k], criteria_keys, initial_sq)
+                    if eig > best_eig:
+                        best_eig = eig
+                        best_triple = (pool[i], pool[j], pool[k])
+        return best_triple[0], best_triple[1], best_triple[2]
+
+    # 대규모 풀: top-K 쌍 기반 탐욕적 선택
+    _TOP_K = 10
+    top_pairs: list[tuple[float, dict[str, Any], dict[str, Any]]] = []
+    for i in range(len(pool)):
+        for j in range(i + 1, len(pool)):
+            eig = _pair_eig(pool[i], pool[j], criteria_keys, initial_sq)
+            if len(top_pairs) < _TOP_K:
+                top_pairs.append((eig, pool[i], pool[j]))
+                top_pairs.sort(key=lambda x: x[0])
+            elif eig > top_pairs[0][0]:
+                top_pairs[0] = (eig, pool[i], pool[j])
+                top_pairs.sort(key=lambda x: x[0])
+
+    best_eig = -1.0
+    best_result: tuple[dict[str, Any] | None, dict[str, Any] | None, dict[str, Any] | None] = (None, None, None)
+    for _, p1, p2 in top_pairs:
+        others = [i for i in pool if i["id"] not in (p1["id"], p2["id"])]
+        if not others:
+            continue
+        p3 = max(others, key=lambda x: _triple_eig(p1, p2, x, criteria_keys, initial_sq))
+        eig = _triple_eig(p1, p2, p3, criteria_keys, initial_sq)
+        if eig > best_eig:
+            best_eig = eig
+            best_result = (p1, p2, p3)
+
+    return best_result
 
 
 # --- Ranking ---
