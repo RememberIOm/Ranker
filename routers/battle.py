@@ -117,7 +117,7 @@ def _build_3way_context(
             })
         criteria_info.append({
             **c,
-            "items": item_data,
+            "item_ratings": item_data,
         })
 
     ranks = []

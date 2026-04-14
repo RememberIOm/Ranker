@@ -111,7 +111,7 @@
 
             {# === 3개 항목 버튼 === #}
             <div class="grid grid-cols-3 gap-0">
-                {% for it in c.items %}
+                {% for it in c.item_ratings %}
                 <button type="button" onclick="selectItem('{{ c.key }}', {{ it.id }})" id="btn-{{ c.key }}-{{ it.id }}"
                     aria-pressed="false"
                     class="vote-btn py-4 px-3 flex flex-col items-center justify-center gap-1 transition-all duration-200 hover:bg-gray-50 dark:hover:bg-gray-700/50 {% if not loop.last %}border-r border-gray-200 dark:border-gray-700{% endif %} group">
