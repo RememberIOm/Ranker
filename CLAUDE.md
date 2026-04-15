@@ -50,8 +50,12 @@ uv sync --extra dev        # dev 의존성 설치
 - **통계**: 3-way 1회 = 3 battles, 각 항목 2 criterion_matches 증가, Tied 시 draws 1 증가
 - 항목 3개 미만 시 자동으로 2-way 전환
 
-### HTMX partial 응답 (routers/*.py + templates/partials/)
+### 정적 자원 (static/vendor/)
 - **self-hosted HTMX 2.0.4**: `/static/vendor/htmx.min.js`
+- **self-hosted Chart.js 4.5.1**: `/static/vendor/chart.umd.min.js` — ranking 페이지에서만 로드
+- CSP `script-src 'self' 'unsafe-inline'`으로 외부 CDN 스크립트 차단 — 벤더 JS는 반드시 self-host
+
+### HTMX partial 응답 (routers/*.py + templates/partials/)
 - **`is_htmx(request)`** (`deps.py`): `HX-Request: true` 헤더 감지. 모든 라우터 핸들러에서 HTMX/일반 요청 분기에 사용
 - **partial 템플릿**: `templates/partials/` 디렉토리. 배틀 카드, 결과 모달, 관리 항목 목록 등
 - **배틀 투표 흐름**: 클라이언트 JS가 `fetch()` + `HX-Request: true` 헤더로 JSON body 전송 → 서버가 결과 모달 HTML + OOB swap으로 다음 배틀 카드 반환 → JS가 DOM에 적용
@@ -97,9 +101,19 @@ uv sync --extra dev        # dev 의존성 설치
 - **에러 처리**: `htmx:responseError` 글로벌 이벤트 → `showToast()`로 표시
 - **확인 다이얼로그**: `hx-confirm` → `htmx:confirm` 이벤트 → `showConfirm()` 커스텀 다이얼로그
 
+### Tailwind 동적 클래스
+- Jinja2 런타임 색상 클래스(`text-{{ c.color }}-600` 등)는 Tailwind JIT가 감지 불가 → `input.css`의 `@source inline()` safelist에 등록 필수
+- 새 동적 색상 variant 추가 시 safelist에 해당 접두사·스케일 추가 후 리빌드 확인
+
+### 접근성
+- HTMX 스왑 대상(`#battle-arena`, `#item-list`)에 `aria-live="polite"` 유지
+- `base.html`의 `htmx:beforeRequest`/`htmx:afterRequest`에서 스왑 대상에 `aria-busy` 자동 토글
+- 배틀 카드 스왑 후 `reinitBattleState()`에서 첫 투표 버튼으로 포커스 이동
+
 ### 프론트엔드 변경 시
 - `docker compose up`으로 브라우저에서 직접 확인: 정상 경로, 빈 상태, 다크모드, 모바일 뷰포트
 - HTMX partial swap 후 스타일·상태 초기화 확인
+- 동적 Tailwind 클래스 추가 시 `input.css` safelist 갱신 + CSS 리빌드 확인
 
 ### 문서 갱신 규칙
 - 아키텍처 패턴 변경 → **아키텍처 핵심** 섹션 갱신

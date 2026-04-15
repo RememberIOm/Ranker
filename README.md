@@ -49,7 +49,7 @@
 
 - **Backend**: Python 3.13, FastAPI, aiosqlite, Pydantic v2
 - **Data Storage**: SQLite (WAL mode, `database.py` + `store.py`, 단일 DB 파일에 세션별 데이터 저장)
-- **Frontend**: Jinja2 Templates, HTMX 2.0 (self-hosted), TailwindCSS v4 CLI build, Chart.js (jsDelivr CDN)
+- **Frontend**: Jinja2 Templates, HTMX 2.0 (self-hosted), TailwindCSS v4 CLI build, Chart.js 4.5 (self-hosted)
 - **Deployment**: Fly.io (Docker container + mounted volume)
 
 ---
@@ -112,7 +112,7 @@ docker run --rm ranker-test python -m unittest discover -s tests -p 'test_*.py'
 ├── package-lock.json    # Tailwind 의존성 잠금 파일
 ├── pyproject.toml       # 프로젝트 메타데이터 및 의존성 (uv)
 ├── uv.lock              # 의존성 잠금 파일
-├── static/vendor/       # self-hosted JS (htmx.min.js)
+├── static/vendor/       # self-hosted JS (htmx.min.js, chart.umd.min.js)
 ├── tests/               # 유닛 + 통합 테스트 (pytest-asyncio)
 └── fly.toml             # Fly.io 배포 설정
 ```

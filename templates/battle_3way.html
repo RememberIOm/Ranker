@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div id="battle-arena">
+<div id="battle-arena" aria-live="polite">
     {% include "partials/battle_3way_cards.html" %}
 </div>
 <div id="result-modal-container"></div>
@@ -526,6 +526,10 @@
         Object.keys(votes).forEach(k => delete votes[k]);
         isSubmitting = false;
         updateProgress();
+
+        // 새 배틀 카드로 포커스 이동
+        const firstVoteBtn = document.querySelector('#criteria-list .vote-btn');
+        if (firstVoteBtn) firstVoteBtn.focus();
     }
 
     // --- Keyboard shortcuts ---

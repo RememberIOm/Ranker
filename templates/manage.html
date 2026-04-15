@@ -66,7 +66,7 @@
             <div class="p-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/50">
                 <span class="text-sm font-semibold text-gray-500 uppercase tracking-wider">Registered Items</span>
             </div>
-            <ul id="item-list" class="divide-y divide-gray-200 dark:divide-gray-700 max-h-[600px] overflow-y-auto">
+            <ul id="item-list" class="divide-y divide-gray-200 dark:divide-gray-700 max-h-[600px] overflow-y-auto" aria-live="polite">
                 {% include "partials/manage_item_list.html" %}
             </ul>
         </div>

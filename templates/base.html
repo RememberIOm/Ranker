@@ -257,6 +257,22 @@
             showToast(d.message || d.value || '완료', d.type || 'success');
         });
 
+        // aria-busy: HTMX 요청 중 스왑 대상에 aria-busy 설정
+        document.body.addEventListener('htmx:beforeRequest', function (evt) {
+            const sel = evt.detail.elt.getAttribute('hx-target');
+            if (sel) {
+                const target = document.querySelector(sel);
+                if (target) target.setAttribute('aria-busy', 'true');
+            }
+        });
+        document.body.addEventListener('htmx:afterRequest', function (evt) {
+            const sel = evt.detail.elt.getAttribute('hx-target');
+            if (sel) {
+                const target = document.querySelector(sel);
+                if (target) target.removeAttribute('aria-busy');
+            }
+        });
+
         // --- fetchWithTimeout 유틸리티 ---
         async function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
             const controller = new AbortController();
