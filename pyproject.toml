@@ -18,3 +18,7 @@ dev = [
     "ruff>=0.5",
     "pip-audit>=2.7",
 ]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+pythonpath = ["."]

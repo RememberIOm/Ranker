@@ -55,8 +55,9 @@ def bt_update(
 def hierarchical_shrinkage(store: DataStore, item: dict[str, Any]) -> None:
     """계층적 축소: 기준 간 정보를 공유하여 데이터 부족 기준을 보강합니다.
 
-    모든 기준의 정밀도 가중 평균(cross_mean)을 계산하고,
-    각 기준의 μ를 cross_mean 방향으로 축소합니다 (in-place).
+    각 기준 k의 μ를 나머지 기준들의 정밀도 가중 평균(Leave-One-Out cross_mean)
+    방향으로 축소합니다 (in-place). LOO 방식으로 자기 자신이 축소 대상에
+    포함되는 자기 강화 편향을 제거합니다.
     축소 강도는 기준별 관측 수에 반비례하여 적응 — 데이터 풍부 기준은 덜 축소됩니다.
     """
     base_strength = store.settings["hierarchical_strength"]
@@ -79,16 +80,21 @@ def hierarchical_shrinkage(store: DataStore, item: dict[str, Any]) -> None:
     if total_prec <= 0:
         return
 
-    cross_mean = sum(mus[k] * precisions[k] for k in precisions) / total_prec
+    weighted_sum = sum(mus[k] * precisions[k] for k in precisions)
 
     criterion_matches = item.get("criterion_matches", {})
     for c in criteria:
         k = c["key"]
         old_prec = precisions[k]
+        # Leave-One-Out: 기준 k를 제외한 나머지의 정밀도 가중 평균
+        loo_prec = total_prec - old_prec
+        if loo_prec <= 0:
+            continue
+        loo_mean = (weighted_sum - mus[k] * old_prec) / loo_prec
         # 적응형 강도: 관측 수가 많을수록 축소 감소
         effective_strength = base_strength / (1.0 + criterion_matches.get(k, 0))
         new_prec = old_prec + effective_strength
-        item["mu"][k] = (mus[k] * old_prec + cross_mean * effective_strength) / new_prec
+        item["mu"][k] = (mus[k] * old_prec + loo_mean * effective_strength) / new_prec
 
 
 # --- Display Conversion ---
@@ -271,6 +277,8 @@ def get_match_triple(
         others = [i for i in items if i["id"] != item1["id"]]
         if len(others) < 2:
             return None, None, None
+        if len(others) > _EIG_SAMPLE_THRESHOLD:
+            others = random.sample(others, _EIG_SAMPLE_THRESHOLD)
         best_eig = -1.0
         best_pair = (others[0], others[1])
         for i in range(len(others)):

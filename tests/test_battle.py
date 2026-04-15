@@ -1,40 +1,39 @@
 import tempfile
-import unittest
 from pathlib import Path
 
+import pytest
 from pydantic import ValidationError
 
 from schemas import BattleVoteRequest
 import store
 
 
-class BattleVoteValidationTests(unittest.IsolatedAsyncioTestCase):
-    async def asyncSetUp(self) -> None:
-        self.tempdir = tempfile.TemporaryDirectory()
-        self.original_session_dir = store.SESSION_DIR
-        store.SESSION_DIR = Path(self.tempdir.name)
-        store.SESSION_DIR.mkdir(parents=True, exist_ok=True)
-        store._session_cache.clear()
-        store._locks.clear()
+@pytest.fixture()
+async def session_with_items():
+    tempdir = tempfile.TemporaryDirectory()
+    original_session_dir = store.SESSION_DIR
+    store.SESSION_DIR = Path(tempdir.name)
+    store.SESSION_DIR.mkdir(parents=True, exist_ok=True)
+    store._session_cache.clear()
+    store._locks.clear()
 
-    async def asyncTearDown(self) -> None:
-        store._session_cache.clear()
-        store._locks.clear()
-        store.SESSION_DIR = self.original_session_dir
-        self.tempdir.cleanup()
+    session = await store.get_store("c" * 32)
+    await session.add_item("Alpha")
+    await session.add_item("Beta")
+    yield session
 
-    async def _seed_session(self, session_id: str) -> store.DataStore:
-        session = await store.get_store(session_id)
-        await session.add_item("Alpha")
-        await session.add_item("Beta")
-        return session
+    store._session_cache.clear()
+    store._locks.clear()
+    store.SESSION_DIR = original_session_dir
+    tempdir.cleanup()
 
-    async def test_vote_model_rejects_same_item_payload(self) -> None:
-        session = await self._seed_session("c" * 32)
-        item = session.items[0]
-        votes = {criterion["key"]: "1" for criterion in session.criteria}
 
-        with self.assertRaises(ValidationError):
+class TestBattleVoteValidation:
+    async def test_vote_model_rejects_same_item_payload(self, session_with_items: store.DataStore) -> None:
+        item = session_with_items.items[0]
+        votes = {criterion["key"]: "1" for criterion in session_with_items.criteria}
+
+        with pytest.raises(ValidationError):
             BattleVoteRequest(
                 item1_id=item["id"],
                 item2_id=item["id"],
@@ -43,12 +42,11 @@ class BattleVoteValidationTests(unittest.IsolatedAsyncioTestCase):
                 redirect_to="/battle",
             )
 
-    async def test_apply_battle_vote_rejects_replayed_round(self) -> None:
-        session = await self._seed_session("d" * 32)
-        item1 = session.items[0]
-        item2 = session.items[1]
-        votes = {criterion["key"]: "1" for criterion in session.criteria}
-        round_token = await session.issue_battle_round(item1["id"], item2["id"])
+    async def test_apply_battle_vote_rejects_replayed_round(self, session_with_items: store.DataStore) -> None:
+        item1 = session_with_items.items[0]
+        item2 = session_with_items.items[1]
+        votes = {criterion["key"]: "1" for criterion in session_with_items.criteria}
+        round_token = await session_with_items.issue_battle_round(item1["id"], item2["id"])
         payload = BattleVoteRequest(
             item1_id=item1["id"],
             item2_id=item2["id"],
@@ -57,22 +55,21 @@ class BattleVoteValidationTests(unittest.IsolatedAsyncioTestCase):
             redirect_to="/battle",
         )
 
-        result, should_normalize = await session.apply_battle_vote(payload)
-        self.assertEqual(result["a1_id"], item1["id"])
-        self.assertFalse(should_normalize)
+        result, should_normalize = await session_with_items.apply_battle_vote(payload)
+        assert result["a1_id"] == item1["id"]
+        assert should_normalize is False
 
-        with self.assertRaises(store.StaleBattleRoundError):
-            await session.apply_battle_vote(payload)
+        with pytest.raises(store.StaleBattleRoundError):
+            await session_with_items.apply_battle_vote(payload)
 
-    async def test_apply_battle_vote_never_normalizes(self) -> None:
+    async def test_apply_battle_vote_never_normalizes(self, session_with_items: store.DataStore) -> None:
         """Bayesian BT에서는 정규화가 불필요 — should_normalize 항상 False"""
-        session = await self._seed_session("e" * 32)
-        item1 = session.items[0]
-        item2 = session.items[1]
-        votes = {criterion["key"]: "1" for criterion in session.criteria}
+        item1 = session_with_items.items[0]
+        item2 = session_with_items.items[1]
+        votes = {criterion["key"]: "1" for criterion in session_with_items.criteria}
 
         for _ in range(5):
-            token = await session.issue_battle_round(item1["id"], item2["id"])
+            token = await session_with_items.issue_battle_round(item1["id"], item2["id"])
             payload = BattleVoteRequest(
                 item1_id=item1["id"],
                 item2_id=item2["id"],
@@ -80,16 +77,15 @@ class BattleVoteValidationTests(unittest.IsolatedAsyncioTestCase):
                 votes=votes,
                 redirect_to="/battle",
             )
-            _, should_normalize = await session.apply_battle_vote(payload)
-            self.assertFalse(should_normalize)
+            _, should_normalize = await session_with_items.apply_battle_vote(payload)
+            assert should_normalize is False
 
-    async def test_vote_result_contains_sigma(self) -> None:
+    async def test_vote_result_contains_sigma(self, session_with_items: store.DataStore) -> None:
         """투표 결과에 sigma1/sigma2 필드가 포함됨"""
-        session = await self._seed_session("f" * 32)
-        item1 = session.items[0]
-        item2 = session.items[1]
-        votes = {criterion["key"]: "1" for criterion in session.criteria}
-        token = await session.issue_battle_round(item1["id"], item2["id"])
+        item1 = session_with_items.items[0]
+        item2 = session_with_items.items[1]
+        votes = {criterion["key"]: "1" for criterion in session_with_items.criteria}
+        token = await session_with_items.issue_battle_round(item1["id"], item2["id"])
         payload = BattleVoteRequest(
             item1_id=item1["id"],
             item2_id=item2["id"],
@@ -97,9 +93,9 @@ class BattleVoteValidationTests(unittest.IsolatedAsyncioTestCase):
             votes=votes,
             redirect_to="/battle",
         )
-        result, _ = await session.apply_battle_vote(payload)
+        result, _ = await session_with_items.apply_battle_vote(payload)
         for r in result["results"]:
-            self.assertIn("sigma1", r)
-            self.assertIn("sigma2", r)
-            self.assertGreater(r["sigma1"], 0)
-            self.assertGreater(r["sigma2"], 0)
+            assert "sigma1" in r
+            assert "sigma2" in r
+            assert r["sigma1"] > 0
+            assert r["sigma2"] > 0

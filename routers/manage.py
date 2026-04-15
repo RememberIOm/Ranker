@@ -43,7 +43,7 @@ _VALID_TABS = {"items", "criteria", "settings", "data"}
 
 
 @router.get("", response_class=HTMLResponse)
-async def manage_page(request: Request, tab: str = "items", store: DataStore = Depends(require_store)):
+async def manage_page(request: Request, tab: str = "items", store: DataStore = Depends(require_store)) -> HTMLResponse:
     if tab not in _VALID_TABS:
         tab = "items"
 
@@ -60,14 +60,14 @@ async def manage_page(request: Request, tab: str = "items", store: DataStore = D
 
 
 @router.post("/add")
-async def add_item(name: str = Form(...), store: DataStore = Depends(require_store)):
+async def add_item(name: str = Form(...), store: DataStore = Depends(require_store)) -> RedirectResponse:
     if name.strip():
         await store.add_item(name)
     return RedirectResponse(url="/manage?tab=items", status_code=303)
 
 
 @router.post("/add-bulk")
-async def add_items_bulk(names: str = Form(...), store: DataStore = Depends(require_store)):
+async def add_items_bulk(names: str = Form(...), store: DataStore = Depends(require_store)) -> RedirectResponse:
     """줄바꿈으로 구분된 이름 목록을 한번에 추가합니다."""
     name_list = [n.strip() for n in names.splitlines() if n.strip()]
     await store.add_items_bulk(name_list)
@@ -79,7 +79,7 @@ async def delete_item(
     item_id: int = Form(...),
     redirect_url: str = Form("/manage?tab=items"),
     store: DataStore = Depends(require_store),
-):
+) -> RedirectResponse:
     await store.delete_item(item_id)
     return RedirectResponse(url=_safe_redirect(redirect_url, "/manage?tab=items"), status_code=303)
 
@@ -90,7 +90,7 @@ async def edit_item(
     new_name: str = Form(...),
     redirect_url: str = Form("/manage?tab=items"),
     store: DataStore = Depends(require_store),
-):
+) -> RedirectResponse:
     if new_name.strip():
         await store.update_item(item_id, name=new_name.strip())
     return RedirectResponse(url=_safe_redirect(redirect_url, "/manage?tab=items"), status_code=303)
@@ -100,7 +100,7 @@ async def edit_item(
 
 
 @router.post("/criteria")
-async def update_criteria(request: Request, store: DataStore = Depends(require_store)):
+async def update_criteria(request: Request, store: DataStore = Depends(require_store)) -> Response:
     """평가 기준을 폼 데이터로 일괄 교체합니다. key가 비어있으면 자동 생성합니다."""
 
     form = await request.form()
@@ -165,7 +165,7 @@ def _generate_key(label: str, existing: set[str]) -> str:
 
 
 @router.post("/settings")
-async def update_settings(request: Request, store: DataStore = Depends(require_store)):
+async def update_settings(request: Request, store: DataStore = Depends(require_store)) -> Response:
 
     form = await request.form()
     patch: dict = {}
@@ -220,7 +220,7 @@ async def update_settings(request: Request, store: DataStore = Depends(require_s
 
 
 @router.get("/export")
-async def export_data(store: DataStore = Depends(require_store)):
+async def export_data(store: DataStore = Depends(require_store)) -> Response:
     """전체 데이터를 JSON 파일로 다운로드합니다."""
     return Response(
         content=store.export_json(),
@@ -233,7 +233,7 @@ async def export_data(store: DataStore = Depends(require_store)):
 async def import_data(
     file: UploadFile = File(...),
     store: DataStore = Depends(require_store),
-):
+) -> Response:
     """업로드된 JSON 파일로 전체 데이터를 교체합니다."""
     _MAX_UPLOAD_BYTES = 1_000_000
     raw = await file.read(_MAX_UPLOAD_BYTES + 1)
