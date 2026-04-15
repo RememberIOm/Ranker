@@ -1,14 +1,17 @@
 # Ranker (Session-based Bayesian Bradley-Terry Rating System)
 
-**Ranker**는 1:1 대결 투표를 통해 실시간으로 순위를 산정하는 범용 랭킹 웹 애플리케이션입니다.
+**Ranker**는 1:1 또는 3-way 대결 투표를 통해 실시간으로 순위를 산정하는 범용 랭킹 웹 애플리케이션입니다.
 영화, 음식, 게임, 애니메이션 등 **어떤 주제든** 사용자가 원하는 항목과 평가 기준을 자유롭게 설정하여 나만의 랭킹을 만들 수 있습니다.
 
 **Online Bayesian Bradley-Terry** 모델을 채택하여 각 항목의 실력과 불확실성(신뢰 구간)을 동시에 추정하고, 계층적 축소(Hierarchical Shrinkage)로 기준 간 정보를 공유합니다.
 
 **단일 SQLite DB**에 세션 기반으로 데이터를 저장하여, 누구나 독립적인 환경에서 자신만의 데이터를 구축하고 백업(Export/Import)할 수 있습니다.
 
+![License](https://img.shields.io/badge/License-AGPL--3.0-blue?style=flat-square)
 ![Python](https://img.shields.io/badge/Python-3.13+-3776AB?style=flat-square&logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=flat-square&logo=fastapi)
+![SQLite](https://img.shields.io/badge/SQLite-003B57?style=flat-square&logo=sqlite&logoColor=white)
+![HTMX](https://img.shields.io/badge/HTMX-2.0-36C?style=flat-square&logo=htmx&logoColor=white)
 ![TailwindCSS](https://img.shields.io/badge/TailwindCSS-v4-38B2AC?style=flat-square&logo=tailwind-css)
 ![Fly.io](https://img.shields.io/badge/Deployed_on-Fly.io-7b51b6?style=flat-square&logo=fly.io&logoColor=white)
 
@@ -77,7 +80,7 @@ docker compose up --build
 가장 간단한 검증 경로는 Docker 이미지 안에서 테스트를 실행하는 것입니다.
 ```bash
 docker build -t ranker-test .
-docker run --rm ranker-test python -m unittest discover -s tests -p 'test_*.py'
+docker run --rm ranker-test python -m pytest tests/
 ```
 
 ---
@@ -100,8 +103,9 @@ docker run --rm ranker-test python -m unittest discover -s tests -p 'test_*.py'
 ├── templates/           # Jinja2 HTML 템플릿
 │   ├── base.html        # 레이아웃, 다크모드, 네비게이션, HTMX 글로벌 핸들러
 │   ├── index.html       # 메인(시작/업로드) 페이지
-│   ├── battle.html      # 1:1 다중 투표 UI
+│   ├── battle.html      # 2-way 배틀 UI
 │   ├── battle_3way.html # 3-way 배틀 UI
+│   ├── battle_empty.html # 배틀 불가 상태 안내
 │   ├── ranking.html     # 랭킹 테이블 및 차트
 │   ├── manage.html      # 항목/기준/설정 관리 UI
 │   └── partials/        # HTMX partial 응답 템플릿 (배틀 카드, 결과 모달, 항목 목록)
@@ -110,6 +114,7 @@ docker run --rm ranker-test python -m unittest discover -s tests -p 'test_*.py'
 ├── docker-compose.yml   # 로컬 개발 환경 오케스트레이션
 ├── package.json         # Tailwind CLI 스크립트 및 Node 의존성
 ├── package-lock.json    # Tailwind 의존성 잠금 파일
+├── input.css            # TailwindCSS 입력 파일 (safelist 포함)
 ├── pyproject.toml       # 프로젝트 메타데이터 및 의존성 (uv)
 ├── uv.lock              # 의존성 잠금 파일
 ├── static/vendor/       # self-hosted JS (htmx.min.js, chart.umd.min.js)
