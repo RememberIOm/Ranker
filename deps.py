@@ -12,6 +12,11 @@ from store import DataStore, InvalidSessionDataError, get_store, session_exists
 _SESSION_ID_RE = re.compile(r'^[0-9a-f]{32}$')
 
 
+def is_htmx(request: Request) -> bool:
+    """HTMX 요청 여부를 판단합니다."""
+    return request.headers.get("HX-Request") == "true"
+
+
 class RequiresSessionException(Exception):
     """세션이 없거나 유효하지 않을 때 발생합니다. main.py의 핸들러가 / 로 리다이렉트합니다."""
 

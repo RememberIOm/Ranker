@@ -24,6 +24,7 @@
 
 ### 1. ⚔️ Battle Arena (다차원 동시 투표 시스템)
 - **다중 기준 동시 평가**: 한 번의 대결에서 사용자가 설정한 모든 평가 기준(예: 스토리, 작화, 음악 등)을 동시에 비교하여 투표합니다. 이를 통해 점수 수렴 속도가 대폭 향상됩니다.
+- **페이지 리로드 없는 연속 배틀**: HTMX 기반 partial 응답으로 투표 결과 확인 후 다음 대결이 즉시 시작됩니다. 서버가 결과 모달과 다음 배틀 카드를 동시에 반환합니다.
 - **불확실성 기반 매치메이킹**: 가장 불확실한 항목을 우선 매칭하여 정보 획득을 극대화하고, 비슷한 복합 점수의 상대와 매칭하여 공정성을 유지합니다.
 - **Focus Mode**: 특정 항목만 고정해두고 다른 항목들과 연속으로 대결시킬 수 있습니다.
 
@@ -34,7 +35,7 @@
 - **차트 시각화**: Chart.js를 활용하여 현재 점수 분포(Distribution)를 기준별로 한눈에 파악할 수 있습니다.
 
 ### 3. ⚙️ Management (데이터 및 시스템 설정)
-- **항목(Items) 관리**: 평가할 대상을 개별 또는 여러 줄 텍스트로 일괄(Bulk) 등록하고 수정/삭제할 수 있습니다.
+- **항목(Items) 관리**: 평가할 대상을 개별 또는 여러 줄 텍스트로 일괄(Bulk) 등록하고 수정/삭제할 수 있습니다. HTMX로 페이지 이동 없이 즉시 반영됩니다.
 - **평가 기준(Criteria) 편집**: 평가할 기준의 이름, 테마 색상, 가중치를 자유롭게 추가하고 편집할 수 있습니다.
 - **BT Settings**: 사전분포(Prior), 무승부 확률, 계층적 축소(Hierarchical Shrinkage), 표시 스케일 등 랭킹 알고리즘의 모든 파라미터를 UI에서 직접 튜닝할 수 있습니다.
 - **데이터 백업 및 복구 (Data I/O)**: 현재 세션의 모든 데이터(설정, 기준, 항목)를 단일 `JSON` 파일로 다운로드(Export)하거나 업로드(Import)하여 이어서 진행할 수 있습니다. 이전 Elo 형식 JSON도 자동 마이그레이션됩니다.
@@ -48,7 +49,7 @@
 
 - **Backend**: Python 3.13, FastAPI, aiosqlite, Pydantic v2
 - **Data Storage**: SQLite (WAL mode, `database.py` + `store.py`, 단일 DB 파일에 세션별 데이터 저장)
-- **Frontend**: Jinja2 Templates, TailwindCSS v4 CLI build, Chart.js (jsDelivr CDN)
+- **Frontend**: Jinja2 Templates, HTMX 2.0 (self-hosted), TailwindCSS v4 CLI build, Chart.js (jsDelivr CDN)
 - **Deployment**: Fly.io (Docker container + mounted volume)
 
 ---
@@ -97,11 +98,13 @@ docker run --rm ranker-test python -m unittest discover -s tests -p 'test_*.py'
 │   ├── ranking.py       # 순위 조회 및 통계 차트
 │   └── manage.py        # 데이터 CRUD 및 시스템 파라미터 설정
 ├── templates/           # Jinja2 HTML 템플릿
-│   ├── base.html        # 레이아웃 및 다크모드, 네비게이션
+│   ├── base.html        # 레이아웃, 다크모드, 네비게이션, HTMX 글로벌 핸들러
 │   ├── index.html       # 메인(시작/업로드) 페이지
 │   ├── battle.html      # 1:1 다중 투표 UI
+│   ├── battle_3way.html # 3-way 배틀 UI
 │   ├── ranking.html     # 랭킹 테이블 및 차트
-│   └── manage.html      # 항목/기준/설정 관리 UI
+│   ├── manage.html      # 항목/기준/설정 관리 UI
+│   └── partials/        # HTMX partial 응답 템플릿 (배틀 카드, 결과 모달, 항목 목록)
 ├── Dockerfile           # 프로덕션 이미지 (Fly.io 배포용)
 ├── Dockerfile.dev       # 개발 이미지 (hot reload, docker compose 전용)
 ├── docker-compose.yml   # 로컬 개발 환경 오케스트레이션
@@ -109,7 +112,8 @@ docker run --rm ranker-test python -m unittest discover -s tests -p 'test_*.py'
 ├── package-lock.json    # Tailwind 의존성 잠금 파일
 ├── pyproject.toml       # 프로젝트 메타데이터 및 의존성 (uv)
 ├── uv.lock              # 의존성 잠금 파일
-├── tests/               # 기본 회귀 테스트
+├── static/vendor/       # self-hosted JS (htmx.min.js)
+├── tests/               # 유닛 + 통합 테스트 (pytest-asyncio)
 └── fly.toml             # Fly.io 배포 설정
 ```
 

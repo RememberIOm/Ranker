@@ -3,12 +3,13 @@
 # 세션별 DataStore를 사용하여 멀티유저를 지원합니다.
 
 import logging
+import re
 from typing import Any
 
 from fastapi import APIRouter, Request, Cookie, Depends, HTTPException
 from fastapi.responses import HTMLResponse, Response
 
-from deps import get_session_store, require_store
+from deps import get_session_store, is_htmx, require_store
 from schemas import (
     BattleVoteRequest,
     BattleVoteResponse,
@@ -35,6 +36,8 @@ from template_env import templates
 logger = logging.getLogger("ranker.battle")
 
 router = APIRouter(prefix="/battle", tags=["battle"])
+
+_FOCUS_RE = re.compile(r"^/battle/focus/(\d+)$")
 
 
 def _build_battle_context(
@@ -190,6 +193,18 @@ _EMPTY_NOT_ENOUGH = {
 }
 
 
+def _battle_template(request: Request, ctx: dict[str, Any], *, is_3way: bool) -> HTMLResponse:
+    """배틀 모드에 따라 적절한 full-page 또는 partial 템플릿을 반환합니다."""
+    if is_3way:
+        full, partial = "battle_3way.html", "partials/battle_3way_cards.html"
+    else:
+        full, partial = "battle.html", "partials/battle_cards.html"
+
+    if is_htmx(request):
+        return templates.TemplateResponse(request, partial, ctx)
+    return templates.TemplateResponse(request, full, ctx)
+
+
 @router.get("", response_class=HTMLResponse)
 async def get_battle(request: Request, store: DataStore = Depends(require_store)) -> HTMLResponse:
     if not store.criteria:
@@ -208,11 +223,11 @@ async def get_battle(request: Request, store: DataStore = Depends(require_store)
                     return templates.TemplateResponse(request, "battle_empty.html", ctx)
                 round_token = await store.issue_battle_round(item1["id"], item2["id"])
                 ctx = _build_battle_context(store, item1, item2, round_token)
-                return templates.TemplateResponse(request, "battle.html", ctx)
+                return _battle_template(request, ctx, is_3way=False)
 
             round_token = await store.issue_battle_round(item1["id"], item2["id"], item3["id"])
             ctx = _build_3way_context(store, item1, item2, item3, round_token)
-            return templates.TemplateResponse(request, "battle_3way.html", ctx)
+            return _battle_template(request, ctx, is_3way=True)
 
         case _:  # 2-way (기본)
             item1, item2 = get_match_pair(store)
@@ -222,7 +237,7 @@ async def get_battle(request: Request, store: DataStore = Depends(require_store)
 
             round_token = await store.issue_battle_round(item1["id"], item2["id"])
             ctx = _build_battle_context(store, item1, item2, round_token)
-            return templates.TemplateResponse(request, "battle.html", ctx)
+            return _battle_template(request, ctx, is_3way=False)
 
 
 @router.get("/focus/{item_id}", response_class=HTMLResponse)
@@ -246,11 +261,11 @@ async def focus_battle(item_id: int, request: Request, store: DataStore = Depend
                     return HTMLResponse("상대할 항목 데이터가 부족합니다.", status_code=200)
                 round_token = await store.issue_battle_round(item1["id"], item2["id"])
                 ctx = _build_battle_context(store, item1, item2, round_token, focus_mode=True, focus_id=item_id)
-                return templates.TemplateResponse(request, "battle.html", ctx)
+                return _battle_template(request, ctx, is_3way=False)
 
             round_token = await store.issue_battle_round(item1["id"], item2["id"], item3["id"])
             ctx = _build_3way_context(store, item1, item2, item3, round_token, focus_mode=True, focus_id=item_id)
-            return templates.TemplateResponse(request, "battle_3way.html", ctx)
+            return _battle_template(request, ctx, is_3way=True)
 
         case _:  # 2-way
             item1, item2 = get_match_pair(store, focus_id=item_id)
@@ -263,15 +278,67 @@ async def focus_battle(item_id: int, request: Request, store: DataStore = Depend
             ctx = _build_battle_context(
                 store, item1, item2, round_token, focus_mode=True, focus_id=item_id
             )
-            return templates.TemplateResponse(request, "battle.html", ctx)
+            return _battle_template(request, ctx, is_3way=False)
 
 
-@router.post("/vote", response_model=BattleVoteResponse)
+def _parse_focus_id(redirect_to: str | None) -> int | None:
+    """redirect_to 경로에서 focus item_id를 추출합니다."""
+    if not redirect_to:
+        return None
+    m = _FOCUS_RE.match(redirect_to)
+    return int(m.group(1)) if m else None
+
+
+async def _render_next_battle(
+    store: DataStore,
+    redirect_to: str | None,
+) -> tuple[str, bool]:
+    """다음 배틀 카드 HTML을 렌더링합니다. (html, is_3way) 반환. 실패 시 빈 문자열."""
+    try:
+        focus_id = _parse_focus_id(redirect_to)
+        focus_mode = focus_id is not None
+        battle_mode = store.settings.get("battle_mode", "2way")
+        env = templates.env
+
+        if battle_mode == "3way":
+            if focus_mode:
+                item1, item2, item3 = get_match_triple(store, focus_id=focus_id)
+            else:
+                item1, item2, item3 = get_match_triple(store)
+
+            if item1 and item2 and item3:
+                round_token = await store.issue_battle_round(item1["id"], item2["id"], item3["id"])
+                ctx = _build_3way_context(store, item1, item2, item3, round_token, focus_mode=focus_mode, focus_id=focus_id)
+                return env.get_template("partials/battle_3way_cards.html").render(**ctx), True
+
+            # 3-way 불가 → 2-way fallback
+            if focus_mode:
+                item1, item2 = get_match_pair(store, focus_id=focus_id)
+            else:
+                item1, item2 = get_match_pair(store)
+        else:
+            if focus_mode:
+                item1, item2 = get_match_pair(store, focus_id=focus_id)
+            else:
+                item1, item2 = get_match_pair(store)
+
+        if not item1 or not item2:
+            return "", False
+
+        round_token = await store.issue_battle_round(item1["id"], item2["id"])
+        ctx = _build_battle_context(store, item1, item2, round_token, focus_mode=focus_mode, focus_id=focus_id)
+        return env.get_template("partials/battle_cards.html").render(**ctx), False
+    except Exception:
+        logger.exception("next_battle_render_failed")
+        return "", False
+
+
+@router.post("/vote")
 async def vote(
     payload: BattleVoteRequest,
     request: Request,
     session_id: str | None = Cookie(default=None),
-) -> BattleVoteResponse:
+) -> Response:
     """모든 criteria에 대한 투표를 한번에 수신하여 일괄 업데이트합니다."""
     store = await get_session_store(request, session_id)
     if not store:
@@ -291,15 +358,35 @@ async def vote(
     except SessionSaveError as exc:
         raise HTTPException(status_code=500, detail="세션 저장에 실패했습니다. 잠시 후 다시 시도해주세요.") from exc
 
-    return response_data
+    if not is_htmx(request):
+        return BattleVoteResponse(**response_data)
+
+    # HTMX: 결과 모달 HTML + OOB 다음 배틀 카드
+    env = templates.env
+    result_ctx = {
+        "a1_name": response_data["a1_name"],
+        "a2_name": response_data["a2_name"],
+        "results": response_data["results"],
+        "next_url": response_data["next_url"],
+        "result_auto_skip": store.settings.get("result_auto_skip", False),
+        "result_skip_seconds": store.settings.get("result_skip_seconds", 3.0),
+    }
+    result_html = env.get_template("partials/battle_result.html").render(**result_ctx)
+
+    next_html, _ = await _render_next_battle(store, payload.redirect_to)
+
+    combined = result_html
+    if next_html:
+        combined += f'\n<div id="battle-arena" hx-swap-oob="innerHTML">{next_html}</div>'
+    return HTMLResponse(content=combined)
 
 
-@router.post("/vote/3way", response_model=ThreeWayBattleVoteResponse)
+@router.post("/vote/3way")
 async def vote_3way(
     payload: ThreeWayBattleVoteRequest,
     request: Request,
     session_id: str | None = Cookie(default=None),
-) -> ThreeWayBattleVoteResponse:
+) -> Response:
     """3-way 배틀: 기준별 best/worst 투표를 수신하여 일괄 업데이트합니다."""
     store = await get_session_store(request, session_id)
     if not store:
@@ -319,4 +406,28 @@ async def vote_3way(
     except SessionSaveError as exc:
         raise HTTPException(status_code=500, detail="세션 저장에 실패했습니다. 잠시 후 다시 시도해주세요.") from exc
 
-    return response_data
+    if not is_htmx(request):
+        return ThreeWayBattleVoteResponse(**response_data)
+
+    # HTMX: 결과 모달 HTML + OOB 다음 배틀 카드
+    env = templates.env
+    result_ctx = {
+        "a1_id": response_data["a1_id"],
+        "a2_id": response_data["a2_id"],
+        "a3_id": response_data["a3_id"],
+        "a1_name": response_data["a1_name"],
+        "a2_name": response_data["a2_name"],
+        "a3_name": response_data["a3_name"],
+        "results": response_data["results"],
+        "next_url": response_data["next_url"],
+        "result_auto_skip": store.settings.get("result_auto_skip", False),
+        "result_skip_seconds": store.settings.get("result_skip_seconds", 3.0),
+    }
+    result_html = env.get_template("partials/battle_3way_result.html").render(**result_ctx)
+
+    next_html, _ = await _render_next_battle(store, payload.redirect_to)
+
+    combined = result_html
+    if next_html:
+        combined += f'\n<div id="battle-arena" hx-swap-oob="innerHTML">{next_html}</div>'
+    return HTMLResponse(content=combined)

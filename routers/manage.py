@@ -2,6 +2,7 @@
 # 관리 페이지: 항목 CRUD, 대량 추가, 평가 기준 편집, Elo 설정, JSON Import/Export
 # 세션별 DataStore를 사용합니다.
 
+import json
 import logging
 import re
 import hashlib
@@ -11,7 +12,7 @@ from fastapi import APIRouter, Request, Form, UploadFile, File, Depends
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from pydantic import ValidationError
 
-from deps import require_store
+from deps import is_htmx, require_store
 from schemas import SettingsModel
 from store import DataStore
 from template_env import templates
@@ -42,57 +43,86 @@ def _safe_redirect(url: str, fallback: str) -> str:
 _VALID_TABS = {"items", "criteria", "settings", "data"}
 
 
+def _sorted_items(store: DataStore) -> list:
+    return sorted(store.items, key=lambda x: x["name"])
+
+
+def _htmx_toast(message: str, toast_type: str = "success") -> HTMLResponse:
+    """HX-Trigger 헤더로 토스트를 트리거하는 빈 응답을 반환합니다."""
+    resp = HTMLResponse("")
+    resp.headers["HX-Trigger"] = json.dumps({"showToast": {"message": message, "type": toast_type}})
+    return resp
+
+
 @router.get("", response_class=HTMLResponse)
 async def manage_page(request: Request, tab: str = "items", store: DataStore = Depends(require_store)) -> HTMLResponse:
     if tab not in _VALID_TABS:
         tab = "items"
 
-    sorted_items = sorted(store.items, key=lambda x: x["name"])
-    return templates.TemplateResponse(request, "manage.html", {
-        "items": sorted_items,
+    ctx = {
+        "items": _sorted_items(store),
         "criteria": store.criteria,
         "settings": store.settings,
         "tab": tab,
-    })
+    }
+
+    return templates.TemplateResponse(request, "manage.html", ctx)
 
 
 # --- Items ---
 
 
 @router.post("/add")
-async def add_item(name: str = Form(...), store: DataStore = Depends(require_store)) -> RedirectResponse:
+async def add_item(request: Request, name: str = Form(...), store: DataStore = Depends(require_store)) -> Response:
     if name.strip():
         await store.add_item(name)
+
+    if is_htmx(request):
+        return templates.TemplateResponse(request, "partials/manage_item_list.html", {"items": _sorted_items(store)})
     return RedirectResponse(url="/manage?tab=items", status_code=303)
 
 
 @router.post("/add-bulk")
-async def add_items_bulk(names: str = Form(...), store: DataStore = Depends(require_store)) -> RedirectResponse:
+async def add_items_bulk(request: Request, names: str = Form(...), store: DataStore = Depends(require_store)) -> Response:
     """줄바꿈으로 구분된 이름 목록을 한번에 추가합니다."""
     name_list = [n.strip() for n in names.splitlines() if n.strip()]
     await store.add_items_bulk(name_list)
+
+    if is_htmx(request):
+        return templates.TemplateResponse(request, "partials/manage_item_list.html", {"items": _sorted_items(store)})
     return RedirectResponse(url="/manage?tab=items", status_code=303)
 
 
 @router.post("/delete")
 async def delete_item(
+    request: Request,
     item_id: int = Form(...),
     redirect_url: str = Form("/manage?tab=items"),
     store: DataStore = Depends(require_store),
-) -> RedirectResponse:
+) -> Response:
     await store.delete_item(item_id)
+
+    if is_htmx(request):
+        return HTMLResponse("")
     return RedirectResponse(url=_safe_redirect(redirect_url, "/manage?tab=items"), status_code=303)
 
 
 @router.post("/edit")
 async def edit_item(
+    request: Request,
     item_id: int = Form(...),
     new_name: str = Form(...),
     redirect_url: str = Form("/manage?tab=items"),
     store: DataStore = Depends(require_store),
-) -> RedirectResponse:
+) -> Response:
     if new_name.strip():
         await store.update_item(item_id, name=new_name.strip())
+
+    if is_htmx(request):
+        item = store.get_item(item_id)
+        if item:
+            return templates.TemplateResponse(request, "partials/manage_item_row.html", {"item": item})
+        return HTMLResponse("")
     return RedirectResponse(url=_safe_redirect(redirect_url, "/manage?tab=items"), status_code=303)
 
 
@@ -111,6 +141,8 @@ async def update_criteria(request: Request, store: DataStore = Depends(require_s
     weights = form.getlist("weight")
 
     if not (len(keys) == len(labels) == len(colors) == len(weights)):
+        if is_htmx(request):
+            return _htmx_toast("폼 데이터가 올바르지 않습니다.", "error")
         return HTMLResponse("폼 데이터가 올바르지 않습니다.", status_code=400)
 
     used_keys: set[str] = set()
@@ -128,7 +160,10 @@ async def update_criteria(request: Request, store: DataStore = Depends(require_s
         try:
             weight_val = float(w) if w else 1.0
         except ValueError:
-            return HTMLResponse(f"'{lbl}'의 가중치는 숫자여야 합니다.", status_code=400)
+            msg = f"'{lbl}'의 가중치는 숫자여야 합니다."
+            if is_htmx(request):
+                return _htmx_toast(msg, "error")
+            return HTMLResponse(msg, status_code=400)
 
         used_keys.add(key)
         new_criteria.append({
@@ -141,7 +176,13 @@ async def update_criteria(request: Request, store: DataStore = Depends(require_s
     try:
         await store.set_criteria(new_criteria)
     except ValidationError as exc:
-        return HTMLResponse(f"기준 저장 실패: {exc.errors()[0]['msg']}", status_code=400)
+        msg = f"기준 저장 실패: {exc.errors()[0]['msg']}"
+        if is_htmx(request):
+            return _htmx_toast(msg, "error")
+        return HTMLResponse(msg, status_code=400)
+
+    if is_htmx(request):
+        return _htmx_toast("평가 기준이 저장되었습니다.")
     return RedirectResponse(url="/manage?tab=criteria", status_code=303)
 
 
@@ -210,9 +251,15 @@ async def update_settings(request: Request, store: DataStore = Depends(require_s
     try:
         validated = SettingsModel(**merged).model_dump(mode="python")
     except ValidationError as exc:
-        return HTMLResponse(f"설정 값이 올바르지 않습니다: {exc.errors()[0]['msg']}", status_code=400)
+        msg = f"설정 값이 올바르지 않습니다: {exc.errors()[0]['msg']}"
+        if is_htmx(request):
+            return _htmx_toast(msg, "error")
+        return HTMLResponse(msg, status_code=400)
 
     await store.update_settings(validated)
+
+    if is_htmx(request):
+        return _htmx_toast("설정이 저장되었습니다.")
     return RedirectResponse(url="/manage?tab=settings", status_code=303)
 
 

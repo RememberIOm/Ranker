@@ -1,0 +1,9 @@
+{# partials/manage_item_list.html — 항목 목록 (ul 내부) #}
+{% for item in items %}
+{% include "partials/manage_item_row.html" %}
+{% else %}
+<li class="p-12 text-center text-gray-400 flex flex-col items-center">
+    <span class="text-4xl mb-2">📭</span>
+    <span>항목이 없습니다. 위에서 추가해주세요.</span>
+</li>
+{% endfor %}

@@ -33,7 +33,9 @@
         <!-- 단일 추가 -->
         <div class="bg-white dark:bg-gray-800 rounded-2xl p-6 shadow-lg border border-gray-200 dark:border-gray-700">
             <h2 class="text-lg font-bold mb-4 text-brand-600 dark:text-brand-400">Add Item</h2>
-            <form action="/manage/add" method="post" class="flex flex-col sm:flex-row gap-4">
+            <form action="/manage/add" method="post" class="flex flex-col sm:flex-row gap-4"
+                  hx-post="/manage/add" hx-target="#item-list" hx-swap="innerHTML"
+                  hx-on::after-request="if(event.detail.successful) this.reset()">
                 <input type="text" name="name" placeholder="항목 이름 입력" required
                     class="flex-1 px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 dark:focus:ring-brand-400 transition text-sm text-gray-900 dark:text-white placeholder-gray-400">
                 <button type="submit"
@@ -46,7 +48,9 @@
         <!-- 대량 추가 -->
         <div class="bg-white dark:bg-gray-800 rounded-2xl p-6 shadow-lg border border-gray-200 dark:border-gray-700">
             <h2 class="text-lg font-bold mb-4 text-brand-600 dark:text-brand-400">Bulk Add</h2>
-            <form action="/manage/add-bulk" method="post" class="space-y-4">
+            <form action="/manage/add-bulk" method="post" class="space-y-4"
+                  hx-post="/manage/add-bulk" hx-target="#item-list" hx-swap="innerHTML"
+                  hx-on::after-request="if(event.detail.successful) this.reset()">
                 <textarea name="names" rows="6" placeholder="줄바꿈으로 구분하여 여러 항목을 입력하세요.&#10;예:&#10;항목 1&#10;항목 2&#10;항목 3"
                     class="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 dark:focus:ring-brand-400 transition text-gray-900 dark:text-white placeholder-gray-400 resize-y font-mono text-sm"></textarea>
                 <button type="submit"
@@ -62,61 +66,8 @@
             <div class="p-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/50">
                 <span class="text-sm font-semibold text-gray-500 uppercase tracking-wider">Registered Items</span>
             </div>
-            <ul class="divide-y divide-gray-200 dark:divide-gray-700 max-h-[600px] overflow-y-auto">
-                {% for item in items %}
-                <li class="p-4 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors group animate-slide-up" style="animation-delay: {{ loop.index0 * 40 }}ms">
-                    <div id="view-row-{{ item.id }}"
-                        class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                        <div class="flex items-center gap-3 overflow-hidden">
-                            <div class="w-2 h-2 rounded-full bg-brand-400 shrink-0"></div>
-                            <span class="font-medium text-gray-800 dark:text-gray-200 truncate text-lg"
-                                title="{{ item.name }}">
-                                {{ item.name }}
-                            </span>
-                            {% if item.matches_played < 10 %} <span
-                                class="text-[11px] font-bold px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400 border border-yellow-200 dark:border-yellow-800">
-                                NEW</span>
-                                {% endif %}
-                        </div>
-                        <div
-                            class="flex items-center gap-2 self-end sm:self-auto shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
-                            <a href="/battle/focus/{{ item.id }}"
-                                class="px-3 py-1.5 text-xs font-bold rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-300 dark:hover:bg-blue-900/50 transition">
-                                Focus
-                            </a>
-                            <button onclick="toggleEdit('{{ item.id }}')"
-                                class="px-3 py-1.5 text-xs font-bold rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600 transition">
-                                Edit
-                            </button>
-                            <form action="/manage/delete" method="post" class="inline delete-form" data-name="{{ item.name | e }}">
-                                <input type="hidden" name="item_id" value="{{ item.id }}">
-                                <button type="submit"
-                                    class="px-3 py-1.5 text-xs font-bold rounded-lg bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-900/30 dark:text-red-300 dark:hover:bg-red-900/50 transition">
-                                    Delete
-                                </button>
-                            </form>
-                        </div>
-                    </div>
-                    <form id="edit-row-{{ item.id }}" action="/manage/edit" method="post"
-                        class="hidden flex flex-col sm:flex-row gap-2 w-full animate-fade-in">
-                        <input type="hidden" name="item_id" value="{{ item.id }}">
-                        <input type="text" id="input-name-{{ item.id }}" name="new_name" value="{{ item.name }}"
-                            required
-                            class="flex-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 dark:focus:ring-brand-400 outline-none text-gray-900 dark:text-white">
-                        <div class="flex gap-2">
-                            <button type="submit"
-                                class="px-4 py-2 bg-brand-600 hover:bg-brand-500 text-white rounded-lg text-xs font-bold shadow-md">Save</button>
-                            <button type="button" onclick="toggleEdit('{{ item.id }}')"
-                                class="px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg text-xs font-bold">Cancel</button>
-                        </div>
-                    </form>
-                </li>
-                {% else %}
-                <li class="p-12 text-center text-gray-400 flex flex-col items-center">
-                    <span class="text-4xl mb-2">📭</span>
-                    <span>항목이 없습니다. 위에서 추가해주세요.</span>
-                </li>
-                {% endfor %}
+            <ul id="item-list" class="divide-y divide-gray-200 dark:divide-gray-700 max-h-[600px] overflow-y-auto">
+                {% include "partials/manage_item_list.html" %}
             </ul>
         </div>
     </div>
@@ -129,7 +80,8 @@
             기준을 추가/수정/삭제할 수 있습니다. 저장 시 기존 아이템의 ratings가 자동으로 동기화됩니다.
         </p>
 
-        <form action="/manage/criteria" method="post" id="criteria-form">
+        <form action="/manage/criteria" method="post" id="criteria-form"
+              hx-post="/manage/criteria" hx-swap="none">
             <div id="criteria-rows" class="space-y-3">
                 {% for c in criteria %}
                 <div
@@ -198,7 +150,8 @@
                 각 설정은 랭킹 알고리즘의 동작을 세밀하게 조절합니다. 추천 범위를 참고해 당신만의 랭킹 시스템을 커스텀하세요.
             </p>
 
-            <form action="/manage/settings" method="post" class="space-y-8">
+            <form action="/manage/settings" method="post" class="space-y-8"
+                  hx-post="/manage/settings" hx-swap="none">
 
                 {# --- Prior (사전분포) --- #}
                 <div class="p-5 md:p-6 bg-gray-50 dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-700 transition-colors">
@@ -431,14 +384,7 @@
             }
         }
 
-        // 삭제 확인 — showConfirm 사용
-        document.querySelectorAll('.delete-form').forEach(form => {
-            form.addEventListener('submit', (e) => {
-                e.preventDefault();
-                const name = form.dataset.name;
-                showConfirm(`⚠️ ${name} 항목을 삭제하시겠습니까?`, () => form.submit());
-            });
-        });
+        // 삭제 확인: HTMX hx-confirm + base.html의 htmx:confirm 이벤트로 처리
 
         // Import 확인
         const importForm = document.getElementById('import-form');

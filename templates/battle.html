@@ -1,238 +1,10 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="relative flex flex-col items-center min-h-[80vh] py-6 px-4">
-
-    {# --- Focus Mode Banner --- #}
-    {% if focus_mode %}
-    <div class="fixed top-20 left-1/2 transform -translate-x-1/2 z-40 animate-bounce-in">
-        <div
-            class="bg-gradient-to-r from-blue-600 to-blue-500 text-white px-6 py-2 rounded-full text-sm font-bold shadow-xl flex items-center gap-2 ring-4 ring-blue-500/20">
-            <span class="animate-pulse">🎯</span>
-            <span>'{{ item1.name }}' 집중 평가 중</span>
-            <a href="/manage" class="ml-2 text-blue-200 hover:text-white underline text-xs">종료</a>
-        </div>
-    </div>
-    {% endif %}
-
-    {# --- Header: VS Display --- #}
-    <div class="w-full max-w-4xl mb-8">
-        <div class="text-center mb-6">
-            <div
-                class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-gray-100 dark:bg-gray-800 text-xs font-bold uppercase tracking-widest text-gray-500 dark:text-gray-400 mb-3">
-                <span>Battle Arena</span>
-                <span class="w-1 h-1 rounded-full bg-gray-400"></span>
-                <span>All Criteria</span>
-            </div>
-            <h2 class="text-2xl md:text-4xl font-black text-gray-900 dark:text-white">
-                각 항목에서 더 뛰어난 쪽을 선택하세요
-            </h2>
-        </div>
-
-        {# --- Two Items Header --- #}
-        <div class="grid grid-cols-[1fr_auto_1fr] gap-3 items-stretch mb-2">
-            <!-- Item A -->
-            <div
-                class="flex flex-col bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-lg border-2 border-brand-500 dark:border-brand-400 text-center h-full justify-center">
-                <div class="text-xs font-bold text-brand-500 uppercase tracking-wider mb-2">A</div>
-                <h3
-                    class="text-lg md:text-2xl font-black text-gray-900 dark:text-white break-words whitespace-normal leading-snug">
-                    {{ item1.name }}
-                </h3>
-                <div class="flex items-center justify-center gap-2 mt-2 flex-wrap">
-                    {% if total_items > 0 %}
-                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-brand-50 dark:bg-brand-900/30 text-brand-600 dark:text-brand-300 border border-brand-200 dark:border-brand-800">
-                        #{{ rank1 }}&thinsp;/&thinsp;{{ total_items }}
-                    </span>
-                    {% endif %}
-                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400">
-                        {{ item1.matches_played }}전
-                    </span>
-                </div>
-            </div>
-
-            <!-- VS Badge -->
-            <div class="flex items-center justify-center">
-                <div
-                    class="w-10 h-10 md:w-12 md:h-12 rounded-full bg-white dark:bg-gray-800 flex items-center justify-center font-black text-sm italic text-gray-400 dark:text-gray-500 shadow-lg ring-4 ring-gray-50 dark:ring-gray-900 shrink-0 z-10">
-                    VS
-                </div>
-            </div>
-
-            <!-- Item B -->
-            <div
-                class="flex flex-col bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-lg border-2 border-pink-500 dark:border-pink-400 text-center h-full justify-center">
-                <div class="text-xs font-bold text-pink-500 uppercase tracking-wider mb-2">B</div>
-                <h3
-                    class="text-lg md:text-2xl font-black text-gray-900 dark:text-white break-words whitespace-normal leading-snug">
-                    {{ item2.name }}
-                </h3>
-                <div class="flex items-center justify-center gap-2 mt-2 flex-wrap">
-                    {% if total_items > 0 %}
-                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-pink-50 dark:bg-pink-900/30 text-pink-600 dark:text-pink-300 border border-pink-200 dark:border-pink-800">
-                        #{{ rank2 }}&thinsp;/&thinsp;{{ total_items }}
-                    </span>
-                    {% endif %}
-                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400">
-                        {{ item2.matches_played }}전
-                    </span>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    {# --- Criteria Vote Cards --- #}
-    <div class="w-full max-w-4xl space-y-3" id="criteria-list">
-        {% for c in criteria_info %}
-        <div class="criteria-card bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden transition-all duration-200 hover:shadow-md animate-slide-up"
-            style="animation-delay: {{ loop.index0 * 40 }}ms"
-            data-key="{{ c.key }}">
-
-            {# === 승률 표시 바 === #}
-            <div class="h-1.5 flex w-full">
-                <div class="bg-brand-500/70 h-full transition-all duration-500" style="width: {{ c.probs.win_a }}%">
-                </div>
-                <div class="bg-gray-300 dark:bg-gray-600 h-full transition-all duration-500"
-                    style="width: {{ c.probs.draw }}%"></div>
-                <div class="bg-pink-500/70 h-full transition-all duration-500" style="width: {{ c.probs.win_b }}%">
-                </div>
-            </div>
-
-            <div class="flex items-stretch">
-                {# Left: Vote A #}
-                <button type="button" onclick="selectVote('{{ c.key }}', '1')" id="btn-{{ c.key }}-1"
-                    aria-pressed="false" aria-label="{{ c.label }} — {{ item1.name }} 선택"
-                    class="vote-btn flex-1 py-4 px-3 flex flex-col items-center justify-center gap-1 transition-all duration-200 hover:bg-brand-50 dark:hover:bg-brand-900/20 border-r border-gray-200 dark:border-gray-700 group">
-                    <span class="text-xs text-gray-400 group-hover:text-brand-500 font-bold" aria-hidden="true">A</span>
-                    <span class="text-sm font-mono font-bold text-gray-600 dark:text-gray-300">{{ c.r1|round(0)|int }}<span class="text-[10px] font-normal text-gray-400 ml-0.5">±{{ c.sigma1|round(0)|int }}</span></span>
-                    <span class="text-[11px] text-brand-400 font-semibold">{{ c.probs.win_a }}%</span>
-                </button>
-
-                {# Center: Label + Draw #}
-                <button type="button" onclick="selectVote('{{ c.key }}', 'draw')" id="btn-{{ c.key }}-draw"
-                    aria-pressed="false" aria-label="{{ c.label }} — 무승부 선택"
-                    class="vote-btn w-36 md:w-44 py-4 px-2 flex flex-col items-center justify-center gap-1.5 transition-all duration-200 hover:bg-gray-50 dark:hover:bg-gray-700/50 border-r border-gray-200 dark:border-gray-700">
-                    <span
-                        class="text-base md:text-lg font-extrabold text-{{ c.color }}-600 dark:text-{{ c.color }}-400 tracking-wide">{{
-                        c.label }}</span>
-                    <span class="text-[11px] text-gray-400 uppercase tracking-wider">Draw · {{ c.probs.draw }}%</span>
-                </button>
-
-                {# Right: Vote B #}
-                <button type="button" onclick="selectVote('{{ c.key }}', '2')" id="btn-{{ c.key }}-2"
-                    aria-pressed="false" aria-label="{{ c.label }} — {{ item2.name }} 선택"
-                    class="vote-btn flex-1 py-4 px-3 flex flex-col items-center justify-center gap-1 transition-all duration-200 hover:bg-pink-50 dark:hover:bg-pink-900/20 group">
-                    <span class="text-xs text-gray-400 group-hover:text-pink-500 font-bold" aria-hidden="true">B</span>
-                    <span class="text-sm font-mono font-bold text-gray-600 dark:text-gray-300">{{ c.r2|round(0)|int }}<span class="text-[10px] font-normal text-gray-400 ml-0.5">±{{ c.sigma2|round(0)|int }}</span></span>
-                    <span class="text-[11px] text-pink-400 font-semibold">{{ c.probs.win_b }}%</span>
-                </button>
-            </div>
-        </div>
-        {% endfor %}
-    </div>
-
-    {# --- Quick Actions --- #}
-    <div class="w-full max-w-4xl mt-4 flex flex-wrap items-center justify-center gap-3">
-        <button onclick="selectAllAs('1')"
-            class="px-4 py-2 rounded-xl text-xs font-bold bg-brand-50 text-brand-600 hover:bg-brand-100 dark:bg-brand-900/30 dark:text-brand-300 dark:hover:bg-brand-900/50 transition border border-brand-200 dark:border-brand-800">
-            전부 A 선택
-        </button>
-        <button onclick="selectAllAs('draw')"
-            class="px-4 py-2 rounded-xl text-xs font-bold bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600 transition border border-gray-200 dark:border-gray-600">
-            전부 무승부
-        </button>
-        <button onclick="selectAllAs('2')"
-            class="px-4 py-2 rounded-xl text-xs font-bold bg-pink-50 text-pink-600 hover:bg-pink-100 dark:bg-pink-900/30 dark:text-pink-300 dark:hover:bg-pink-900/50 transition border border-pink-200 dark:border-pink-800">
-            전부 B 선택
-        </button>
-        <button onclick="clearAll()"
-            class="px-4 py-2 rounded-xl text-xs font-bold text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition">
-            초기화
-        </button>
-    </div>
-
-    {# --- Progress & Submit --- #}
-    <div class="w-full max-w-4xl mt-6 sticky bottom-4 z-30">
-        <div
-            class="bg-white/90 dark:bg-gray-800/90 backdrop-blur-lg rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 p-4 flex items-center justify-between gap-4">
-            <div class="flex items-center gap-3 min-w-0">
-                <div class="relative w-10 h-10 shrink-0" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="{{ criteria_info|length }}" aria-label="투표 진행률">
-                    <svg class="w-10 h-10 -rotate-90" viewBox="0 0 36 36" aria-hidden="true">
-                        <circle cx="18" cy="18" r="14" fill="none" stroke="currentColor"
-                            class="text-gray-200 dark:text-gray-700" stroke-width="3"></circle>
-                        <circle id="progress-ring" cx="18" cy="18" r="14" fill="none" stroke="currentColor"
-                            class="text-brand-500 transition-all duration-300" stroke-width="3" stroke-dasharray="87.96"
-                            stroke-dashoffset="87.96" stroke-linecap="round"></circle>
-                    </svg>
-                    <span id="progress-count"
-                        class="absolute inset-0 flex items-center justify-center text-[11px] font-black text-gray-500 dark:text-gray-400">
-                        0/{{ criteria_info|length }}
-                    </span>
-                </div>
-                <span id="progress-label" class="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">
-                    기준을 선택해주세요
-                </span>
-            </div>
-            <button id="submit-btn" onclick="submitAllVotes()" disabled class="px-8 py-3 rounded-xl font-bold text-white shadow-lg transition-all duration-300
-                       bg-gray-300 dark:bg-gray-600 cursor-not-allowed">
-                ⚔️ 결과 확인
-            </button>
-        </div>
-    </div>
+<div id="battle-arena">
+    {% include "partials/battle_cards.html" %}
 </div>
-
-{# --- Result Modal --- #}
-<div id="result-modal"
-    class="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center z-50 hidden opacity-0 transition-opacity duration-300"
-    role="dialog" aria-modal="true" aria-label="대결 결과" aria-hidden="true">
-    <div
-        class="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl max-w-lg w-full mx-4 border border-gray-200 dark:border-gray-800 transform scale-95 transition-transform duration-300 relative overflow-hidden max-h-[85vh] flex flex-col">
-
-        <div class="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-brand-500 via-purple-500 to-pink-500"></div>
-
-        <div class="p-6 pb-3">
-            <h3 class="text-xl font-black text-center">
-                <span
-                    class="bg-clip-text text-transparent bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-300">Battle
-                    Result</span>
-            </h3>
-        </div>
-
-        {# Header: item names #}
-        <div class="px-6 pb-3">
-            <div class="grid grid-cols-[1fr_auto_1fr] gap-2 text-center">
-                <div class="text-sm font-bold text-brand-600 dark:text-brand-400 break-words" id="result-name-1"></div>
-                <div class="text-xs text-gray-400 self-center shrink-0">vs</div>
-                <div class="text-sm font-bold text-pink-600 dark:text-pink-400 break-words" id="result-name-2"></div>
-            </div>
-        </div>
-
-        {# Per-criteria results #}
-        <div class="overflow-y-auto px-6 pb-4 flex-1" id="result-list"></div>
-
-        {# Footer: auto-skip 모드에 따라 진행 바 또는 버튼 표시 #}
-        <div class="px-6 pb-6">
-            <div id="auto-skip-area" class="hidden">
-                <div class="relative w-full h-1.5 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden mb-3">
-                    <div id="modal-progress"
-                        class="absolute left-0 top-0 h-full bg-gradient-to-r from-brand-500 to-pink-500 w-0 transition-all ease-out"
-                        style="transition-duration: {{ (result_skip_seconds * 1000)|int }}ms"></div>
-                </div>
-                <p class="text-center text-[11px] text-gray-400 uppercase tracking-widest animate-pulse">
-                    {{ result_skip_seconds }}초 후 자동 이동...
-                </p>
-            </div>
-
-            <div id="click-skip-area" class="hidden">
-                <button id="next-battle-btn" onclick="goNext()"
-                    class="w-full py-3 rounded-xl font-bold text-white bg-gradient-to-r from-brand-600 to-pink-500 hover:from-brand-700 hover:to-pink-600 shadow-lg transition-all duration-200 transform hover:scale-[1.02] active:scale-95">
-                    ⚔️ 다음 대결
-                </button>
-                <p class="text-center text-[11px] text-gray-400 mt-2">아무 곳이나 클릭하거나 스페이스바를 눌러도 넘어갑니다</p>
-            </div>
-        </div>
-    </div>
-</div>
+<div id="result-modal-container"></div>
 
 <style>
     @keyframes bounceIn {
@@ -291,25 +63,29 @@
     .dark .criteria-card.voted {
         border-color: rgba(139, 92, 246, 0.4);
     }
+
+    /* 결과 행 애니메이션 */
+    @keyframes resultRowIn {
+        from { opacity: 0; transform: translateY(8px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    .animate-result-row {
+        animation: resultRowIn 0.3s ease forwards;
+    }
 </style>
 
 {% endblock %}
 
 {% block scripts %}
 <script>
-    // --- Settings from server ---
-    const RESULT_AUTO_SKIP = {{ 'true' if result_auto_skip else 'false' }};
-    const RESULT_SKIP_SECONDS = {{ result_skip_seconds }};
-
-    // --- State ---
-    const item1Id = {{ item1.id }};
-    const item2Id = {{ item2.id }};
-    const roundToken = {{ round_token | tojson }};
-    const redirectTo = {% if focus_mode %}{{ ("/battle/focus/" ~ focus_id) | tojson }}{% else %}""{% endif %};
+    // --- State (let — reinit 시 재할당 필요) ---
+    let item1Id = {{ item1.id }};
+    let item2Id = {{ item2.id }};
+    let roundToken = {{ round_token | tojson }};
+    let redirectTo = {% if focus_mode %}{{ ("/battle/focus/" ~ focus_id) | tojson }}{% else %}""{% endif %};
     const criteriaKeys = {{ criteria_info | map(attribute = 'key') | list | tojson }};
-    const totalCriteria = criteriaKeys.length;
+    let totalCriteria = criteriaKeys.length;
     const votes = {};
-    let nextUrl = '/battle';
     let isSubmitting = false;
 
     // --- Vote Selection ---
@@ -377,7 +153,10 @@
         try {
             const res = await fetchWithTimeout('/battle/vote', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'HX-Request': 'true',
+                },
                 body: JSON.stringify({
                     item1_id: item1Id,
                     item2_id: item2Id,
@@ -386,22 +165,37 @@
                     redirect_to: redirectTo || null,
                 }),
             });
-            const data = await res.json().catch(() => ({}));
+
             if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
                 handleVoteError(res.status, data);
                 return;
             }
-            showResultModal(data);
+
+            const html = await res.text();
+            const container = document.getElementById('result-modal-container');
+            // innerHTML 설정 후 OOB swap 수동 처리
+            const temp = document.createElement('div');
+            temp.innerHTML = html;
+
+            // OOB swap 요소 추출 및 적용
+            temp.querySelectorAll('[hx-swap-oob]').forEach(oob => {
+                const target = document.getElementById(oob.id);
+                if (target) target.innerHTML = oob.innerHTML;
+                oob.remove();
+            });
+
+            container.innerHTML = temp.innerHTML;
+            initResultModal();
         } catch (err) {
             console.error(err);
             showToast(err.message || '투표를 저장하는 중 오류가 발생했습니다. 다시 시도해주세요.', 'error', 5000);
-            // 투표 선택은 보존 — 재시도 가능
         } finally {
             isSubmitting = false;
-            const modal = document.getElementById('result-modal');
-            if (modal.classList.contains('hidden')) {
+            const container = document.getElementById('result-modal-container');
+            if (!container.innerHTML.trim()) {
                 updateProgress();
-                submitBtn.textContent = '⚔️ 결과 확인';
+                document.getElementById('submit-btn').textContent = '⚔️ 결과 확인';
             }
         }
     }
@@ -427,79 +221,39 @@
         showToast(detail, 'error', 5000);
     }
 
-    // --- Navigate to next ---
-    function goNext() {
-        window.location.href = nextUrl;
-    }
-
-    // --- Result Modal ---
-    function showResultModal(data) {
-        nextUrl = data.next_url;
-
-        document.getElementById('result-name-1').textContent = data.a1_name;
-        document.getElementById('result-name-2').textContent = data.a2_name;
-
-        const container = document.getElementById('result-list');
-        container.innerHTML = '';
-
-        data.results.forEach((r, i) => {
-            const row = document.createElement('div');
-            row.className = 'flex items-center gap-2 py-2.5 border-b border-gray-200 dark:border-gray-800 last:border-0 opacity-0 translate-y-2';
-            row.style.transition = `all 0.3s ease ${i * 60}ms`;
-
-            const winIcon = r.winner === '1' ? '◀' : r.winner === '2' ? '▶' : '=';
-            const winColor = r.winner === '1' ? 'text-brand-500' : r.winner === '2' ? 'text-pink-500' : 'text-gray-400';
-
-            const d1 = r.diff_r1 > 0 ? `+${r.diff_r1.toFixed(1)}` : r.diff_r1.toFixed(1);
-            const d2 = r.diff_r2 > 0 ? `+${r.diff_r2.toFixed(1)}` : r.diff_r2.toFixed(1);
-            row.innerHTML = `
-                <div class="flex-1 text-right">
-                    <span class="font-mono text-sm font-bold text-gray-700 dark:text-gray-200">${Math.round(r.new_r1)}</span><span class="text-[10px] text-gray-400 ml-0.5">±${Math.round(r.sigma1)}</span>
-                    <span class="text-xs font-bold ml-1 ${r.diff_r1 > 0 ? 'text-green-500' : r.diff_r1 < 0 ? 'text-red-500' : 'text-gray-400'}">${d1}</span>
-                </div>
-                <div class="w-24 md:w-28 text-center shrink-0">
-                    <span class="text-xs font-bold ${winColor}" aria-hidden="true">${winIcon}</span>
-                    <div class="text-[11px] font-bold text-gray-600 dark:text-gray-300">${r.label}</div>
-                </div>
-                <div class="flex-1 text-left">
-                    <span class="text-xs font-bold mr-1 ${r.diff_r2 > 0 ? 'text-green-500' : r.diff_r2 < 0 ? 'text-red-500' : 'text-gray-400'}">${d2}</span>
-                    <span class="font-mono text-sm font-bold text-gray-700 dark:text-gray-200">${Math.round(r.new_r2)}</span><span class="text-[10px] text-gray-400 ml-0.5">±${Math.round(r.sigma2)}</span>
-                </div>
-            `;
-            container.appendChild(row);
-            requestAnimationFrame(() => requestAnimationFrame(() => {
-                row.style.opacity = '1';
-                row.style.transform = 'translateY(0)';
-            }));
-        });
-
+    // --- Result Modal 초기화 ---
+    function initResultModal() {
         const modal = document.getElementById('result-modal');
-        const inner = modal.querySelector(':scope > div');
-        modal.classList.remove('hidden');
-        modal.setAttribute('aria-hidden', 'false');
+        if (!modal) return;
+
+        const autoSkip = modal.dataset.autoSkip === 'true';
+        const skipSeconds = parseFloat(modal.dataset.skipSeconds || '3');
+
+        // 모달 표시 애니메이션
         requestAnimationFrame(() => {
             modal.classList.remove('opacity-0');
-            inner.classList.remove('scale-95');
-            inner.classList.add('scale-100');
+            const inner = modal.querySelector(':scope > div');
+            if (inner) {
+                inner.classList.remove('scale-95');
+                inner.classList.add('scale-100');
+            }
         });
 
-        if (RESULT_AUTO_SKIP) {
-            document.getElementById('auto-skip-area').classList.remove('hidden');
-            document.getElementById('click-skip-area').classList.add('hidden');
+        if (autoSkip) {
             const MODAL_ANIM_MS = 300;
             setTimeout(() => {
-                document.getElementById('modal-progress').style.width = '100%';
+                const prog = document.getElementById('modal-progress');
+                if (prog) prog.style.width = '100%';
             }, MODAL_ANIM_MS + 50);
-            setTimeout(goNext, MODAL_ANIM_MS + RESULT_SKIP_SECONDS * 1000);
+            setTimeout(dismissModal, MODAL_ANIM_MS + skipSeconds * 1000);
         } else {
-            document.getElementById('auto-skip-area').classList.add('hidden');
-            document.getElementById('click-skip-area').classList.remove('hidden');
-            document.getElementById('next-battle-btn').focus();
+            const nextBtn = document.getElementById('next-battle-btn');
+            if (nextBtn) nextBtn.focus();
 
             modal.addEventListener('click', function handler(e) {
                 if (e.target === modal) {
                     modal.removeEventListener('click', handler);
-                    goNext();
+                    dismissModal();
                 }
             });
 
@@ -507,17 +261,48 @@
                 if (e.code === 'Space' || e.code === 'Enter') {
                     e.preventDefault();
                     document.removeEventListener('keydown', handler);
-                    goNext();
+                    dismissModal();
                 }
             });
         }
     }
 
+    function dismissModal() {
+        document.getElementById('result-modal-container').innerHTML = '';
+        reinitBattleState();
+    }
+
+    function reinitBattleState() {
+        const state = document.getElementById('battle-state');
+        if (!state) {
+            window.location.href = redirectTo || '/battle';
+            return;
+        }
+
+        // OOB swap으로 이미 DOM에 있는 새 배틀 카드에서 상태 읽기
+        item1Id = parseInt(state.dataset.item1Id);
+        item2Id = parseInt(state.dataset.item2Id);
+        roundToken = state.dataset.roundToken;
+        redirectTo = state.dataset.redirectTo || '';
+
+        // 새 배틀이 3-way이면 페이지 전환
+        if (state.dataset.battleMode === '3way') {
+            window.location.href = redirectTo || '/battle';
+            return;
+        }
+
+        criteriaKeys.length = 0;
+        criteriaKeys.push(...JSON.parse(state.dataset.criteriaKeys));
+        totalCriteria = criteriaKeys.length;
+
+        Object.keys(votes).forEach(k => delete votes[k]);
+        isSubmitting = false;
+        updateProgress();
+    }
+
     // --- Keyboard shortcuts ---
     document.addEventListener('keydown', (e) => {
-        // 모달이 열려있으면 무시
-        if (!document.getElementById('result-modal').classList.contains('hidden')) return;
-        // 입력 필드에서는 무시
+        if (document.getElementById('result-modal')) return;
         if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
         if (e.key === 'Enter' && !document.getElementById('submit-btn').disabled) {
             e.preventDefault();
