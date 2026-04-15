@@ -115,7 +115,7 @@ class SessionDataModel(BaseModel):
                 raise ValueError(f"중복된 item id가 있습니다: {item.id}")
             item_ids.add(item.id)
 
-            for field_name in ("mu", "sigma_sq"):
+            for field_name in ("mu", "sigma_sq", "criterion_matches"):
                 keys = set(getattr(item, field_name))
                 missing = allowed_keys - keys
                 unknown = keys - allowed_keys
@@ -223,9 +223,9 @@ class ThreeWayCriteriaResult(BaseModel):
     key: str
     label: str
     color: str
-    best_id: int
-    worst_id: int
-    middle_id: int
+    best_id: int | None = None
+    worst_id: int | None = None
+    middle_id: int | None = None
     ratings: dict[str, float]   # {item_id_str: new_display_rating}
     diffs: dict[str, float]     # {item_id_str: rating_change}
     sigmas: dict[str, float]    # {item_id_str: display_uncertainty}

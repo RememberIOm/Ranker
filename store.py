@@ -391,12 +391,15 @@ class DataStore:
             initial_sq = self._data["settings"]["initial_sigma"] ** 2
 
             for item in self._data["items"]:
+                cm = item.setdefault("criterion_matches", {})
                 for key in added:
                     item["mu"].setdefault(key, 0.0)
                     item["sigma_sq"].setdefault(key, initial_sq)
+                    cm.setdefault(key, 0)
                 for key in removed:
                     item["mu"].pop(key, None)
                     item["sigma_sq"].pop(key, None)
+                    cm.pop(key, None)
 
             # 기존 기준의 배틀 통계(draws/battles) 보존 — key가 동일하면 이력 유지
             old_stats = {
@@ -433,7 +436,7 @@ class DataStore:
                 "mu": {c["key"]: 0.0 for c in self._data["criteria"]},
                 "sigma_sq": {c["key"]: initial_sq for c in self._data["criteria"]},
                 "matches_played": 0,
-                "criterion_matches": {},
+                "criterion_matches": {c["key"]: 0 for c in self._data["criteria"]},
             }
             self._data["items"].append(item)
             self._invalidate_active_round()
@@ -457,7 +460,7 @@ class DataStore:
                     "mu": {c["key"]: 0.0 for c in self._data["criteria"]},
                     "sigma_sq": {c["key"]: initial_sq for c in self._data["criteria"]},
                     "matches_played": 0,
-                    "criterion_matches": {},
+                    "criterion_matches": {c["key"]: 0 for c in self._data["criteria"]},
                 }
                 self._data["items"].append(item)
                 next_id += 1
@@ -661,10 +664,11 @@ class DataStore:
         """3-way 배틀 투표를 처리합니다.
 
         기준별 best/worst 선택을 3개 쌍대비교로 분해하여 BT 업데이트합니다.
-        best > middle (1.0), best > worst (1.0), middle > worst (1.0).
+        동시 업데이트: 원본 값에서 모든 그래디언트를 계산 후 일괄 적용하여
+        순차 적용 시 발생하는 업데이트 순서 편향을 제거합니다.
         """
         from schemas import ThreeWayBattleVoteRequest  # noqa: F811
-        from services import bt_update, hierarchical_shrinkage, display_rating, display_uncertainty
+        from services import sigmoid, _SIGMA_SQ_FLOOR, hierarchical_shrinkage, display_rating, display_uncertainty
 
         lock = _get_lock(self._session_id)
         async with lock:
@@ -711,42 +715,49 @@ class DataStore:
                 best_id: int | None = None
                 worst_id: int | None = None
                 tied_ids: list[int] = []
+                best_count = 0
+                worst_count = 0
                 for id_key, role in vote.items():
                     item_id = int(id_key)
                     if role == "best":
                         best_id = item_id
+                        best_count += 1
                     elif role == "worst":
                         worst_id = item_id
+                        worst_count += 1
                     elif role == "tied":
                         tied_ids.append(item_id)
+                if best_count > 1 or worst_count > 1:
+                    raise InvalidBattleVoteError(
+                        f"기준 '{key}'에서 best 또는 worst가 중복되었습니다."
+                    )
 
-                # "best only" 모드: best 1명 + tied 2명 → 나머지 둘은 무승부
+                old_ratings: dict[str, float] = {}
+                for item in items_3:
+                    old_ratings[id_str[item["id"]]] = display_rating(
+                        self, item["mu"].get(key, 0.0)
+                    )
+
+                # 결과용 ID (모드에 따라 None 가능)
+                best_id_result: int | None = best_id
+                worst_id_result: int | None = worst_id
+                middle_id_result: int | None = None
+
                 if best_id is not None and worst_id is None and len(tied_ids) == 2:
+                    # Mode A: best only — best 1명 + tied 2명
                     if best_id not in item_ids or any(t not in item_ids for t in tied_ids):
                         raise InvalidBattleVoteError(
                             f"기준 '{key}'의 투표 ID가 대결 항목에 없습니다."
                         )
                     tied_a, tied_b = tied_ids
-                    middle_id = tied_a  # best_only 모드에서는 middle 개념 없음 (표시용)
-                    worst_id = tied_b
-
-                    old_ratings: dict[str, float] = {}
-                    for item in items_3:
-                        old_ratings[id_str[item["id"]]] = display_rating(
-                            self, item["mu"].get(key, 0.0)
-                        )
-
                     pairs = [
-                        (best_id, tied_a, 1.0),   # best > tied_a
-                        (best_id, tied_b, 1.0),   # best > tied_b
-                        (tied_a, tied_b, 0.5),     # tied_a ≈ tied_b (무승부)
+                        (best_id, tied_a, 1.0),
+                        (best_id, tied_b, 1.0),
+                        (tied_a, tied_b, 0.5),
                     ]
-                else:
-                    # 기본 모드: best/worst 필수
-                    if best_id is None or worst_id is None:
-                        raise InvalidBattleVoteError(
-                            f"기준 '{key}'에 best와 worst가 모두 필요합니다."
-                        )
+
+                elif best_id is not None and worst_id is not None and len(tied_ids) == 0:
+                    # Mode B: 순위 완전 결정 — best > middle > worst
                     if best_id not in item_ids or worst_id not in item_ids:
                         raise InvalidBattleVoteError(
                             f"기준 '{key}'의 투표 ID가 대결 항목에 없습니다."
@@ -755,44 +766,71 @@ class DataStore:
                         raise InvalidBattleVoteError(
                             f"기준 '{key}'에서 best와 worst가 같을 수 없습니다."
                         )
-
-                    middle_id = [iid for iid in item_ids if iid != best_id and iid != worst_id][0]
-
-                    old_ratings: dict[str, float] = {}
-                    for item in items_3:
-                        old_ratings[id_str[item["id"]]] = display_rating(
-                            self, item["mu"].get(key, 0.0)
-                        )
-
-                    # 3개 쌍대비교: best>middle, best>worst, middle>worst
+                    middle_id_result = [iid for iid in item_ids if iid != best_id and iid != worst_id][0]
                     pairs = [
-                        (best_id, middle_id, 1.0),
+                        (best_id, middle_id_result, 1.0),
                         (best_id, worst_id, 1.0),
-                        (middle_id, worst_id, 1.0),
+                        (middle_id_result, worst_id, 1.0),
                     ]
+
+                elif best_id is None and worst_id is not None and len(tied_ids) == 2:
+                    # Mode C: worst only — worst 1명 + tied 2명
+                    if worst_id not in item_ids or any(t not in item_ids for t in tied_ids):
+                        raise InvalidBattleVoteError(
+                            f"기준 '{key}'의 투표 ID가 대결 항목에 없습니다."
+                        )
+                    tied_a, tied_b = tied_ids
+                    pairs = [
+                        (tied_a, worst_id, 1.0),
+                        (tied_b, worst_id, 1.0),
+                        (tied_a, tied_b, 0.5),
+                    ]
+
+                elif best_id is None and worst_id is None and len(tied_ids) == 3:
+                    # Mode D: 모두 무승부 — 3개 항목 모두 tied
+                    if any(t not in item_ids for t in tied_ids):
+                        raise InvalidBattleVoteError(
+                            f"기준 '{key}'의 투표 ID가 대결 항목에 없습니다."
+                        )
+                    a, b, c = tied_ids
+                    pairs = [
+                        (a, b, 0.5),
+                        (a, c, 0.5),
+                        (b, c, 0.5),
+                    ]
+
+                else:
+                    raise InvalidBattleVoteError(
+                        f"기준 '{key}'의 투표 조합이 올바르지 않습니다."
+                    )
                 item_by_id = {item["id"]: item for item in items_3}
 
-                for a_id, b_id, outcome in pairs:
-                    a = item_by_id[a_id]
-                    b = item_by_id[b_id]
-                    old_mu_a = a["mu"].get(key, 0.0)
-                    old_sq_a = a["sigma_sq"].get(key, initial_sq)
-                    old_mu_b = b["mu"].get(key, 0.0)
-                    old_sq_b = b["sigma_sq"].get(key, initial_sq)
+                # 동시 업데이트: 원본 값에서 모든 그래디언트·정밀도를 계산 후 일괄 적용
+                # 순차 적용 시 후속 쌍이 이미 변경된 값을 사용하는 편향을 제거합니다.
+                orig_mu = {iid: item_by_id[iid]["mu"].get(key, 0.0) for iid in item_ids}
+                orig_sq = {iid: item_by_id[iid]["sigma_sq"].get(key, initial_sq) for iid in item_ids}
+                grad_accum: dict[int, float] = {iid: 0.0 for iid in item_ids}
+                w_accum: dict[int, float] = {iid: 0.0 for iid in item_ids}
 
-                    new_mu_a, new_sq_a, new_mu_b, new_sq_b = bt_update(
-                        old_mu_a, old_sq_a, old_mu_b, old_sq_b, outcome,
-                    )
-                    a["mu"][key] = new_mu_a
-                    a["sigma_sq"][key] = new_sq_a
-                    b["mu"][key] = new_mu_b
-                    b["sigma_sq"][key] = new_sq_b
+                for a_id, b_id, outcome in pairs:
+                    p = sigmoid(orig_mu[a_id] - orig_mu[b_id])
+                    w = p * (1.0 - p)
+                    g = outcome - p
+                    grad_accum[a_id] += g
+                    grad_accum[b_id] -= g
+                    w_accum[a_id] += w
+                    w_accum[b_id] += w
+
+                for iid in item_ids:
+                    prec_new = 1.0 / orig_sq[iid] + w_accum[iid]
+                    item_by_id[iid]["mu"][key] = orig_mu[iid] + grad_accum[iid] / prec_new
+                    item_by_id[iid]["sigma_sq"][key] = max(_SIGMA_SQ_FLOOR, 1.0 / prec_new)
 
                 # 기준별 배틀 통계 — 3 쌍 = 3 배틀
                 criterion["battles"] = criterion.get("battles", 0) + 3
-                # best_only 모드에서는 tied 쌍이 무승부 → draws 1 증가
-                if any(outcome == 0.5 for _, _, outcome in pairs):
-                    criterion["draws"] = criterion.get("draws", 0) + 1
+                draw_count = sum(1 for _, _, outcome in pairs if outcome == 0.5)
+                if draw_count > 0:
+                    criterion["draws"] = criterion.get("draws", 0) + draw_count
 
                 # Per-item-per-criterion 카운트 — 각 항목은 2 쌍에 참여
                 for item in items_3:
@@ -815,9 +853,9 @@ class DataStore:
                     "key": key,
                     "label": criterion["label"],
                     "color": criterion["color"],
-                    "best_id": best_id,
-                    "worst_id": worst_id,
-                    "middle_id": middle_id,
+                    "best_id": best_id_result,
+                    "worst_id": worst_id_result,
+                    "middle_id": middle_id_result,
                     "ratings": new_ratings,
                     "diffs": diffs,
                     "sigmas": sigmas,

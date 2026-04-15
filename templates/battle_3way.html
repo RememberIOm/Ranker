@@ -109,6 +109,12 @@
                     <button type="button" onclick="toggleTied('{{ c.key }}')" id="tied-btn-{{ c.key }}"
                         class="hidden text-[10px] font-bold px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-amber-100 hover:text-amber-600 dark:hover:bg-amber-900/30 dark:hover:text-amber-400 transition"
                         title="나머지 두 항목이 비슷하면 클릭">≈ 나머지 비슷</button>
+                    <button type="button" onclick="toggleWorstOnly('{{ c.key }}')" id="worst-only-btn-{{ c.key }}"
+                        class="hidden text-[10px] font-bold px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-red-100 hover:text-red-600 dark:hover:bg-red-900/30 dark:hover:text-red-400 transition"
+                        title="이 항목만 Worst로 표시">⬇ 이것만 Worst</button>
+                    <button type="button" onclick="toggleAllTied('{{ c.key }}')" id="all-tied-btn-{{ c.key }}"
+                        class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-amber-100 hover:text-amber-600 dark:hover:bg-amber-900/30 dark:hover:text-amber-400 transition"
+                        title="셋 다 비슷">≈ 모두 비슷</button>
                 </div>
             </div>
 
@@ -141,6 +147,10 @@
         <button onclick="quickBest({{ item3.id }})"
             class="px-4 py-2 rounded-xl text-xs font-bold bg-amber-50 text-amber-600 hover:bg-amber-100 dark:bg-amber-900/30 dark:text-amber-300 dark:hover:bg-amber-900/50 transition border border-amber-200 dark:border-amber-800">
             전부 C Best
+        </button>
+        <button onclick="quickAllTied()"
+            class="px-4 py-2 rounded-xl text-xs font-bold bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700 transition border border-gray-200 dark:border-gray-700">
+            전부 비슷
         </button>
         <button onclick="clearAll()"
             class="px-4 py-2 rounded-xl text-xs font-bold text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition">
@@ -315,7 +325,21 @@
         if (!votes[key]) votes[key] = {};
         const v = votes[key];
 
-        // tied 모드 해제
+        // 특수 모드 해제
+        if (v.allTied) {
+            votes[key] = {};
+            const fresh = votes[key];
+            fresh.best = itemId;
+            updateCardUI(key);
+            return;
+        }
+        if (v.worstOnly) {
+            // worst-only에서 항목 클릭 → best 선택으로 전환
+            const oldWorst = v.worst;
+            votes[key] = { best: itemId };
+            updateCardUI(key);
+            return;
+        }
         if (v.tied) v.tied = false;
 
         if (v.best === itemId) {
@@ -359,6 +383,36 @@
         updateCardUI(key);
     }
 
+    function toggleWorstOnly(key) {
+        if (!votes[key]) return;
+        const v = votes[key];
+        if (!v.best) return;
+
+        if (v.worstOnly) {
+            // worst-only 해제 → best 선택 상태로 복귀
+            const worstId = v.worst;
+            votes[key] = { best: worstId };
+        } else {
+            // best를 worst로 전환
+            const bestId = v.best;
+            votes[key] = { worst: bestId, tied: true, worstOnly: true };
+        }
+        updateCardUI(key);
+    }
+
+    function toggleAllTied(key) {
+        if (!votes[key]) votes[key] = {};
+        const v = votes[key];
+
+        if (v.allTied) {
+            delete votes[key];
+            votes[key] = {};
+        } else {
+            votes[key] = { allTied: true };
+        }
+        updateCardUI(key);
+    }
+
     function updateCardUI(key) {
         const v = votes[key] || {};
 
@@ -377,9 +431,41 @@
 
         const card = document.querySelector(`.criteria-card[data-key="${key}"]`);
         const tiedBtn = document.getElementById(`tied-btn-${key}`);
+        const worstOnlyBtn = document.getElementById(`worst-only-btn-${key}`);
+        const allTiedBtn = document.getElementById(`all-tied-btn-${key}`);
 
-        if (v.best && v.tied) {
-            // best only + tied 모드
+        // 기본: 특수 버튼 숨김
+        tiedBtn.classList.add('hidden');
+        worstOnlyBtn.classList.add('hidden');
+
+        if (v.allTied) {
+            // Mode D: 모두 비슷
+            allItemIds.forEach(id => {
+                const btn = document.getElementById(`btn-${key}-${id}`);
+                btn.classList.add('selected-tied');
+                const icon = btn.querySelector(`.role-icon[data-item="${id}"]`);
+                if (icon) { icon.classList.remove('hidden'); icon.textContent = '≈ Tied'; }
+            });
+            card.classList.add('voted');
+            allTiedBtn.classList.add('active-mode');
+        } else if (v.worstOnly && v.worst) {
+            // Mode C: worst only
+            const worstBtn = document.getElementById(`btn-${key}-${v.worst}`);
+            worstBtn.classList.add('selected-worst');
+            worstBtn.setAttribute('aria-pressed', 'true');
+            const worstIcon = worstBtn.querySelector(`.role-icon[data-item="${v.worst}"]`);
+            if (worstIcon) { worstIcon.classList.remove('hidden'); worstIcon.textContent = '⬇ Worst'; }
+
+            allItemIds.filter(id => id !== v.worst).forEach(id => {
+                const btn = document.getElementById(`btn-${key}-${id}`);
+                btn.classList.add('selected-tied');
+                const icon = btn.querySelector(`.role-icon[data-item="${id}"]`);
+                if (icon) { icon.classList.remove('hidden'); icon.textContent = '≈ Tied'; }
+            });
+            card.classList.add('voted');
+            allTiedBtn.classList.remove('active-mode');
+        } else if (v.best && v.tied) {
+            // Mode A: best only + tied 모드
             const bestBtn = document.getElementById(`btn-${key}-${v.best}`);
             bestBtn.classList.add('selected-best');
             bestBtn.setAttribute('aria-pressed', 'true');
@@ -392,11 +478,10 @@
                 const icon = btn.querySelector(`.role-icon[data-item="${id}"]`);
                 if (icon) { icon.classList.remove('hidden'); icon.textContent = '≈ Tied'; }
             });
-
             card.classList.add('voted');
-            tiedBtn.classList.add('hidden');
+            allTiedBtn.classList.remove('active-mode');
         } else if (v.best && v.worst) {
-            // 기본 best/worst 모드
+            // Mode B: 기본 best/worst 모드
             const middleId = allItemIds.find(id => id !== v.best && id !== v.worst);
 
             const bestBtn = document.getElementById(`btn-${key}-${v.best}`);
@@ -417,9 +502,10 @@
             if (midIcon) { midIcon.classList.remove('hidden'); midIcon.textContent = '— Middle'; }
 
             card.classList.add('voted');
-            tiedBtn.classList.add('hidden');
+            allTiedBtn.classList.remove('active-mode');
         } else {
             card.classList.remove('voted');
+            allTiedBtn.classList.remove('active-mode');
 
             if (v.best) {
                 const bestBtn = document.getElementById(`btn-${key}-${v.best}`);
@@ -427,10 +513,9 @@
                 bestBtn.setAttribute('aria-pressed', 'true');
                 const bestIcon = bestBtn.querySelector(`.role-icon[data-item="${v.best}"]`);
                 if (bestIcon) { bestIcon.classList.remove('hidden'); bestIcon.textContent = '👑 Best'; }
-                // best가 선택된 상태에서 "나머지 비슷" 버튼 표시
+                // best가 선택된 상태에서 "나머지 비슷" / "이것만 Worst" 버튼 표시
                 tiedBtn.classList.remove('hidden');
-            } else {
-                tiedBtn.classList.add('hidden');
+                worstOnlyBtn.classList.remove('hidden');
             }
             if (v.worst) {
                 const worstBtn = document.getElementById(`btn-${key}-${v.worst}`);
@@ -438,7 +523,6 @@
                 worstBtn.setAttribute('aria-pressed', 'true');
                 const worstIcon = worstBtn.querySelector(`.role-icon[data-item="${v.worst}"]`);
                 if (worstIcon) { worstIcon.classList.remove('hidden'); worstIcon.textContent = '⬇ Worst'; }
-                tiedBtn.classList.add('hidden');
             }
         }
 
@@ -454,6 +538,13 @@
         });
     }
 
+    function quickAllTied() {
+        criteriaKeys.forEach(key => {
+            votes[key] = { allTied: true };
+            updateCardUI(key);
+        });
+    }
+
     function clearAll() {
         criteriaKeys.forEach(key => {
             delete votes[key];
@@ -464,7 +555,10 @@
     // --- Helpers ---
     function isVoteComplete(key) {
         const v = votes[key];
-        if (!v || !v.best) return false;
+        if (!v) return false;
+        if (v.allTied) return true;
+        if (v.worstOnly && v.worst) return true;
+        if (!v.best) return false;
         return !!(v.worst || v.tied);
     }
 
@@ -506,13 +600,27 @@
         criteriaKeys.forEach(key => {
             const v = votes[key];
             serverVotes[key] = {};
-            serverVotes[key][String(v.best)] = 'best';
-            if (v.tied) {
-                // best only 모드: 나머지 둘은 tied
+
+            if (v.allTied) {
+                // Mode D: 모두 비슷
+                allItemIds.forEach(id => {
+                    serverVotes[key][String(id)] = 'tied';
+                });
+            } else if (v.worstOnly && v.worst) {
+                // Mode C: worst only
+                serverVotes[key][String(v.worst)] = 'worst';
+                allItemIds.filter(id => id !== v.worst).forEach(id => {
+                    serverVotes[key][String(id)] = 'tied';
+                });
+            } else if (v.tied) {
+                // Mode A: best only
+                serverVotes[key][String(v.best)] = 'best';
                 allItemIds.filter(id => id !== v.best).forEach(id => {
                     serverVotes[key][String(id)] = 'tied';
                 });
             } else {
+                // Mode B: best/worst 완전 순위
+                serverVotes[key][String(v.best)] = 'best';
                 serverVotes[key][String(v.worst)] = 'worst';
             }
         });
@@ -611,7 +719,9 @@
                 const sigma = r.sigmas[idStr];
                 const dStr = diff > 0 ? `+${diff.toFixed(1)}` : diff.toFixed(1);
                 const dColor = diff > 0 ? 'text-green-500' : diff < 0 ? 'text-red-500' : 'text-gray-400';
-                const roleIcon = id === r.best_id ? '👑' : id === r.worst_id ? '⬇' : '';
+                const roleIcon = (r.best_id == null && r.worst_id == null) ? '≈'
+                    : id === r.best_id ? '👑'
+                    : id === r.worst_id ? '⬇' : '';
 
                 html += `
                     <div>
