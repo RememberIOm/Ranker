@@ -1,10 +1,10 @@
 import json
-import os
 import time
 
 import pytest
 
 from schemas import BattleVoteRequest
+import database
 import store
 
 
@@ -27,21 +27,19 @@ class TestStoreValidation:
         assert temp_store.items[0]["mu"]["story"] == pytest.approx(0.0)
         assert temp_store.items[0]["sigma_sq"]["story"] > 0
 
-    async def test_delete_session_clears_runtime_cache_and_lock(self, store_factory) -> None:
+    async def test_delete_session_clears_runtime_state(self, store_factory) -> None:
         session_id = "b" * 32
         session = await store_factory(session_id)
         await session.save()
         store._get_lock(session_id)
 
-        session.delete_session()
+        await session.delete_session()
 
-        assert not (store.SESSION_DIR / f"{session_id}.json").exists()
-        assert session_id not in store._session_cache
+        assert not await store.session_exists(session_id)
         assert session_id not in store._locks
 
-    async def test_migration_from_elo_format(self, store_factory) -> None:
-        """구 Elo 형식 JSON 로드 시 mu/sigma_sq로 자동 마이그레이션"""
-        session_id = "c" * 32
+    async def test_migration_from_elo_format(self, temp_store: store.DataStore) -> None:
+        """구 Elo 형식 JSON import 시 mu/sigma_sq로 자동 마이그레이션"""
         legacy_payload = """
         {
           "settings": {
@@ -61,24 +59,22 @@ class TestStoreValidation:
           ]
         }
         """
-        (store.SESSION_DIR / f"{session_id}.json").write_text(legacy_payload, encoding="utf-8")
-
-        session = await store_factory(session_id)
+        await temp_store.import_json(legacy_payload)
 
         # mu로 변환됨: (1510 - 1400) / 173.72 ≈ 0.633
-        assert session.items[0]["mu"]["story"] == pytest.approx((1510 - 1400) / 173.72, abs=0.01)
+        assert temp_store.items[0]["mu"]["story"] == pytest.approx((1510 - 1400) / 173.72, abs=0.01)
         # visual은 center와 동일 → mu ≈ 0
-        assert session.items[0]["mu"]["visual"] == pytest.approx(0.0, abs=0.01)
+        assert temp_store.items[0]["mu"]["visual"] == pytest.approx(0.0, abs=0.01)
         # sigma_sq가 존재하고 양수
-        assert session.items[0]["sigma_sq"]["story"] > 0
-        assert session.items[0]["sigma_sq"]["visual"] > 0
+        assert temp_store.items[0]["sigma_sq"]["story"] > 0
+        assert temp_store.items[0]["sigma_sq"]["visual"] > 0
         # criterion_matches가 높을수록 sigma_sq가 작음
-        assert session.items[0]["sigma_sq"]["story"] < session.items[0]["sigma_sq"]["visual"]
+        assert temp_store.items[0]["sigma_sq"]["story"] < temp_store.items[0]["sigma_sq"]["visual"]
 
         # settings도 마이그레이션됨
-        assert "draw_prior_max" in session.settings
-        assert "elo_k_max" not in session.settings
-        assert session.settings["display_center"] == pytest.approx(1400.0)
+        assert "draw_prior_max" in temp_store.settings
+        assert "elo_k_max" not in temp_store.settings
+        assert temp_store.settings["display_center"] == pytest.approx(1400.0)
 
     async def test_add_item_initializes_mu_sigma(self, temp_store: store.DataStore) -> None:
         """새 항목은 mu=0, sigma_sq=initial_sigma² 로 초기화됨"""
@@ -141,7 +137,7 @@ class TestPerCriterionMatches:
 
 class TestActiveRoundItem3Persistence:
     async def test_item3_id_survives_reload(self, store_factory) -> None:
-        """3-way active_round의 item3_id가 세션 재로드 후 보존됨"""
+        """3-way active_round의 item3_id가 DB 재로드 후 보존됨"""
         session_id = "f" * 32
         s = await store_factory(session_id)
         await s.add_item("Alpha")
@@ -150,8 +146,7 @@ class TestActiveRoundItem3Persistence:
         item1, item2, item3 = s.items[0], s.items[1], s.items[2]
         token = await s.issue_battle_round(item1["id"], item2["id"], item3["id"])
 
-        # 캐시 제거 후 디스크에서 다시 로드
-        store._session_cache.clear()
+        # DB에서 다시 로드
         store._locks.clear()
         s2 = await store_factory(session_id)
 
@@ -163,20 +158,19 @@ class TestActiveRoundItem3Persistence:
         assert ar["item3_id"] == item3["id"]
 
     async def test_2way_round_no_item3(self, store_factory) -> None:
-        """2-way active_round는 item3_id가 None"""
+        """2-way active_round는 item3_id가 없음"""
         session_id = "g" * 32
         s = await store_factory(session_id)
         await s.add_item("Alpha")
         await s.add_item("Beta")
         await s.issue_battle_round(s.items[0]["id"], s.items[1]["id"])
 
-        store._session_cache.clear()
         store._locks.clear()
         s2 = await store_factory(session_id)
 
         ar = s2._data["active_round"]
         assert ar is not None
-        assert ar["item3_id"] is None
+        assert "item3_id" not in ar
 
 
 # --- Export / Import ---
@@ -280,30 +274,123 @@ class TestDeleteItem:
 
 
 class TestCleanupExpiredSessions:
-    async def test_removes_expired_file(self, store_factory) -> None:
-        """만료된 세션 파일 삭제"""
+    async def test_removes_expired_session(self, store_factory) -> None:
+        """만료된 세션 삭제"""
         session_id = "h" * 32
         s = await store_factory(session_id)
         await s.save()
-        session_path = store.SESSION_DIR / f"{session_id}.json"
-        assert session_path.exists()
+        assert await store.session_exists(session_id)
 
-        # mtime을 TTL 이전으로 설정하고 캐시에서 제거
+        # last_accessed를 TTL 이전으로 설정
         old_time = time.time() - store.SESSION_TTL_SECONDS - 100
-        os.utime(session_path, (old_time, old_time))
-        store._session_cache.pop(session_id, None)
+        db = database.get_db()
+        await db.execute(
+            "UPDATE sessions SET last_accessed = ? WHERE id = ?",
+            (old_time, session_id),
+        )
+        await db.commit()
 
         removed = await store.cleanup_expired_sessions()
         assert removed == 1
-        assert not session_path.exists()
+        assert not await store.session_exists(session_id)
 
-    async def test_preserves_recent_file(self, store_factory) -> None:
-        """최근 파일은 삭제하지 않음"""
+    async def test_preserves_recent_session(self, store_factory) -> None:
+        """최근 세션은 삭제하지 않음"""
         session_id = "i" * 32
         s = await store_factory(session_id)
         await s.save()
-        session_path = store.SESSION_DIR / f"{session_id}.json"
 
         removed = await store.cleanup_expired_sessions()
         assert removed == 0
-        assert session_path.exists()
+        assert await store.session_exists(session_id)
+
+
+# --- JSON to SQLite Migration ---
+
+
+class TestJsonMigration:
+    async def test_migrate_json_session(self, _temp_db, tmp_path) -> None:
+        """JSON 파일을 SQLite로 마이그레이션"""
+        session_dir = tmp_path / "sessions"
+        session_dir.mkdir()
+        session_id = "m" * 32
+        data = {
+            "settings": {"initial_sigma": 2.0, "display_center": 1200.0, "display_scale": 173.72},
+            "criteria": [{"key": "story", "label": "스토리", "color": "blue", "weight": 1.0}],
+            "items": [
+                {
+                    "id": 1,
+                    "name": "Alpha",
+                    "mu": {"story": 0.5},
+                    "sigma_sq": {"story": 3.0},
+                    "matches_played": 5,
+                    "criterion_matches": {"story": 5},
+                }
+            ],
+        }
+        (session_dir / f"{session_id}.json").write_text(json.dumps(data), encoding="utf-8")
+
+        from database import migrate_json_sessions
+
+        migrated = await migrate_json_sessions(session_dir)
+        assert migrated == 1
+
+        # 마이그레이션된 파일이 migrated/로 이동
+        assert (session_dir / "migrated" / f"{session_id}.json").exists()
+        assert not (session_dir / f"{session_id}.json").exists()
+
+        # DB에서 데이터 확인
+        assert await store.session_exists(session_id)
+        s = await store.get_store(session_id)
+        assert len(s.items) == 1
+        assert s.items[0]["name"] == "Alpha"
+        assert s.items[0]["mu"]["story"] == pytest.approx(0.5)
+
+
+# --- CASCADE Delete ---
+
+
+class TestCascadeDelete:
+    async def test_delete_session_removes_all_related_rows(self, store_factory) -> None:
+        """세션 삭제 시 관련 행 모두 CASCADE 삭제"""
+        session_id = "d" * 32
+        s = await store_factory(session_id)
+        await s.add_item("Alpha")
+        await s.add_item("Beta")
+        await s.save()
+
+        assert await store.session_exists(session_id)
+
+        await store.delete_session(session_id)
+
+        assert not await store.session_exists(session_id)
+
+        # items, criteria, item_ratings 행도 삭제 확인
+        db = database.get_db()
+        async with db.execute("SELECT COUNT(*) FROM items WHERE session_id = ?", (session_id,)) as c:
+            assert (await c.fetchone())[0] == 0
+        async with db.execute("SELECT COUNT(*) FROM criteria WHERE session_id = ?", (session_id,)) as c:
+            assert (await c.fetchone())[0] == 0
+        async with db.execute("SELECT COUNT(*) FROM item_ratings WHERE session_id = ?", (session_id,)) as c:
+            assert (await c.fetchone())[0] == 0
+
+
+# --- Session Isolation ---
+
+
+class TestSessionIsolation:
+    async def test_concurrent_sessions_isolated(self, store_factory) -> None:
+        """두 세션이 서로 간섭하지 않음"""
+        s1 = await store_factory("1" * 32)
+        s2 = await store_factory("2" * 32)
+        await s1.add_item("S1-Item")
+        await s2.add_item("S2-Item")
+
+        # 재로드 후 확인
+        s1r = await store_factory("1" * 32)
+        s2r = await store_factory("2" * 32)
+
+        assert len(s1r.items) == 1
+        assert s1r.items[0]["name"] == "S1-Item"
+        assert len(s2r.items) == 1
+        assert s2r.items[0]["name"] == "S2-Item"

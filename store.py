@@ -1,6 +1,6 @@
 # store.py
-# 세션 기반 JSON 데이터 저장소 — 각 사용자가 독립된 데이터를 운용합니다.
-# UUID 세션 ID를 키로 사용하며, 세션별 JSON 파일을 /data/sessions/ 에 저장합니다.
+# 세션 기반 SQLite 데이터 저장소 — 각 사용자가 독립된 데이터를 운용합니다.
+# UUID 세션 ID를 키로 사용하며, 단일 SQLite DB에 모든 세션을 저장합니다.
 
 import asyncio
 import json
@@ -8,20 +8,15 @@ import logging
 import os
 import secrets
 import time
-from pathlib import Path
+from itertools import groupby
 from typing import Any
 
-import aiofiles
 from pydantic import ValidationError
 
 logger = logging.getLogger("ranker.store")
 
+from database import get_db, _insert_session_data
 from schemas import BattleVoteRequest, SessionDataModel
-
-# 환경 변수 SESSION_DIR이 설정되어 있으면 해당 경로를 사용하고,
-# 로컬 개발 환경(uvicorn 실행)에서는 권한 오류를 피하기 위해 './data/sessions'를 사용합니다.
-SESSION_DIR = Path(os.getenv("SESSION_DIR", "./data/sessions"))
-SESSION_DIR.mkdir(parents=True, exist_ok=True)
 
 # 세션 만료 시간 (7일)
 SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_SECONDS", str(7 * 24 * 60 * 60)))
@@ -31,7 +26,6 @@ SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_SECONDS", str(7 * 24 * 60 * 60)
 # ⚠️ 단일 uvicorn 워커 전제 — 멀티 워커(Gunicorn) 환경에서는 프로세스 간 Lock을
 #    공유할 수 없으므로 filelock 패키지로 교체 필요. fly.toml 참고.
 _locks: dict[str, asyncio.Lock] = {}
-_session_cache: dict[str, tuple["DataStore", float]] = {}
 
 
 class InvalidBattleVoteError(ValueError):
@@ -47,11 +41,11 @@ class BattleItemNotFoundError(LookupError):
 
 
 class SessionSaveError(RuntimeError):
-    """세션 파일 저장에 실패했을 때 발생합니다 (디스크 풀, 권한 거부 등)."""
+    """세션 저장에 실패했을 때 발생합니다 (디스크 풀, 권한 거부 등)."""
 
 
 class InvalidSessionDataError(ValueError):
-    """세션 파일이 손상되었거나 현재 스키마로 복구할 수 없을 때 발생합니다."""
+    """세션 데이터가 손상되었거나 현재 스키마로 복구할 수 없을 때 발생합니다."""
 
 
 def _get_lock(session_id: str) -> asyncio.Lock:
@@ -62,7 +56,7 @@ def _get_lock(session_id: str) -> asyncio.Lock:
 
 
 def _default_data() -> dict[str, Any]:
-    """초기 JSON 스키마 — 새 세션 또는 파일이 없을 때 생성됩니다."""
+    """초기 스키마 — 새 세션 생성 시 사용됩니다."""
     return SessionDataModel().model_dump(mode="python")
 
 
@@ -251,8 +245,8 @@ def _normalize_loaded_data(data: Any) -> dict[str, Any]:
                 "criterion_matches": criterion_matches,
             })
 
-    # active_round (진행 중인 배틀 라운드) 복원 — 파일에 영속화되어 VM 재시작 후에도 투표 가능.
-    # 검증 실패(같은 ID, 잘못된 토큰 등) 시 None으로 관대 복원 — 전체 파일 로드 실패를 피함.
+    # active_round (진행 중인 배틀 라운드) 복원 — DB에 영속화되어 VM 재시작 후에도 투표 가능.
+    # 검증 실패(같은 ID, 잘못된 토큰 등) 시 None으로 관대 복원 — 전체 로드 실패를 피함.
     active_round_raw = data.get("active_round")
     active_round: dict[str, Any] | None = None
     if isinstance(active_round_raw, dict):
@@ -301,47 +295,130 @@ def _normalize_loaded_data(data: Any) -> dict[str, Any]:
 
 class DataStore:
     """
-    세션별 JSON 데이터 저장소.
-    메모리에 데이터를 캐싱하고, 변경 시 세션 파일에 비동기적으로 기록합니다.
+    세션별 SQLite 데이터 저장소.
+    메모리에 데이터를 로드하고, 변경 시 SQLite에 비동기적으로 기록합니다.
     직접 생성하지 말고 DataStore.create(session_id)를 사용하세요.
     """
 
     def __init__(self, session_id: str) -> None:
         self._session_id = session_id
-        self._path = SESSION_DIR / f"{session_id}.json"
         self._data: dict[str, Any] = {}  # create()에서 채워짐 (active_round 포함)
+        self._created_at: float = 0.0
 
     @classmethod
     async def create(cls, session_id: str) -> "DataStore":
-        """비동기 팩토리 — 파일에서 데이터를 로드한 DataStore를 반환합니다."""
+        """비동기 팩토리 — DB에서 데이터를 로드한 DataStore를 반환합니다."""
         instance = cls(session_id)
-        instance._data = await instance._load()
+        await instance._load_from_db()
         return instance
 
-    async def _load(self) -> dict[str, Any]:
-        if self._path.exists():
-            async with aiofiles.open(self._path, "r", encoding="utf-8") as f:
-                raw = await f.read()
-            try:
-                parsed = await asyncio.to_thread(json.loads, raw)
-                normalized = _normalize_loaded_data(parsed)
-                validated = await asyncio.to_thread(SessionDataModel.model_validate, normalized)
-            except (json.JSONDecodeError, ValidationError, InvalidSessionDataError) as exc:
-                raise InvalidSessionDataError(f"세션 파일을 읽을 수 없습니다: {self._path.name}") from exc
-            return validated.model_dump(mode="python")
-        return _default_data()
+    async def _load_from_db(self) -> None:
+        """SQLite에서 전체 세션 데이터를 메모리 dict로 조립합니다."""
+        db = get_db()
 
-    async def _save_locked(self) -> None:
-        # CPU-bound 직렬화를 스레드풀에 위임하여 이벤트 루프 블로킹 방지 (_load와 일관성 유지)
+        # 세션 메타
+        async with db.execute(
+            "SELECT settings, created_at FROM sessions WHERE id = ?",
+            (self._session_id,),
+        ) as cursor:
+            row = await cursor.fetchone()
+
+        if row is None:
+            self._data = _default_data()
+            self._created_at = time.time()
+            return
+
+        self._created_at = row["created_at"]
+        self._data = {
+            "settings": json.loads(row["settings"]),
+            "criteria": [],
+            "items": [],
+            "active_round": None,
+        }
+
+        # 기준
+        async with db.execute(
+            "SELECT key, label, color, weight, battles, draws "
+            "FROM criteria WHERE session_id = ? ORDER BY sort_order",
+            (self._session_id,),
+        ) as cursor:
+            self._data["criteria"] = [
+                {
+                    "key": r["key"],
+                    "label": r["label"],
+                    "color": r["color"],
+                    "weight": r["weight"],
+                    "battles": r["battles"],
+                    "draws": r["draws"],
+                }
+                async for r in cursor
+            ]
+
+        # 항목 + 레이팅 (JOIN으로 한번에 조회)
+        async with db.execute(
+            "SELECT i.id, i.name, i.matches_played, "
+            "       r.criterion_key, r.mu, r.sigma_sq, r.criterion_matches "
+            "FROM items i "
+            "LEFT JOIN item_ratings r ON i.session_id = r.session_id AND i.id = r.item_id "
+            "WHERE i.session_id = ? "
+            "ORDER BY i.id, r.criterion_key",
+            (self._session_id,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+
+        items: list[dict[str, Any]] = []
+        for item_id, group in groupby(rows, key=lambda r: r["id"]):
+            mu: dict[str, float] = {}
+            sigma_sq: dict[str, float] = {}
+            criterion_matches: dict[str, int] = {}
+            name = ""
+            matches_played = 0
+            for r in group:
+                name = r["name"]
+                matches_played = r["matches_played"]
+                if r["criterion_key"] is not None:
+                    mu[r["criterion_key"]] = r["mu"]
+                    sigma_sq[r["criterion_key"]] = r["sigma_sq"]
+                    criterion_matches[r["criterion_key"]] = r["criterion_matches"]
+            items.append({
+                "id": item_id,
+                "name": name,
+                "mu": mu,
+                "sigma_sq": sigma_sq,
+                "matches_played": matches_played,
+                "criterion_matches": criterion_matches,
+            })
+        self._data["items"] = items
+
+        # 진행 중 라운드
+        async with db.execute(
+            "SELECT token, item1_id, item2_id, item3_id, issued_at "
+            "FROM active_rounds WHERE session_id = ?",
+            (self._session_id,),
+        ) as cursor:
+            ar_row = await cursor.fetchone()
+
+        if ar_row:
+            ar: dict[str, Any] = {
+                "token": ar_row["token"],
+                "item1_id": ar_row["item1_id"],
+                "item2_id": ar_row["item2_id"],
+                "issued_at": ar_row["issued_at"],
+            }
+            if ar_row["item3_id"] is not None:
+                ar["item3_id"] = ar_row["item3_id"]
+            self._data["active_round"] = ar
+
+    async def _save_to_db(self) -> None:
+        """메모리 상태를 SQLite에 기록합니다 (단일 트랜잭션)."""
         try:
-            serialized = await asyncio.to_thread(
-                json.dumps, self._data, ensure_ascii=False, indent=2
+            await _insert_session_data(
+                get_db(),
+                self._session_id,
+                self._data,
+                created_at=self._created_at,
+                last_accessed=time.time(),
             )
-            # 임시 파일에 먼저 쓰고 os.replace로 원자적 교체 — 충돌 시 파일 손상 방지
-            tmp_path = self._path.with_suffix(".tmp")
-            async with aiofiles.open(tmp_path, "w", encoding="utf-8") as f:
-                await f.write(serialized)
-            os.replace(tmp_path, self._path)
         except OSError as exc:
             logger.error("session_save_failed — session_id=%s: %s", self._session_id, exc)
             raise SessionSaveError(f"세션 저장에 실패했습니다: {self._session_id}") from exc
@@ -349,10 +426,10 @@ class DataStore:
     async def _save(self) -> None:
         lock = _get_lock(self._session_id)
         async with lock:
-            await self._save_locked()
+            await self._save_to_db()
 
     def _invalidate_active_round(self) -> None:
-        """진행 중인 라운드를 무효화합니다. 호출자가 _save_locked()로 디스크 반영을 책임집니다."""
+        """진행 중인 라운드를 무효화합니다. 호출자가 _save_to_db()로 DB 반영을 책임집니다."""
         self._data["active_round"] = None
 
     def _get_item_from_data(self, item_id: int) -> dict[str, Any] | None:
@@ -371,7 +448,7 @@ class DataStore:
         lock = _get_lock(self._session_id)
         async with lock:
             self._data["settings"].update(patch)
-            await self._save_locked()
+            await self._save_to_db()
 
     # --- Criteria ---
 
@@ -413,7 +490,7 @@ class DataStore:
 
             self._data["criteria"] = criteria
             self._invalidate_active_round()
-            await self._save_locked()
+            await self._save_to_db()
 
     # --- Items ---
 
@@ -440,7 +517,7 @@ class DataStore:
             }
             self._data["items"].append(item)
             self._invalidate_active_round()
-            await self._save_locked()
+            await self._save_to_db()
             return item
 
     async def add_items_bulk(self, names: list[str]) -> int:
@@ -467,7 +544,7 @@ class DataStore:
                 count += 1
             if count:
                 self._invalidate_active_round()
-                await self._save_locked()
+                await self._save_to_db()
             return count
 
     def get_item(self, item_id: int) -> dict[str, Any] | None:
@@ -480,7 +557,7 @@ class DataStore:
             if not item:
                 return False
             item.update(fields)
-            await self._save_locked()
+            await self._save_to_db()
             return True
 
     async def delete_item(self, item_id: int) -> bool:
@@ -490,7 +567,7 @@ class DataStore:
             self._data["items"] = [i for i in self._data["items"] if i["id"] != item_id]
             if len(self._data["items"]) < before:
                 self._invalidate_active_round()
-                await self._save_locked()
+                await self._save_to_db()
                 return True
             return False
 
@@ -515,14 +592,14 @@ class DataStore:
         async with lock:
             self._data = validated.model_dump(mode="python")
             self._invalidate_active_round()
-            await self._save_locked()
+            await self._save_to_db()
 
     async def issue_battle_round(
         self, item1_id: int, item2_id: int, item3_id: int | None = None,
     ) -> str:
-        """배틀 라운드 토큰을 발급하고 파일에 영속화합니다.
+        """배틀 라운드 토큰을 발급하고 DB에 영속화합니다.
 
-        파일 저장으로 VM 재시작/Fly.io 자동 스케일다운 후에도 사용자가 이어서 투표 가능.
+        DB 저장으로 VM 재시작/Fly.io 자동 스케일다운 후에도 사용자가 이어서 투표 가능.
         3-way 모드에서는 item3_id를 함께 저장합니다.
         """
         lock = _get_lock(self._session_id)
@@ -537,7 +614,7 @@ class DataStore:
             if item3_id is not None:
                 round_data["item3_id"] = item3_id
             self._data["active_round"] = round_data
-            await self._save_locked()
+            await self._save_to_db()
             return token
 
     async def apply_battle_vote(self, payload: BattleVoteRequest) -> tuple[dict[str, Any], bool]:
@@ -645,7 +722,7 @@ class DataStore:
             a1["matches_played"] += 1
             a2["matches_played"] += 1
             self._invalidate_active_round()
-            await self._save_locked()
+            await self._save_to_db()
 
             return (
                 {
@@ -869,7 +946,7 @@ class DataStore:
             for item in items_3:
                 item["matches_played"] += 1
             self._invalidate_active_round()
-            await self._save_locked()
+            await self._save_to_db()
 
             return {
                 "a1_id": items_3[0]["id"],
@@ -883,81 +960,54 @@ class DataStore:
                 "next_url": payload.redirect_to or "/battle",
             }
 
-    def delete_session(self) -> None:
-        """세션 데이터 파일을 삭제합니다."""
+    async def delete_session(self) -> None:
+        """세션 데이터를 DB에서 삭제합니다."""
         self._invalidate_active_round()
-        delete_session(self._session_id)
+        await delete_session(self._session_id)
 
 
 # --- 세션 관리자 ---
 
-# 메모리 캐시: session_id → (DataStore, last_access_timestamp)
-# asyncio cooperative scheduling으로 await 없는 구간은 원자적 — 별도 lock 불필요
-
-
-def _utime_if_exists(path: Path) -> None:
-    """파일이 존재하면 mtime을 현재 시각으로 갱신합니다. 존재하지 않으면 무시."""
-    try:
-        os.utime(path, None)
-    except FileNotFoundError:
-        pass
-
 
 async def get_store(session_id: str) -> DataStore:
-    """세션 ID에 해당하는 DataStore를 반환합니다 (캐시 활용)."""
-    if session_id in _session_cache:
-        store, _ = _session_cache[session_id]
-        _session_cache[session_id] = (store, time.time())
-        return store
-
+    """세션 ID에 해당하는 DataStore를 반환합니다."""
     store = await DataStore.create(session_id)
-    # 파일 mtime 갱신 — 서버 재시작 후에도 cleanup이 활성 세션을 삭제하지 않도록 방지.
-    # os.utime은 파일이 있을 때만 mtime을 갱신 — Path.touch(exist_ok=True)의 "빈 파일 생성" 경주 회피.
-    await asyncio.to_thread(_utime_if_exists, SESSION_DIR / f"{session_id}.json")
-    _session_cache[session_id] = (store, time.time())
+    # last_accessed 갱신
+    db = get_db()
+    await db.execute(
+        "UPDATE sessions SET last_accessed = ? WHERE id = ?",
+        (time.time(), session_id),
+    )
+    await db.commit()
     return store
 
 
-def session_exists(session_id: str) -> bool:
-    """세션 파일이 존재하는지 확인합니다."""
-    return (SESSION_DIR / f"{session_id}.json").exists()
+async def session_exists(session_id: str) -> bool:
+    """세션이 DB에 존재하는지 확인합니다."""
+    db = get_db()
+    async with db.execute(
+        "SELECT 1 FROM sessions WHERE id = ?", (session_id,),
+    ) as cursor:
+        return await cursor.fetchone() is not None
 
 
-def _purge_runtime_state(session_id: str) -> None:
-    _session_cache.pop(session_id, None)
+async def delete_session(session_id: str) -> None:
+    """세션 데이터를 DB에서 삭제하고 런타임 상태를 정리합니다."""
+    db = get_db()
+    await db.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
+    await db.commit()
     _locks.pop(session_id, None)
 
 
-def delete_session(session_id: str) -> None:
-    """세션 파일과 메모리 캐시/락을 함께 정리합니다."""
-    (SESSION_DIR / f"{session_id}.json").unlink(missing_ok=True)
-    _purge_runtime_state(session_id)
-
-
 async def cleanup_expired_sessions() -> int:
-    """만료된 세션 파일을 정리합니다. 삭제된 개수를 반환합니다.
-
-    warm cache(최근 접근된 세션)는 파일 mtime이 오래됐어도 보존 — 투표 없이
-    /battle·/ranking만 조회하는 활성 사용자의 파일이 실수로 삭제되지 않도록 보호.
-    """
-    now = time.time()
-    removed = 0
-    for f in SESSION_DIR.glob("*.json"):
-        session_id = f.stem
-        # 캐시에 있고 최근 접근된 세션은 mtime 무관하게 보존
-        cache_entry = _session_cache.get(session_id)
-        if cache_entry is not None:
-            _, last_access = cache_entry
-            if (now - last_access) <= SESSION_TTL_SECONDS:
-                continue
-        if (now - f.stat().st_mtime) > SESSION_TTL_SECONDS:
-            delete_session(session_id)
-            removed += 1
-
-    for session_id, (_, last_access) in list(_session_cache.items()):
-        if (now - last_access) > SESSION_TTL_SECONDS:
-            _purge_runtime_state(session_id)
-
+    """만료된 세션을 정리합니다. 삭제된 개수를 반환합니다."""
+    cutoff = time.time() - SESSION_TTL_SECONDS
+    db = get_db()
+    cursor = await db.execute(
+        "DELETE FROM sessions WHERE last_accessed < ?", (cutoff,),
+    )
+    removed = cursor.rowcount
+    await db.commit()
     if removed:
         logger.info("cleanup_expired_sessions — removed %d sessions", removed)
     return removed

@@ -5,7 +5,7 @@
 
 **Online Bayesian Bradley-Terry** 모델을 채택하여 각 항목의 실력과 불확실성(신뢰 구간)을 동시에 추정하고, 계층적 축소(Hierarchical Shrinkage)로 기준 간 정보를 공유합니다.
 
-단일 데이터베이스 대신 **사용자별 세션 기반 JSON 저장소**를 채택하여, 누구나 독립적인 환경에서 자신만의 데이터를 구축하고 백업(Export/Import)할 수 있습니다.
+**단일 SQLite DB**에 세션 기반으로 데이터를 저장하여, 누구나 독립적인 환경에서 자신만의 데이터를 구축하고 백업(Export/Import)할 수 있습니다.
 
 ![Python](https://img.shields.io/badge/Python-3.13+-3776AB?style=flat-square&logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=flat-square&logo=fastapi)
@@ -40,14 +40,14 @@
 - **데이터 백업 및 복구 (Data I/O)**: 현재 세션의 모든 데이터(설정, 기준, 항목)를 단일 `JSON` 파일로 다운로드(Export)하거나 업로드(Import)하여 이어서 진행할 수 있습니다. 이전 Elo 형식 JSON도 자동 마이그레이션됩니다.
 
 ### 4. 🗂️ 독립적인 멀티 유저 세션 (Multi-Session)
-- 복잡한 DB 설정이나 회원가입 없이, 사이트 접속 시 발급되는 브라우저 쿠키를 기반으로 각 유저마다 고유한 JSON 데이터 환경을 제공합니다.
+- 복잡한 설정이나 회원가입 없이, 사이트 접속 시 발급되는 브라우저 쿠키를 기반으로 각 유저마다 독립된 데이터 환경을 제공합니다.
 
 ---
 
 ## 🛠 기술 스택 (Tech Stack)
 
-- **Backend**: Python 3.13, FastAPI, aiofiles, Pydantic v2
-- **Data Storage**: Local JSON Files (`store.py`, per-session cache + async file sync)
+- **Backend**: Python 3.13, FastAPI, aiosqlite, Pydantic v2
+- **Data Storage**: SQLite (WAL mode, `database.py` + `store.py`, 단일 DB 파일에 세션별 데이터 저장)
 - **Frontend**: Jinja2 Templates, TailwindCSS v4 CLI build, Chart.js (jsDelivr CDN)
 - **Deployment**: Fly.io (Docker container + mounted volume)
 
@@ -86,8 +86,9 @@ docker run --rm ranker-test python -m unittest discover -s tests -p 'test_*.py'
 ```text
 .
 ├── main.py              # 앱 진입점 및 세션 쿠키 관리 라우터
+├── database.py          # SQLite 스키마 초기화, 커넥션 관리, JSON 마이그레이션
 ├── deps.py              # FastAPI 의존성 (세션 ID 검증 및 Store 주입)
-├── store.py             # 세션별 JSON 데이터 읽기/쓰기 및 캐싱 로직
+├── store.py             # 세션별 SQLite 데이터 저장소 (DataStore 클래스)
 ├── schemas.py           # Vote / Import / Response 검증 스키마
 ├── services.py          # 순수 비즈니스 로직 (Bayesian BT, 매치메이킹, 계층적 축소)
 ├── template_env.py      # 공용 Jinja2 템플릿 환경
@@ -143,8 +144,8 @@ docker run --rm ranker-test python -m unittest discover -s tests -p 'test_*.py'
 
 주의:
 
-- `fly.toml`에 정의된 대로 `[mounts]`를 통해 Fly Volume을 `/data` 경로에 마운트해야 사용자의 JSON 세션 파일들이 서버 재시작 후에도 유지됩니다.
-- 현재 저장소 계층은 프로세스 로컬 메모리 캐시와 락을 사용하므로 **단일 uvicorn 워커** 전제를 둡니다. 프로덕션 Dockerfile은 이를 위해 `--workers 1`을 명시합니다.
+- `fly.toml`에 정의된 대로 `[mounts]`를 통해 Fly Volume을 `/data` 경로에 마운트해야 SQLite DB 파일(`/data/ranker.db`)이 서버 재시작 후에도 유지됩니다. 기존 JSON 세션 파일이 있으면 앱 시작 시 자동 마이그레이션됩니다.
+- 현재 저장소 계층은 프로세스 로컬 asyncio 락을 사용하므로 **단일 uvicorn 워커** 전제를 둡니다. 프로덕션 Dockerfile은 이를 위해 `--workers 1`을 명시합니다.
 - HTTPS 배포에서는 `COOKIE_SECURE=true`를 사용해야 하며, 기본 Fly 설정에는 이 값이 포함되어 있습니다.
 
 ## 🎨 프런트엔드 빌드

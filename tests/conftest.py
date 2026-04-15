@@ -4,34 +4,38 @@ from pathlib import Path
 
 import pytest
 
+import database
 import store
 
 
 @pytest.fixture()
-async def _temp_session_dir():
-    """임시 디렉토리를 생성하고 store.SESSION_DIR을 교체합니다."""
-    tempdir = tempfile.TemporaryDirectory()
-    original_session_dir = store.SESSION_DIR
-    store.SESSION_DIR = Path(tempdir.name)
-    store.SESSION_DIR.mkdir(parents=True, exist_ok=True)
-    store._session_cache.clear()
+async def _temp_db():
+    """임시 SQLite DB를 생성하고 스키마를 초기화합니다."""
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+        db_path = Path(f.name)
+
+    original_path = database.DB_PATH
+    database.DB_PATH = db_path
+    await database.init_db()
     store._locks.clear()
     yield
-    store._session_cache.clear()
     store._locks.clear()
-    store.SESSION_DIR = original_session_dir
-    tempdir.cleanup()
+    await database.close_db()
+    database.DB_PATH = original_path
+    db_path.unlink(missing_ok=True)
 
 
 @pytest.fixture()
-async def temp_store(_temp_session_dir) -> store.DataStore:
+async def temp_store(_temp_db) -> store.DataStore:
     """기본 세션 ID로 DataStore를 반환합니다."""
-    return await store.get_store("a" * 32)
+    s = await store.get_store("a" * 32)
+    await s.save()
+    return s
 
 
 @pytest.fixture()
 async def store_factory(
-    _temp_session_dir,
+    _temp_db,
 ) -> Callable[[str], Coroutine[None, None, store.DataStore]]:
     """임의 session_id로 DataStore를 생성할 수 있는 팩토리"""
     return store.get_store

@@ -6,6 +6,7 @@ import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Request, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -13,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from database import init_db, close_db, migrate_json_sessions
 from deps import create_session_id, get_session_store, RequiresSessionException
 from store import (
     SESSION_TTL_SECONDS,
@@ -43,8 +45,17 @@ logger = logging.getLogger("ranker")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """앱 시작 시 만료 세션 주기적 정리 태스크를 스폰합니다."""
+    """앱 시작 시 DB 초기화, JSON 마이그레이션, 만료 세션 주기적 정리 태스크를 수행합니다."""
     _log = logging.getLogger("ranker.lifespan")
+
+    await init_db()
+
+    # 기존 JSON 세션 파일 자동 마이그레이션
+    session_dir = Path(os.getenv("SESSION_DIR", "./data/sessions"))
+    if session_dir.exists():
+        migrated = await migrate_json_sessions(session_dir)
+        if migrated:
+            _log.info("json_migration_done — migrated %d sessions", migrated)
 
     async def _periodic_cleanup():
         while True:
@@ -67,6 +78,7 @@ async def lifespan(app: FastAPI):
             await task
         except asyncio.CancelledError:
             pass
+        await close_db()
 
 
 app = FastAPI(lifespan=lifespan)
@@ -96,7 +108,7 @@ class SessionCookieRefreshMiddleware(BaseHTTPMiddleware):
         if request.url.path.startswith("/static/"):
             return response
         session_id = request.cookies.get("session_id")
-        if session_id and session_exists(session_id):
+        if session_id and await session_exists(session_id):
             response.set_cookie(
                 key="session_id", value=session_id,
                 max_age=SESSION_TTL_SECONDS,
@@ -195,7 +207,7 @@ async def end_session(request: Request):
     if session_id:
         store = await get_session_store(request, session_id)
         if store:
-            store.delete_session()
+            await store.delete_session()
 
     response = RedirectResponse(url="/", status_code=303)
     response.delete_cookie("session_id", httponly=True, samesite="strict", secure=COOKIE_SECURE)

@@ -28,6 +28,7 @@ RUN useradd --system --uid 1000 --home /app --shell /usr/sbin/nologin appuser \
     && mkdir -p /data/sessions \
     && chown -R appuser:appuser /app /data
 ENV SESSION_DIR=/data/sessions
+ENV DATABASE_PATH=/data/ranker.db
 ENV PATH="/app/.venv/bin:$PATH"
 
 COPY entrypoint.sh /entrypoint.sh
