@@ -107,18 +107,47 @@ def _build_3way_context(
 
     criteria_info = []
     for c in criteria:
+        mus: list[float] = []
+        sqs: list[float] = []
         item_data = []
         for item in items_3:
             mu = item["mu"].get(c["key"], 0.0)
             sq = item["sigma_sq"].get(c["key"], initial_sq)
+            mus.append(mu)
+            sqs.append(sq)
             item_data.append({
                 "id": item["id"],
                 "r": round(display_rating(store, mu), 1),
                 "sigma": round(display_uncertainty(store, sq), 1),
             })
+
+        # 쌍대 승률: A-B, A-C, B-C
+        cb, cd = c.get("battles", 0), c.get("draws", 0)
+        p_ab = get_match_probabilities(store, mus[0], sqs[0], mus[1], sqs[1], cb, cd)
+        p_ac = get_match_probabilities(store, mus[0], sqs[0], mus[2], sqs[2], cb, cd)
+        p_bc = get_match_probabilities(store, mus[1], sqs[1], mus[2], sqs[2], cb, cd)
+
+        # 항목별 평균 승률 → 정규화
+        raw_a = (p_ab["win_a"] + p_ac["win_a"]) / 2
+        raw_b = (p_ab["win_b"] + p_bc["win_a"]) / 2
+        raw_c = (p_ac["win_b"] + p_bc["win_b"]) / 2
+        total_raw = raw_a + raw_b + raw_c
+
+        if total_raw > 0:
+            s_a = round(raw_a / total_raw * 100, 1)
+            s_b = round(raw_b / total_raw * 100, 1)
+            s_c = round(100 - s_a - s_b, 1)
+        else:
+            s_a = s_b = s_c = 33.3
+
+        item_data[0]["strength"] = s_a
+        item_data[1]["strength"] = s_b
+        item_data[2]["strength"] = s_c
+
         criteria_info.append({
             **c,
             "item_ratings": item_data,
+            "strengths": [s_a, s_b, s_c],
         })
 
     ranks = []
