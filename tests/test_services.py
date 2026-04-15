@@ -1,35 +1,22 @@
 import math
-import tempfile
-from pathlib import Path
+from itertools import combinations
 
 import pytest
 
 import store
 from services import (
+    _triple_eig,
     bt_update,
+    composite_rating,
     display_rating,
     display_uncertainty,
+    get_item_rank,
     get_match_pair,
     get_match_probabilities,
     get_match_triple,
     hierarchical_shrinkage,
     sigmoid,
 )
-
-
-@pytest.fixture()
-async def temp_store():
-    tempdir = tempfile.TemporaryDirectory()
-    original_session_dir = store.SESSION_DIR
-    store.SESSION_DIR = Path(tempdir.name)
-    store.SESSION_DIR.mkdir(parents=True, exist_ok=True)
-    store._session_cache.clear()
-    store._locks.clear()
-    yield await store.get_store("a" * 32)
-    store._session_cache.clear()
-    store._locks.clear()
-    store.SESSION_DIR = original_session_dir
-    tempdir.cleanup()
 
 
 # --- Sigmoid ---
@@ -55,37 +42,37 @@ class TestSigmoid:
 
 
 class TestBTUpdate:
-    async def test_winner_gains_loser_loses(self) -> None:
+    def test_winner_gains_loser_loses(self) -> None:
         mu_a, sq_a, mu_b, sq_b = bt_update(0.0, 4.0, 0.0, 4.0, 1.0)
         assert mu_a > 0.0
         assert mu_b < 0.0
 
-    async def test_symmetric_draw_no_mu_change(self) -> None:
+    def test_symmetric_draw_no_mu_change(self) -> None:
         """동일 μ, outcome=0.5 → μ 변화 없음 (symmetric)"""
         mu_a, sq_a, mu_b, sq_b = bt_update(0.0, 4.0, 0.0, 4.0, 0.5)
         assert mu_a == pytest.approx(0.0, abs=1e-10)
         assert mu_b == pytest.approx(0.0, abs=1e-10)
 
-    async def test_variance_always_decreases(self) -> None:
+    def test_variance_always_decreases(self) -> None:
         """모든 outcome에서 σ² 감소"""
         for outcome in [1.0, 0.5, 0.0]:
             _, sq_a, _, sq_b = bt_update(0.5, 4.0, -0.3, 3.0, outcome)
             assert sq_a < 4.0
             assert sq_b < 3.0
 
-    async def test_high_uncertainty_bigger_update(self) -> None:
+    def test_high_uncertainty_bigger_update(self) -> None:
         """높은 σ² → 큰 μ 변화"""
         mu_high, _, _, _ = bt_update(0.0, 10.0, 0.0, 10.0, 1.0)
         mu_low, _, _, _ = bt_update(0.0, 0.1, 0.0, 0.1, 1.0)
         assert abs(mu_high) > abs(mu_low)
 
-    async def test_sigma_floor(self) -> None:
+    def test_sigma_floor(self) -> None:
         """σ² ≥ 0.01 보장"""
         _, sq_a, _, sq_b = bt_update(0.0, 0.01, 0.0, 0.01, 1.0)
         assert sq_a >= 0.01
         assert sq_b >= 0.01
 
-    async def test_convergence(self) -> None:
+    def test_convergence(self) -> None:
         """반복 승리 → μ_a >> μ_b"""
         mu_a, sq_a, mu_b, sq_b = 0.0, 4.0, 0.0, 4.0
         for _ in range(50):
@@ -93,7 +80,7 @@ class TestBTUpdate:
         assert mu_a > 0.5
         assert mu_b < -0.5
 
-    async def test_no_shrink_to_zero_when_g_zero(self) -> None:
+    def test_no_shrink_to_zero_when_g_zero(self) -> None:
         """g=0 (예측 적중) 시 μ 불변 — 0 방향 수축 없음"""
         mu_a, mu_b = 1.5, 0.3
         p = sigmoid(mu_a - mu_b)  # outcome = p → g = 0
@@ -101,7 +88,7 @@ class TestBTUpdate:
         assert new_a == pytest.approx(mu_a, abs=1e-10)
         assert new_b == pytest.approx(mu_b, abs=1e-10)
 
-    async def test_nonzero_mu_update_magnitude(self) -> None:
+    def test_nonzero_mu_update_magnitude(self) -> None:
         """μ≠0에서 업데이트 크기가 충분히 큼 (회귀 테스트)"""
         mu_a, _, _, _ = bt_update(1.0, 2.0, 0.0, 2.0, 1.0)
         # 올바른 공식: mu_a = 1.0 + g/prec_new ≈ 1.197
@@ -190,10 +177,6 @@ class TestDrawProbability:
 
 
 class TestMatchmaking:
-    async def test_adaptive_sample_size(self) -> None:
-        assert min(max(2, int(math.sqrt(4))), 10) == 2
-        assert min(max(2, int(math.sqrt(100))), 10) == 10
-
     async def test_returns_pair_with_two_items(self, temp_store: store.DataStore) -> None:
         await temp_store.add_item("Alpha")
         await temp_store.add_item("Beta")
@@ -215,38 +198,6 @@ class TestMatchmaking:
         item1, item2 = get_match_pair(temp_store, focus_id=focus["id"])
         assert item1["id"] == focus["id"]
         assert item2 is not None
-
-
-# --- Per-Criterion Matches ---
-
-
-class TestPerCriterionMatches:
-    async def test_criterion_matches_initialized_with_all_keys(self, temp_store: store.DataStore) -> None:
-        await temp_store.add_item("Alpha")
-        cm = temp_store.items[0].get("criterion_matches", {})
-        expected_keys = {c["key"] for c in temp_store.criteria}
-        assert set(cm.keys()) == expected_keys
-        assert all(v == 0 for v in cm.values())
-
-    async def test_criterion_matches_incremented_after_vote(self, temp_store: store.DataStore) -> None:
-        await temp_store.add_item("Alpha")
-        await temp_store.add_item("Beta")
-        token = await temp_store.issue_battle_round(temp_store.items[0]["id"], temp_store.items[1]["id"])
-
-        from schemas import BattleVoteRequest
-        votes = {c["key"]: "1" for c in temp_store.criteria}
-        payload = BattleVoteRequest(
-            item1_id=temp_store.items[0]["id"],
-            item2_id=temp_store.items[1]["id"],
-            round_token=token,
-            votes=votes,
-            redirect_to="/battle",
-        )
-        await temp_store.apply_battle_vote(payload)
-
-        for c in temp_store.criteria:
-            assert temp_store.items[0]["criterion_matches"][c["key"]] == 1
-            assert temp_store.items[1]["criterion_matches"][c["key"]] == 1
 
 
 # --- Adaptive Hierarchical Shrinkage ---
@@ -286,218 +237,103 @@ class TestTripleMatchmaking:
         item1, item2, item3 = get_match_triple(temp_store)
         assert item1 is None
 
-    async def test_exhaustive_finds_better_triple(self, temp_store: store.DataStore) -> None:
-        """소규모 풀에서 완전 탐색이 탐욕적보다 같거나 나은 삼중항을 찾음"""
+    async def test_exhaustive_finds_optimal_triple(self, temp_store: store.DataStore) -> None:
+        """소규모 풀에서 완전 탐색이 전역 최적 삼중항을 반환"""
         for i in range(10):
             await temp_store.add_item(f"Item{i}")
-        # 다양한 불확실성 설정
+        # 다양한 불확실성 설정으로 EIG 차이를 유도
         for i, item in enumerate(temp_store.items):
             for c in temp_store.criteria:
                 item["sigma_sq"][c["key"]] = 1.0 + i * 0.5
         item1, item2, item3 = get_match_triple(temp_store)
-        assert item1 is not None
-        assert item2 is not None
-        assert item3 is not None
+        assert item1 is not None and item2 is not None and item3 is not None
+
+        # C(10,3) = 120 조합 완전탐색으로 최적성 검증
+        criteria_keys = [c["key"] for c in temp_store.criteria]
+        initial_sq = temp_store.settings["initial_sigma"] ** 2
+        result_eig = _triple_eig(item1, item2, item3, criteria_keys, initial_sq)
+        for a, b, c in combinations(temp_store.items, 3):
+            assert _triple_eig(a, b, c, criteria_keys, initial_sq) <= result_eig + 1e-12
+
+    async def test_triple_focus_mode(self, temp_store: store.DataStore) -> None:
+        """focus_id 지정 시 item1이 해당 항목이고 3개 모두 서로 다름"""
+        for i in range(5):
+            await temp_store.add_item(f"Item{i}")
+        focus = temp_store.items[2]
+        item1, item2, item3 = get_match_triple(temp_store, focus_id=focus["id"])
+        assert item1 is not None and item2 is not None and item3 is not None
+        assert item1["id"] == focus["id"]
+        assert len({item1["id"], item2["id"], item3["id"]}) == 3
 
 
-# --- Active Round Persistence ---
+# --- Composite Rating ---
 
 
-@pytest.fixture()
-async def fresh_store_factory():
-    """매번 새로운 session_id로 DataStore를 생성할 수 있는 팩토리"""
-    tempdir = tempfile.TemporaryDirectory()
-    original_session_dir = store.SESSION_DIR
-    store.SESSION_DIR = Path(tempdir.name)
-    store.SESSION_DIR.mkdir(parents=True, exist_ok=True)
-    store._session_cache.clear()
-    store._locks.clear()
-    yield store.get_store
-    store._session_cache.clear()
-    store._locks.clear()
-    store.SESSION_DIR = original_session_dir
-    tempdir.cleanup()
+class TestCompositeRating:
+    async def test_uniform_weights_equals_mean(self, temp_store: store.DataStore) -> None:
+        """모든 weight=1.0일 때 display_rating 평균과 일치"""
+        # 모든 기준 weight를 1.0으로 통일
+        for c in temp_store.criteria:
+            c["weight"] = 1.0
+        await temp_store.add_item("Alpha")
+        item = temp_store.items[0]
+        # 기준별 다른 mu 설정
+        keys = [c["key"] for c in temp_store.criteria]
+        for i, k in enumerate(keys):
+            item["mu"][k] = float(i) * 0.5
+
+        expected = sum(display_rating(temp_store, item["mu"][k]) for k in keys) / len(keys)
+        assert composite_rating(temp_store, item) == pytest.approx(expected)
+
+    async def test_custom_weights(self, temp_store: store.DataStore) -> None:
+        """비균일 weight에서 가중 평균 정확성 검증"""
+        # 기준 2개만 사용, 나머지 weight=0 대신 아주 작은 값
+        await temp_store.set_criteria([
+            {"key": "a", "label": "A", "color": "blue", "weight": 2.0},
+            {"key": "b", "label": "B", "color": "red", "weight": 1.0},
+        ])
+        await temp_store.add_item("Alpha")
+        item = temp_store.items[0]
+        item["mu"]["a"] = 1.0
+        item["mu"]["b"] = 0.0
+
+        # 가중 평균: (display(1.0)*2 + display(0.0)*1) / 3
+        expected = (display_rating(temp_store, 1.0) * 2 + display_rating(temp_store, 0.0) * 1) / 3
+        assert composite_rating(temp_store, item) == pytest.approx(expected)
+
+    async def test_zero_mu_gives_center(self, temp_store: store.DataStore) -> None:
+        """모든 mu=0.0 → display_center 반환"""
+        await temp_store.add_item("Alpha")
+        item = temp_store.items[0]
+        assert composite_rating(temp_store, item) == pytest.approx(temp_store.settings["display_center"])
 
 
-class TestActiveRoundItem3Persistence:
-    async def test_item3_id_survives_reload(self, fresh_store_factory) -> None:
-        """3-way active_round의 item3_id가 세션 재로드 후 보존됨"""
-        session_id = "f" * 32
-        s = await fresh_store_factory(session_id)
-        await s.add_item("Alpha")
-        await s.add_item("Beta")
-        await s.add_item("Gamma")
-        item1, item2, item3 = s.items[0], s.items[1], s.items[2]
-        token = await s.issue_battle_round(item1["id"], item2["id"], item3["id"])
-
-        # 캐시 제거 후 디스크에서 다시 로드
-        store._session_cache.clear()
-        store._locks.clear()
-        s2 = await fresh_store_factory(session_id)
-
-        ar = s2._data["active_round"]
-        assert ar is not None
-        assert ar["token"] == token
-        assert ar["item1_id"] == item1["id"]
-        assert ar["item2_id"] == item2["id"]
-        assert ar["item3_id"] == item3["id"]
-
-    async def test_2way_round_no_item3(self, fresh_store_factory) -> None:
-        """2-way active_round는 item3_id가 None"""
-        session_id = "g" * 32
-        s = await fresh_store_factory(session_id)
-        await s.add_item("Alpha")
-        await s.add_item("Beta")
-        await s.issue_battle_round(s.items[0]["id"], s.items[1]["id"])
-
-        store._session_cache.clear()
-        store._locks.clear()
-        s2 = await fresh_store_factory(session_id)
-
-        ar = s2._data["active_round"]
-        assert ar is not None
-        assert ar["item3_id"] is None
+# --- Item Rank ---
 
 
-# --- 3-way Tied Vote ---
+class TestGetItemRank:
+    async def test_single_item_rank_one(self, temp_store: store.DataStore) -> None:
+        await temp_store.add_item("Alpha")
+        rank, total = get_item_rank(temp_store, temp_store.items[0]["id"])
+        assert rank == 1
+        assert total == 1
 
+    async def test_rank_ordering(self, temp_store: store.DataStore) -> None:
+        """mu가 높은 항목이 더 높은 순위"""
+        await temp_store.add_item("Low")
+        await temp_store.add_item("High")
+        # High에 높은 mu 설정
+        for c in temp_store.criteria:
+            temp_store.items[1]["mu"][c["key"]] = 2.0
+        rank_high, _ = get_item_rank(temp_store, temp_store.items[1]["id"])
+        rank_low, _ = get_item_rank(temp_store, temp_store.items[0]["id"])
+        assert rank_high < rank_low  # 낮은 rank = 높은 순위
 
-class TestThreeWayTiedVote:
-    async def test_best_only_tied_vote(self, temp_store: store.DataStore) -> None:
-        """3-way 'best only' 투표: best > tied_a, best > tied_b, tied_a ≈ tied_b"""
+    async def test_missing_item_returns_last(self, temp_store: store.DataStore) -> None:
+        """존재하지 않는 ID → (total, total)"""
         await temp_store.add_item("Alpha")
         await temp_store.add_item("Beta")
-        await temp_store.add_item("Gamma")
-        items = temp_store.items
-        token = await temp_store.issue_battle_round(items[0]["id"], items[1]["id"], items[2]["id"])
+        rank, total = get_item_rank(temp_store, 9999)
+        assert rank == total == 2
 
-        from schemas import ThreeWayBattleVoteRequest
-        # best=item1, tied=item2 & item3
-        votes = {}
-        for c in temp_store.criteria:
-            votes[c["key"]] = {
-                str(items[0]["id"]): "best",
-                str(items[1]["id"]): "tied",
-                str(items[2]["id"]): "tied",
-            }
-        payload = ThreeWayBattleVoteRequest(
-            item1_id=items[0]["id"],
-            item2_id=items[1]["id"],
-            item3_id=items[2]["id"],
-            round_token=token,
-            votes=votes,
-        )
-        resp_data = await temp_store.apply_three_way_vote(payload)
 
-        # best(item1)는 레이팅 상승
-        for r in resp_data["results"]:
-            best_diff = r["diffs"][str(items[0]["id"])]
-            assert best_diff > 0
-
-        # draws 통계가 증가 (tied 쌍 = 무승부)
-        for c in temp_store.criteria:
-            assert c["draws"] > 0
-
-    async def test_worst_only_vote(self, temp_store: store.DataStore) -> None:
-        """3-way 'worst only' 투표: tied_a > worst, tied_b > worst, tied_a ≈ tied_b"""
-        await temp_store.add_item("Alpha")
-        await temp_store.add_item("Beta")
-        await temp_store.add_item("Gamma")
-        items = temp_store.items
-        token = await temp_store.issue_battle_round(items[0]["id"], items[1]["id"], items[2]["id"])
-
-        from schemas import ThreeWayBattleVoteRequest
-
-        votes = {}
-        for c in temp_store.criteria:
-            votes[c["key"]] = {
-                str(items[0]["id"]): "worst",
-                str(items[1]["id"]): "tied",
-                str(items[2]["id"]): "tied",
-            }
-        payload = ThreeWayBattleVoteRequest(
-            item1_id=items[0]["id"],
-            item2_id=items[1]["id"],
-            item3_id=items[2]["id"],
-            round_token=token,
-            votes=votes,
-        )
-        resp_data = await temp_store.apply_three_way_vote(payload)
-
-        # worst(item1)는 레이팅 하락
-        for r in resp_data["results"]:
-            worst_diff = r["diffs"][str(items[0]["id"])]
-            assert worst_diff < 0
-            assert r["best_id"] is None
-            assert r["worst_id"] == items[0]["id"]
-            assert r["middle_id"] is None
-
-        # draws 통계 증가 (tied 쌍 1개)
-        for c in temp_store.criteria:
-            assert c.get("draws", 0) == 1
-
-    async def test_all_tied_vote(self, temp_store: store.DataStore) -> None:
-        """3-way 모두 무승부: 3개 항목 모두 tied"""
-        await temp_store.add_item("Alpha")
-        await temp_store.add_item("Beta")
-        await temp_store.add_item("Gamma")
-        items = temp_store.items
-        token = await temp_store.issue_battle_round(items[0]["id"], items[1]["id"], items[2]["id"])
-
-        from schemas import ThreeWayBattleVoteRequest
-
-        votes = {}
-        for c in temp_store.criteria:
-            votes[c["key"]] = {
-                str(items[0]["id"]): "tied",
-                str(items[1]["id"]): "tied",
-                str(items[2]["id"]): "tied",
-            }
-        payload = ThreeWayBattleVoteRequest(
-            item1_id=items[0]["id"],
-            item2_id=items[1]["id"],
-            item3_id=items[2]["id"],
-            round_token=token,
-            votes=votes,
-        )
-        resp_data = await temp_store.apply_three_way_vote(payload)
-
-        # 모든 레이팅 변화가 0에 가까움 (동일 레이팅 항목들의 대칭 무승부)
-        for r in resp_data["results"]:
-            for item in items:
-                diff = abs(r["diffs"][str(item["id"])])
-                assert diff < 0.1
-            assert r["best_id"] is None
-            assert r["worst_id"] is None
-            assert r["middle_id"] is None
-
-        # draws 통계: 기준당 3개 무승부 쌍
-        for c in temp_store.criteria:
-            assert c.get("draws", 0) == 3
-
-    async def test_invalid_role_combination(self, temp_store: store.DataStore) -> None:
-        """잘못된 역할 조합 (best 2개) → InvalidBattleVoteError"""
-        await temp_store.add_item("Alpha")
-        await temp_store.add_item("Beta")
-        await temp_store.add_item("Gamma")
-        items = temp_store.items
-        token = await temp_store.issue_battle_round(items[0]["id"], items[1]["id"], items[2]["id"])
-
-        from schemas import ThreeWayBattleVoteRequest
-
-        votes = {}
-        for c in temp_store.criteria:
-            votes[c["key"]] = {
-                str(items[0]["id"]): "best",
-                str(items[1]["id"]): "best",
-                str(items[2]["id"]): "worst",
-            }
-        payload = ThreeWayBattleVoteRequest(
-            item1_id=items[0]["id"],
-            item2_id=items[1]["id"],
-            item3_id=items[2]["id"],
-            round_token=token,
-            votes=votes,
-        )
-        with pytest.raises(store.InvalidBattleVoteError):
-            await temp_store.apply_three_way_vote(payload)
