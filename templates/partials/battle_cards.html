@@ -1,4 +1,5 @@
 {# partials/battle_cards.html — 2-way 배틀 카드 + 투표 버튼 + 프로그레스 바 #}
+{% from "partials/_icons.html" import icon %}
 
 {# JS 상태 전달용 hidden 요소 #}
 <div id="battle-state" style="display:none"
@@ -19,7 +20,7 @@
     <div class="fixed top-20 left-1/2 transform -translate-x-1/2 z-40 animate-bounce-in">
         <div
             class="bg-gradient-to-r from-blue-600 to-blue-500 text-white px-6 py-2 rounded-full text-sm font-bold shadow-xl flex items-center gap-2 ring-4 ring-blue-500/20">
-            <span class="animate-pulse">🎯</span>
+            <span class="animate-pulse inline-flex">{{ icon("target", "w-4 h-4") }}</span>
             <span>'{{ item1.name }}' 집중 평가 중</span>
             <a href="/manage" class="ml-2 text-blue-200 hover:text-white underline text-xs">종료</a>
         </div>
@@ -28,9 +29,11 @@
 
     {# --- Header: VS Display --- #}
     <div class="w-full max-w-4xl mb-8">
+        <h1 class="sr-only">{{ item1.name }} 대 {{ item2.name }} — 1대1 배틀</h1>
         <div class="text-center mb-6">
             <div
-                class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-gray-100 dark:bg-gray-800 text-xs font-bold uppercase tracking-widest text-gray-500 dark:text-gray-400 mb-3">
+                class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-gray-100 dark:bg-gray-800 text-xs font-bold uppercase tracking-widest text-gray-500 dark:text-gray-400 mb-3"
+                aria-hidden="true">
                 <span>Battle Arena</span>
                 <span class="w-1 h-1 rounded-full bg-gray-400"></span>
                 <span>All Criteria</span>
@@ -100,7 +103,8 @@
             data-key="{{ c.key }}">
 
             {# === 승률 표시 바 === #}
-            <div class="h-1.5 flex w-full">
+            <div class="h-1.5 flex w-full" role="img"
+                aria-label="{{ c.label }} 예상 승률 — {{ item1.name }} {{ c.probs.win_a }}%, 무승부 {{ c.probs.draw }}%, {{ item2.name }} {{ c.probs.win_b }}%">
                 <div class="bg-brand-500/70 h-full transition-all duration-500" style="width: {{ c.probs.win_a }}%">
                 </div>
                 <div class="bg-gray-300 dark:bg-gray-600 h-full transition-all duration-500"
@@ -163,7 +167,7 @@
     </div>
 
     {# --- Progress & Submit --- #}
-    <div class="w-full max-w-4xl mt-6 sticky bottom-4 z-30">
+    <div class="w-full max-w-4xl mt-6 sticky bottom-4 z-30" style="margin-bottom: env(safe-area-inset-bottom);">
         <div
             class="bg-white/90 dark:bg-gray-800/90 backdrop-blur-lg rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 p-4 flex items-center justify-between gap-4">
             <div class="flex items-center gap-3 min-w-0">
@@ -185,8 +189,8 @@
                 </span>
             </div>
             <button id="submit-btn" onclick="submitAllVotes()" disabled class="px-8 py-3 rounded-xl font-bold text-white shadow-lg transition-all duration-300
-                       bg-gray-300 dark:bg-gray-600 cursor-not-allowed">
-                ⚔️ 결과 확인
+                       bg-gray-300 dark:bg-gray-600 cursor-not-allowed inline-flex items-center gap-2">
+                {{ icon("swords", "w-5 h-5") }} 결과 확인
             </button>
         </div>
     </div>

@@ -40,7 +40,7 @@
         class="hidden flex flex-col sm:flex-row gap-2 w-full animate-fade-in">
         <input type="hidden" name="item_id" value="{{ item.id }}">
         <input type="text" id="input-name-{{ item.id }}" name="new_name" value="{{ item.name }}"
-            required
+            required autocomplete="off"
             class="flex-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 dark:focus:ring-brand-400 outline-none text-gray-900 dark:text-white">
         <div class="flex gap-2">
             <button type="submit"

@@ -78,3 +78,37 @@
 @utility animate-fade-in {
     animation: fade-in 0.2s ease-out;
 }
+
+/* 배틀 Focus 모드 배너 — 중앙 고정 후 바운스 진입 */
+@keyframes bounce-in {
+    0%   { opacity: 0; transform: translate(-50%, -20px); }
+    50%  { transform: translate(-50%, 5px); }
+    100% { opacity: 1; transform: translate(-50%, 0); }
+}
+@utility animate-bounce-in {
+    animation: bounce-in 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}
+
+/* 결과 모달 행 등장 애니메이션 (battle / battle_3way 공용) */
+@keyframes result-row-in {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+@utility animate-result-row {
+    animation: result-row-in 0.3s ease forwards;
+}
+
+/* index 페이지 hover shimmer — arbitrary animate-[shimmer_*] 참조용 키프레임 */
+@keyframes shimmer {
+    100% { transform: translateX(100%); }
+}
+
+/* 모션 민감 사용자 대응: OS의 "동작 줄이기" 설정 존중 */
+@media (prefers-reduced-motion: reduce) {
+    *, ::before, ::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
+}

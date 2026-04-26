@@ -1,4 +1,5 @@
 {# partials/battle_3way_result.html — 3-way 배틀 결과 모달 (서버 렌더링) #}
+{% from "partials/_icons.html" import icon %}
 <div id="result-modal"
     class="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center z-50 opacity-0 transition-opacity duration-300"
     role="dialog" aria-modal="true" aria-label="대결 결과" aria-hidden="false"
@@ -39,18 +40,22 @@
                     {% set diff = r.diffs[id_str] %}
                     {% set sigma = r.sigmas[id_str] %}
                     {% set role_icon = '' %}
+                    {% set role_color = '' %}
                     {% if r.best_id is none and r.worst_id is none %}
-                        {% set role_icon = '≈' %}
+                        {% set role_icon = 'equals' %}
+                        {% set role_color = 'text-amber-500' %}
                     {% elif item_id == r.best_id %}
-                        {% set role_icon = '👑' %}
+                        {% set role_icon = 'crown' %}
+                        {% set role_color = 'text-green-500' %}
                     {% elif item_id == r.worst_id %}
-                        {% set role_icon = '⬇' %}
+                        {% set role_icon = 'arrow-down' %}
+                        {% set role_color = 'text-red-500' %}
                     {% endif %}
                     <div>
                         <span class="font-mono text-sm font-bold text-gray-700 dark:text-gray-200">{{ rating | round(0) | int }}</span>
                         <span class="text-[10px] text-gray-400 ml-0.5">&plusmn;{{ sigma | round(0) | int }}</span>
                         <span class="text-xs font-bold ml-1 {% if diff > 0 %}text-green-500{% elif diff < 0 %}text-red-500{% else %}text-gray-400{% endif %}">{{ '{:+.1f}'.format(diff) }}</span>
-                        {% if role_icon %}<span class="text-xs ml-0.5">{{ role_icon }}</span>{% endif %}
+                        {% if role_icon %}<span class="inline-flex align-middle ml-0.5 {{ role_color }}">{{ icon(role_icon, "w-3.5 h-3.5") }}</span>{% endif %}
                     </div>
                     {% endfor %}
                 </div>
@@ -66,15 +71,21 @@
                         class="absolute left-0 top-0 h-full bg-gradient-to-r from-brand-500 via-amber-500 to-pink-500 w-0 transition-all ease-out"
                         style="transition-duration: {{ (result_skip_seconds * 1000) | int }}ms"></div>
                 </div>
-                <p class="text-center text-[11px] text-gray-400 uppercase tracking-widest animate-pulse">
-                    {{ result_skip_seconds }}초 후 자동 이동...
-                </p>
+                <div class="flex items-center justify-between gap-3">
+                    <p class="text-[11px] text-gray-400 uppercase tracking-widest animate-pulse">
+                        {{ result_skip_seconds }}초 후 자동 이동...
+                    </p>
+                    <button type="button" onclick="cancelAutoSkip()"
+                        class="min-h-11 text-xs font-bold text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 px-3 py-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition">
+                        유지
+                    </button>
+                </div>
             </div>
 
             <div id="click-skip-area" class="{{ '' if not result_auto_skip else 'hidden' }}">
                 <button id="next-battle-btn" onclick="dismissModal()"
-                    class="w-full py-3 rounded-xl font-bold text-white bg-gradient-to-r from-brand-600 via-amber-500 to-pink-500 hover:from-brand-700 hover:via-amber-600 hover:to-pink-600 shadow-lg transition-all duration-200 transform hover:scale-[1.02] active:scale-95">
-                    ⚔️ 다음 대결
+                    class="w-full py-3 rounded-xl font-bold text-white bg-gradient-to-r from-brand-600 via-amber-500 to-pink-500 hover:from-brand-700 hover:via-amber-600 hover:to-pink-600 shadow-lg transition-all duration-200 transform hover:scale-[1.02] active:scale-95 inline-flex items-center justify-center gap-2">
+                    {{ icon("swords", "w-5 h-5") }} 다음 대결
                 </button>
                 <p class="text-center text-[11px] text-gray-400 mt-2">아무 곳이나 클릭하거나 스페이스바를 눌러도 넘어갑니다</p>
             </div>

@@ -1,4 +1,4 @@
-<!-- templates/base.html -->
+{% from "partials/_icons.html" import icon %}<!-- templates/base.html -->
 <!DOCTYPE html>
 <html lang="ko" class="antialiased">
 
@@ -7,9 +7,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Ranker{% endblock %}</title>
 
-    <!-- Favicon -->
+    <!-- Favicon: brand-600 (#7c3aed) 배경에 흰 swords 아이콘 -->
     <link rel="icon"
-        href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚔️</text></svg>">
+        href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22><rect width=%2224%22 height=%2224%22 rx=%225%22 fill=%22%237c3aed%22/><g fill=%22none%22 stroke=%22white%22 stroke-width=%221.6%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22><path d=%22M14.5 17.5 4 7V4h3l10.5 10.5%22/><path d=%22M13 19l3-3m4 4-3-3m3 1 1.5-1.5%22/><path d=%22M16 4h3v3L9 17m-2 2-3-3m1 3 1.5-1.5%22/></g></svg>">
 
     <!-- FOUC 방지: 페인트 전에 다크모드 클래스 적용 -->
     <script>
@@ -25,11 +25,19 @@
     <link rel="stylesheet" href="/static/output.css">
 
     <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
 </head>
 
 <body
-    class="bg-gray-50 text-gray-900 dark:bg-gray-900 dark:text-gray-100 transition-colors duration-300 min-h-screen flex flex-col">
+    class="bg-gray-50 text-gray-900 dark:bg-gray-900 dark:text-gray-100 transition-colors duration-300 min-h-dvh flex flex-col">
+
+    <!-- 메인 콘텐츠로 건너뛰기 -->
+    <a href="#main"
+        class="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[200] focus:px-4 focus:py-2 focus:bg-brand-600 focus:text-white focus:rounded-lg focus:shadow-xl focus:font-bold focus:outline-none focus:ring-2 focus:ring-brand-300">
+        메인 콘텐츠로 건너뛰기
+    </a>
 
     <!-- 토스트 컨테이너 -->
     <div id="toast-container" class="fixed top-20 left-1/2 -translate-x-1/2 z-[100] flex flex-col items-center gap-2 pointer-events-none" role="status" aria-live="polite"></div>
@@ -50,17 +58,17 @@
                 <div class="hidden md:block">
                     <div class="ml-10 flex items-baseline space-x-2" id="desktop-nav">
                         <a href="/battle"
-                            class="nav-link hover:bg-brand-500/10 hover:text-brand-600 dark:hover:text-brand-400 px-3 py-2 rounded-lg text-sm font-medium transition-colors"
+                            class="nav-link hover:bg-brand-500/10 hover:text-brand-600 dark:hover:text-brand-400 px-3 py-2 rounded-lg text-sm font-medium transition-colors inline-flex items-center gap-1.5"
                             data-path="/battle">
-                            <span aria-hidden="true">⚔️</span> Battle</a>
+                            {{ icon("swords", "w-4 h-4") }} Battle</a>
                         <a href="/ranking"
-                            class="nav-link hover:bg-brand-500/10 hover:text-brand-600 dark:hover:text-brand-400 px-3 py-2 rounded-lg text-sm font-medium transition-colors"
+                            class="nav-link hover:bg-brand-500/10 hover:text-brand-600 dark:hover:text-brand-400 px-3 py-2 rounded-lg text-sm font-medium transition-colors inline-flex items-center gap-1.5"
                             data-path="/ranking">
-                            <span aria-hidden="true">🏆</span> Ranking</a>
+                            {{ icon("trophy", "w-4 h-4") }} Ranking</a>
                         <a href="/manage"
-                            class="nav-link hover:bg-brand-500/10 hover:text-brand-600 dark:hover:text-brand-400 px-3 py-2 rounded-lg text-sm font-medium transition-colors"
+                            class="nav-link hover:bg-brand-500/10 hover:text-brand-600 dark:hover:text-brand-400 px-3 py-2 rounded-lg text-sm font-medium transition-colors inline-flex items-center gap-1.5"
                             data-path="/manage">
-                            <span aria-hidden="true">⚙️</span> Manage</a>
+                            {{ icon("cog", "w-4 h-4") }} Manage</a>
                     </div>
                 </div>
 
@@ -68,22 +76,22 @@
                     <!-- 세션 종료 버튼 -->
                     <form action="/end-session" method="post" id="end-session-form">
                         <button type="submit"
-                            class="p-2 rounded-lg text-xs font-bold text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 transition"
+                            class="min-w-11 min-h-11 inline-flex items-center justify-center p-2.5 rounded-lg text-base font-bold text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 transition"
                             aria-label="세션 종료"
                             title="세션 종료">
-                            <span aria-hidden="true">🚪</span>
+                            {{ icon("logout", "w-5 h-5") }}
                         </button>
                     </form>
                     <button id="theme-toggle"
-                        class="p-2 rounded-lg bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 transition focus:outline-none focus:ring-2 focus:ring-brand-500"
+                        class="min-w-11 min-h-11 inline-flex items-center justify-center p-2.5 rounded-lg bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 transition focus:outline-none focus:ring-2 focus:ring-brand-500"
                         aria-label="테마 전환">
-                        <svg id="theme-toggle-light-icon" class="w-5 h-5 hidden" fill="currentColor"
+                        <svg id="theme-toggle-light-icon" class="w-6 h-6 hidden" fill="currentColor"
                             viewBox="0 0 20 20" aria-hidden="true">
                             <path
                                 d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 100 2h1z"
                                 fill-rule="evenodd" clip-rule="evenodd"></path>
                         </svg>
-                        <svg id="theme-toggle-dark-icon" class="w-5 h-5 hidden" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                        <svg id="theme-toggle-dark-icon" class="w-6 h-6 hidden" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
                             <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z"></path>
                         </svg>
                     </button>
@@ -100,7 +108,7 @@
         </div>
     </nav>
 
-    <main class="flex-grow container mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <main id="main" tabindex="-1" class="flex-grow container mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {% block content %}{% endblock %}
     </main>
 

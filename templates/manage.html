@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "partials/_icons.html" import icon %}
 
 {% block content %}
 <div class="max-w-5xl mx-auto space-y-8">
@@ -12,17 +13,16 @@
 
     <!-- 탭 네비게이션 -->
     <div class="flex space-x-1 bg-gray-100 dark:bg-gray-800 p-1 rounded-xl" role="tablist" aria-label="관리 탭">
-        {% set tabs = [('items', '📋 Items'), ('criteria', '📐 Criteria'), ('settings', '⚡ Elo Settings'), ('data', '💾
-        Data')] %}
-        {% for key, label in tabs %}
+        {% set tabs = [('items', 'list', 'Items'), ('criteria', 'adjustments', 'Criteria'), ('settings', 'bolt', 'Elo Settings'), ('data', 'database', 'Data')] %}
+        {% for key, ic, label in tabs %}
         <a href="/manage?tab={{ key }}" role="tab" aria-selected="{{ 'true' if tab == key else 'false' }}"
-           class="flex-1 text-center px-4 py-2.5 rounded-lg text-sm font-bold transition-all
+           class="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-bold transition-all
            {% if tab == key %}
                bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm
            {% else %}
                text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300
            {% endif %}">
-            {{ label }}
+            {{ icon(ic, "w-4 h-4") }} {{ label }}
         </a>
         {% endfor %}
     </div>
@@ -36,7 +36,7 @@
             <form action="/manage/add" method="post" class="flex flex-col sm:flex-row gap-4"
                   hx-post="/manage/add" hx-target="#item-list" hx-swap="innerHTML"
                   hx-on::after-request="if(event.detail.successful) this.reset()">
-                <input type="text" name="name" placeholder="항목 이름 입력" required
+                <input type="text" name="name" placeholder="항목 이름 입력" required autocomplete="off"
                     class="flex-1 px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 dark:focus:ring-brand-400 transition text-sm text-gray-900 dark:text-white placeholder-gray-400">
                 <button type="submit"
                     class="bg-brand-600 hover:bg-brand-700 text-white font-bold px-8 py-3 rounded-xl transition shadow-lg shadow-brand-500/30 whitespace-nowrap">
@@ -51,7 +51,7 @@
             <form action="/manage/add-bulk" method="post" class="space-y-4"
                   hx-post="/manage/add-bulk" hx-target="#item-list" hx-swap="innerHTML"
                   hx-on::after-request="if(event.detail.successful) this.reset()">
-                <textarea name="names" rows="6" placeholder="줄바꿈으로 구분하여 여러 항목을 입력하세요.&#10;예:&#10;항목 1&#10;항목 2&#10;항목 3"
+                <textarea name="names" rows="6" autocomplete="off" placeholder="줄바꿈으로 구분하여 여러 항목을 입력하세요.&#10;예:&#10;항목 1&#10;항목 2&#10;항목 3"
                     class="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 dark:focus:ring-brand-400 transition text-gray-900 dark:text-white placeholder-gray-400 resize-y font-mono text-sm"></textarea>
                 <button type="submit"
                     class="bg-brand-600 hover:bg-brand-700 text-white font-bold px-8 py-3 rounded-xl transition shadow-lg shadow-brand-500/30">
@@ -89,7 +89,7 @@
                     <input type="hidden" name="key" value="{{ c.key }}">
                     <div class="flex-1 min-w-[120px]">
                         <label class="text-[11px] font-bold text-gray-400 uppercase">이름</label>
-                        <input type="text" name="label" value="{{ c.label }}" required placeholder="평가 기준 이름"
+                        <input type="text" name="label" value="{{ c.label }}" required autocomplete="off" placeholder="평가 기준 이름"
                             class="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 dark:focus:ring-brand-400 outline-none text-gray-900 dark:text-white">
                     </div>
                     <div>
@@ -111,7 +111,7 @@
                     </div>
                     <div class="w-24">
                         <label class="text-[11px] font-bold text-gray-400 uppercase">가중치</label>
-                        <input type="number" name="weight" value="{{ c.weight }}" step="0.1" min="0" required
+                        <input type="number" name="weight" value="{{ c.weight }}" step="0.1" min="0" required inputmode="decimal"
                             class="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm font-mono focus:ring-2 focus:ring-brand-500 dark:focus:ring-brand-400 outline-none text-gray-900 dark:text-white">
                     </div>
                     <button type="button" onclick="this.closest('.criteria-row').remove()"
@@ -167,7 +167,7 @@
                     <div>
                         <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">Initial Sigma <span class="text-gray-400 font-normal ml-1">(초기 불확실성)</span></label>
                         <p class="text-xs text-gray-500 dark:text-gray-400 mb-2">새 항목의 사전분포 표준편차. 높을수록 초반 변동이 크고, 낮을수록 보수적</p>
-                        <input type="number" name="initial_sigma" value="{{ settings.initial_sigma }}" step="0.1" min="0.1" max="10" class="w-full sm:w-1/3 px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm font-mono focus:ring-2 focus:ring-brand-500 dark:focus:ring-brand-400 outline-none text-gray-900 dark:text-white">
+                        <input type="number" name="initial_sigma" value="{{ settings.initial_sigma }}" step="0.1" min="0.1" max="10" inputmode="decimal" class="w-full sm:w-1/3 px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm font-mono focus:ring-2 focus:ring-brand-500 dark:focus:ring-brand-400 outline-none text-gray-900 dark:text-white">
                         <p class="text-[11px] text-blue-600 dark:text-blue-400 font-semibold mt-1.5">추천: 1.5~3.0</p>
                     </div>
                 </div>
@@ -187,19 +187,19 @@
                         <div>
                             <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">Draw Prior Max <span class="text-gray-400 font-normal ml-1">(최대치)</span></label>
                             <p class="text-xs text-gray-500 dark:text-gray-400 mb-2 h-8">두 항목의 점수가 동일할 때의 사전 무승부 확률</p>
-                            <input type="number" name="draw_prior_max" value="{{ settings.draw_prior_max }}" step="0.01" min="0" max="1" class="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm font-mono focus:ring-2 focus:ring-brand-500 dark:focus:ring-brand-400 outline-none text-gray-900 dark:text-white">
+                            <input type="number" name="draw_prior_max" value="{{ settings.draw_prior_max }}" step="0.01" min="0" max="1" inputmode="decimal" class="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm font-mono focus:ring-2 focus:ring-brand-500 dark:focus:ring-brand-400 outline-none text-gray-900 dark:text-white">
                             <p class="text-[11px] text-yellow-600 dark:text-yellow-400 font-semibold mt-1.5">추천: 0.1~0.5</p>
                         </div>
                         <div>
                             <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">Prior Strength <span class="text-gray-400 font-normal ml-1">(강도)</span></label>
                             <p class="text-xs text-gray-500 dark:text-gray-400 mb-2 h-8">사전분포의 유사 관측 수. 높을수록 실측에 느리게 수렴</p>
-                            <input type="number" name="draw_prior_strength" value="{{ settings.draw_prior_strength }}" step="1" min="1" max="1000" class="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm font-mono focus:ring-2 focus:ring-brand-500 dark:focus:ring-brand-400 outline-none text-gray-900 dark:text-white">
+                            <input type="number" name="draw_prior_strength" value="{{ settings.draw_prior_strength }}" step="1" min="1" max="1000" inputmode="numeric" class="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm font-mono focus:ring-2 focus:ring-brand-500 dark:focus:ring-brand-400 outline-none text-gray-900 dark:text-white">
                             <p class="text-[11px] text-yellow-600 dark:text-yellow-400 font-semibold mt-1.5">추천: 5~20</p>
                         </div>
                         <div>
                             <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">Draw Bandwidth <span class="text-gray-400 font-normal ml-1">(감쇠)</span></label>
                             <p class="text-xs text-gray-500 dark:text-gray-400 mb-2 h-8">점수 차이에 따른 무승부 확률 감쇠 대역폭 (클수록 덜 감쇠)</p>
-                            <input type="number" name="draw_bandwidth" value="{{ settings.draw_bandwidth }}" step="0.1" min="0.1" max="10" class="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm font-mono focus:ring-2 focus:ring-brand-500 dark:focus:ring-brand-400 outline-none text-gray-900 dark:text-white">
+                            <input type="number" name="draw_bandwidth" value="{{ settings.draw_bandwidth }}" step="0.1" min="0.1" max="10" inputmode="decimal" class="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm font-mono focus:ring-2 focus:ring-brand-500 dark:focus:ring-brand-400 outline-none text-gray-900 dark:text-white">
                             <p class="text-[11px] text-yellow-600 dark:text-yellow-400 font-semibold mt-1.5">추천: 1.0~3.0</p>
                         </div>
                     </div>
@@ -219,7 +219,7 @@
                     <div>
                         <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">Hierarchical Strength <span class="text-gray-400 font-normal ml-1">(축소 강도)</span></label>
                         <p class="text-xs text-gray-500 dark:text-gray-400 mb-2">0=기준 독립, 5=보통 공유, 20=강한 공유</p>
-                        <input type="number" name="hierarchical_strength" value="{{ settings.hierarchical_strength }}" step="0.5" min="0" max="100" class="w-full sm:w-1/3 px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm font-mono focus:ring-2 focus:ring-brand-500 dark:focus:ring-brand-400 outline-none text-gray-900 dark:text-white">
+                        <input type="number" name="hierarchical_strength" value="{{ settings.hierarchical_strength }}" step="0.5" min="0" max="100" inputmode="decimal" class="w-full sm:w-1/3 px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm font-mono focus:ring-2 focus:ring-brand-500 dark:focus:ring-brand-400 outline-none text-gray-900 dark:text-white">
                         <p class="text-[11px] text-purple-600 dark:text-purple-400 font-semibold mt-1.5">추천: 3.0~10.0</p>
                     </div>
                 </div>
@@ -239,13 +239,13 @@
                         <div>
                             <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">Display Center <span class="text-gray-400 font-normal ml-1">(중심점)</span></label>
                             <p class="text-xs text-gray-500 dark:text-gray-400 mb-2 h-8">평균 항목이 표시될 기준 점수</p>
-                            <input type="number" name="display_center" value="{{ settings.display_center }}" step="50" class="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm font-mono focus:ring-2 focus:ring-brand-500 dark:focus:ring-brand-400 outline-none text-gray-900 dark:text-white">
+                            <input type="number" name="display_center" value="{{ settings.display_center }}" step="50" inputmode="decimal" class="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm font-mono focus:ring-2 focus:ring-brand-500 dark:focus:ring-brand-400 outline-none text-gray-900 dark:text-white">
                             <p class="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold mt-1.5">추천: 1200</p>
                         </div>
                         <div>
                             <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">Display Scale <span class="text-gray-400 font-normal ml-1">(변환 계수)</span></label>
                             <p class="text-xs text-gray-500 dark:text-gray-400 mb-2 h-8">logit 단위를 표시 단위로 변환하는 배율</p>
-                            <input type="number" name="display_scale" value="{{ settings.display_scale }}" step="0.01" class="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm font-mono focus:ring-2 focus:ring-brand-500 dark:focus:ring-brand-400 outline-none text-gray-900 dark:text-white">
+                            <input type="number" name="display_scale" value="{{ settings.display_scale }}" step="0.01" inputmode="decimal" class="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm font-mono focus:ring-2 focus:ring-brand-500 dark:focus:ring-brand-400 outline-none text-gray-900 dark:text-white">
                             <p class="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold mt-1.5">추천: 173.72 (표준 Elo)</p>
                         </div>
                     </div>
@@ -314,7 +314,7 @@
                                 (초)</label>
                             <p class="text-xs text-gray-500 dark:text-gray-400 mb-2 h-4 hidden sm:block"></p>
                             <input type="number" name="result_skip_seconds"
-                                value="{{ settings.get('result_skip_seconds', 3.0) }}" step="0.5" min="0.5" max="30"
+                                value="{{ settings.get('result_skip_seconds', 3.0) }}" step="0.5" min="0.5" max="30" inputmode="decimal"
                                 class="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm font-mono focus:ring-2 focus:ring-brand-500 dark:focus:ring-brand-400 outline-none text-gray-900 dark:text-white">
                             <p class="text-[11px] text-rose-600 dark:text-rose-400 font-semibold mt-1.5">추천: 2.0~5.0</p>
                         </div>
@@ -341,8 +341,8 @@
                     현재 모든 데이터(항목, 기준, 설정)를 JSON 파일로 다운로드합니다.
                 </p>
                 <a href="/manage/export"
-                    class="inline-block px-8 py-3 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold shadow-lg shadow-green-500/30 transition">
-                    📥 JSON 다운로드
+                    class="inline-flex items-center gap-2 px-8 py-3 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold shadow-lg shadow-green-500/30 transition">
+                    {{ icon("download", "w-5 h-5") }} JSON 다운로드
                 </a>
             </div>
 
@@ -352,15 +352,15 @@
                 <h2 class="text-lg font-bold mb-2 text-orange-600 dark:text-orange-400">Import Data</h2>
                 <p class="text-sm text-gray-500 dark:text-gray-400 mb-4">
                     JSON 파일을 업로드하여 전체 데이터를 교체합니다.
-                    <span class="text-red-500 font-bold">⚠️ 기존 데이터가 덮어씌워집니다.</span>
+                    <span class="text-red-500 font-bold inline-flex items-center gap-1 align-middle">{{ icon("alert-triangle", "w-4 h-4") }} 기존 데이터가 덮어씌워집니다.</span>
                 </p>
                 <form action="/manage/import" method="post" enctype="multipart/form-data" id="import-form"
                     class="flex flex-col sm:flex-row gap-4">
                     <input type="file" name="file" accept="application/json,.json" required
                         class="flex-1 text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-bold file:bg-orange-50 file:text-orange-700 hover:file:bg-orange-100 dark:file:bg-orange-900/30 dark:file:text-orange-300">
                     <button type="submit"
-                        class="px-8 py-3 bg-orange-600 hover:bg-orange-700 text-white rounded-xl font-bold shadow-lg shadow-orange-500/30 transition whitespace-nowrap">
-                        📤 업로드 & 적용
+                        class="px-8 py-3 bg-orange-600 hover:bg-orange-700 text-white rounded-xl font-bold shadow-lg shadow-orange-500/30 transition whitespace-nowrap inline-flex items-center justify-center gap-2">
+                        {{ icon("upload", "w-5 h-5") }} 업로드 & 적용
                     </button>
                 </form>
             </div>
@@ -392,7 +392,7 @@
             importForm.addEventListener('submit', (e) => {
                 if (!importForm.dataset.confirmed) {
                     e.preventDefault();
-                    showConfirm('⚠️ 기존 데이터가 완전히 교체됩니다. 계속하시겠습니까?', () => {
+                    showConfirm('기존 데이터가 완전히 교체됩니다. 계속하시겠습니까?', () => {
                         importForm.dataset.confirmed = '1';
                         importForm.requestSubmit();
                     });
@@ -442,7 +442,7 @@
             <input type="hidden" name="key" value="">
             <div class="flex-1 min-w-[120px]">
                 <label class="text-[11px] font-bold text-gray-400 uppercase">이름</label>
-                <input type="text" name="label" required placeholder="평가 기준 이름"
+                <input type="text" name="label" required autocomplete="off" placeholder="평가 기준 이름"
                     class="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 dark:focus:ring-brand-400 outline-none text-gray-900 dark:text-white">
             </div>
             <div>
@@ -452,7 +452,7 @@
             </div>
             <div class="w-24">
                 <label class="text-[11px] font-bold text-gray-400 uppercase">가중치</label>
-                <input type="number" name="weight" value="1.0" step="0.1" min="0" required
+                <input type="number" name="weight" value="1.0" step="0.1" min="0" required inputmode="decimal"
                     class="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm font-mono focus:ring-2 focus:ring-brand-500 dark:focus:ring-brand-400 outline-none text-gray-900 dark:text-white">
             </div>
             <button type="button" onclick="this.closest('.criteria-row').remove()"

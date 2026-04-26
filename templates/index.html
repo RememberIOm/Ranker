@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "partials/_icons.html" import icon %}
 
 {% block content %}
 <div class="flex flex-col items-center justify-center min-h-[80vh] text-center space-y-8 animate-float">
@@ -23,11 +24,11 @@
         <a href="/battle"
             class="group relative px-8 py-4 bg-brand-600 hover:bg-brand-700 text-white rounded-xl font-bold text-lg shadow-lg hover:shadow-brand-500/30 transition-all duration-300 overflow-hidden">
             <div class="absolute inset-0 w-full h-full bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:animate-[shimmer_1.5s_infinite]"></div>
-            <span class="relative flex items-center justify-center gap-2">⚔️ 대결 시작하기</span>
+            <span class="relative flex items-center justify-center gap-2">{{ icon("swords", "w-5 h-5") }} 대결 시작하기</span>
         </a>
         <a href="/ranking"
-            class="px-8 py-4 bg-white dark:bg-gray-800 text-gray-800 dark:text-white border border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 rounded-xl font-bold text-lg shadow-sm hover:shadow-md transition-all">
-            🏆 랭킹 보기
+            class="px-8 py-4 bg-white dark:bg-gray-800 text-gray-800 dark:text-white border border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 rounded-xl font-bold text-lg shadow-sm hover:shadow-md transition-all inline-flex items-center justify-center gap-2">
+            {{ icon("trophy", "w-5 h-5") }} 랭킹 보기
         </a>
     </div>
 
@@ -44,7 +45,7 @@
 
         {# JSON 파일 업로드 #}
         <div class="bg-white dark:bg-gray-800 rounded-2xl p-6 shadow-lg border border-gray-200 dark:border-gray-700">
-            <h2 class="text-lg font-bold mb-2 text-brand-600 dark:text-brand-400">📂 기존 데이터로 시작</h2>
+            <h2 class="text-lg font-bold mb-2 text-brand-600 dark:text-brand-400 inline-flex items-center gap-2">{{ icon("folder-open", "w-5 h-5") }} 기존 데이터로 시작</h2>
             <p class="text-sm text-gray-500 dark:text-gray-400 mb-4">
                 이전에 Export한 JSON 파일을 업로드하여 이어서 진행합니다.
             </p>
@@ -53,8 +54,8 @@
                     class="flex-1 text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-bold file:bg-brand-50 file:text-brand-700 hover:file:bg-brand-100 dark:file:bg-brand-900/30 dark:file:text-brand-300"
                     aria-label="JSON 파일 선택">
                 <button type="submit" id="upload-btn"
-                    class="px-6 py-3 bg-brand-600 hover:bg-brand-700 text-white rounded-xl font-bold shadow-lg shadow-brand-500/30 transition whitespace-nowrap">
-                    <span aria-hidden="true">📤</span> 업로드 &amp; 시작
+                    class="px-6 py-3 bg-brand-600 hover:bg-brand-700 text-white rounded-xl font-bold shadow-lg shadow-brand-500/30 transition whitespace-nowrap inline-flex items-center justify-center gap-2">
+                    {{ icon("upload", "w-5 h-5") }} 업로드 &amp; 시작
                 </button>
             </form>
         </div>
@@ -69,8 +70,8 @@
         {# 새 세션 시작 #}
         <form action="/start" method="post">
             <button type="submit"
-                class="w-full px-8 py-4 bg-white dark:bg-gray-800 text-gray-800 dark:text-white border-2 border-dashed border-gray-300 dark:border-gray-600 hover:border-brand-400 dark:hover:border-brand-500 rounded-xl font-bold text-lg shadow-sm hover:shadow-md transition-all">
-                ✨ 빈 데이터로 새로 시작
+                class="w-full px-8 py-4 bg-white dark:bg-gray-800 text-gray-800 dark:text-white border-2 border-dashed border-gray-300 dark:border-gray-600 hover:border-brand-400 dark:hover:border-brand-500 rounded-xl font-bold text-lg shadow-sm hover:shadow-md transition-all inline-flex items-center justify-center gap-2">
+                {{ icon("sparkles", "w-5 h-5") }} 빈 데이터로 새로 시작
             </button>
         </form>
 
@@ -81,10 +82,6 @@
     </div>
     {% endif %}
 </div>
-
-<style>
-    @keyframes shimmer { 100% { transform: translateX(100%); } }
-</style>
 
 <script>
     const uploadForm = document.getElementById('upload-form');

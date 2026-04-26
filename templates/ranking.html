@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "partials/_icons.html" import icon %}
 
 {% block content %}
 <div class="max-w-7xl mx-auto space-y-8">
@@ -41,7 +42,9 @@
             Distribution: <span class="text-brand-600 dark:text-brand-400">{{ chart_data.category }}</span>
         </h2>
         <div class="h-64 w-full relative">
-            <canvas id="distributionChart"></canvas>
+            <canvas id="distributionChart"
+                role="img"
+                aria-label="{{ chart_data.category }} 점수 분포 — 항목 {{ items|length }}개. 자세한 점수는 아래 표를 참고하세요."></canvas>
         </div>
     </div>
 
@@ -80,7 +83,7 @@
                             <form id="rank-edit-{{ item.id }}" action="/manage/edit" method="post" class="hidden items-center gap-2">
                                 <input type="hidden" name="item_id" value="{{ item.id }}">
                                 <input type="hidden" name="redirect_url" value="/ranking?sort_by={{ sort_by }}">
-                                <input type="text" name="new_name" value="{{ item.name }}" required
+                                <input type="text" name="new_name" value="{{ item.name }}" required autocomplete="off"
                                     class="px-3 py-1.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 dark:focus:ring-brand-400 outline-none text-gray-900 dark:text-white w-48">
                                 <button type="submit" class="px-3 py-1.5 bg-brand-600 text-white rounded-lg text-xs font-bold">Save</button>
                                 <button type="button" onclick="toggleRankEdit('{{ item.id }}')" class="px-3 py-1.5 bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-lg text-xs font-bold">Cancel</button>
@@ -106,26 +109,26 @@
                         <td class="p-4 text-center relative">
                             <div class="relative inline-block">
                                 <button onclick="toggleDropdown(this)"
-                                    class="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition opacity-0 group-hover:opacity-100 focus:opacity-100"
+                                    class="min-w-11 min-h-11 inline-flex items-center justify-center p-2.5 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition opacity-100 sm:opacity-0 sm:group-hover:opacity-100 focus:opacity-100"
                                     aria-haspopup="true" aria-expanded="false" aria-label="{{ item.name }} 메뉴">
-                                    <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="4" r="2"/><circle cx="10" cy="10" r="2"/><circle cx="10" cy="16" r="2"/></svg>
+                                    <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="4" r="2"/><circle cx="10" cy="10" r="2"/><circle cx="10" cy="16" r="2"/></svg>
                                 </button>
                                 <div class="hidden absolute right-0 top-8 z-30 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 py-1 w-32 text-left dropdown-menu" role="menu">
                                     <a href="/battle/focus/{{ item.id }}" role="menuitem"
-                                       class="block px-4 py-2 text-xs font-bold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition">
-                                        <span aria-hidden="true">🎯</span> Focus
+                                       class="inline-flex items-center gap-1.5 w-full px-4 py-2 text-xs font-bold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition">
+                                        {{ icon("target", "w-3.5 h-3.5") }} Focus
                                     </a>
                                     <button onclick="this.closest('.relative').querySelector('div[role=menu]').classList.add('hidden'); this.closest('.relative').querySelector('[aria-haspopup]').setAttribute('aria-expanded','false'); toggleRankEdit('{{ item.id }}')"
                                        role="menuitem"
-                                       class="block w-full text-left px-4 py-2 text-xs font-bold text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition">
-                                        <span aria-hidden="true">✏️</span> Edit
+                                       class="inline-flex items-center gap-1.5 w-full text-left px-4 py-2 text-xs font-bold text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition">
+                                        {{ icon("pencil", "w-3.5 h-3.5") }} Edit
                                     </button>
                                     <form action="/manage/delete" method="post" class="block delete-form" data-name="{{ item.name | e }}">
                                         <input type="hidden" name="item_id" value="{{ item.id }}">
                                         <input type="hidden" name="redirect_url" value="/ranking?sort_by={{ sort_by }}">
                                         <button type="submit" role="menuitem"
-                                           class="block w-full text-left px-4 py-2 text-xs font-bold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 transition">
-                                            <span aria-hidden="true">🗑️</span> Delete
+                                           class="inline-flex items-center gap-1.5 w-full text-left px-4 py-2 text-xs font-bold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 transition">
+                                            {{ icon("trash", "w-3.5 h-3.5") }} Delete
                                         </button>
                                     </form>
                                 </div>
@@ -203,7 +206,7 @@
         form.addEventListener('submit', (e) => {
             e.preventDefault();
             const name = form.dataset.name;
-            showConfirm(`⚠️ ${name} 항목을 삭제하시겠습니까?`, () => form.submit());
+            showConfirm(`'${name}' 항목을 삭제하시겠습니까?`, () => form.submit());
         });
     });
     const labels = {{ chart_data.labels | tojson }};
