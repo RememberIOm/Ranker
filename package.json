@@ -6,7 +6,7 @@
     "build:css:watch": "tailwindcss -i input.css -o static/output.css --watch=always"
   },
   "dependencies": {
-    "@tailwindcss/cli": "4.2.2",
-    "tailwindcss": "4.2.2"
+    "@tailwindcss/cli": "4.2.4",
+    "tailwindcss": "4.2.4"
   }
 }
