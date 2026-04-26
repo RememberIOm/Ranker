@@ -46,14 +46,22 @@
 ### 4. 🗂️ 독립적인 멀티 유저 세션 (Multi-Session)
 - 복잡한 설정이나 회원가입 없이, 사이트 접속 시 발급되는 브라우저 쿠키를 기반으로 각 유저마다 독립된 데이터 환경을 제공합니다.
 
+### 5. ♿ 접근성 & 모션 (Accessibility & Motion)
+- **통일된 Heroicons SVG 아이콘 시스템**: nav/액션 아이콘을 `templates/partials/_icons.html` 매크로로 통일하여 플랫폼 간 일관된 렌더링과 `currentColor` 기반 다크모드 색상 대응을 보장합니다.
+- **`prefers-reduced-motion` 전역 대응**: OS의 "동작 줄이기" 설정을 존중하여 모션 민감 사용자에게도 안전한 경험을 제공합니다 (`bounce-in`, `result-row-in`, `toast-in/out` 등 모든 키프레임 적용).
+- **건너뛰기 링크 (Skip to Main)**: 키보드 사용자가 매 페이지 nav 를 탭하지 않고 메인 콘텐츠로 바로 이동할 수 있습니다.
+- **iOS Safari 동적 뷰포트**: `min-h-dvh` 사용으로 주소창 토글 시 레이아웃 점프를 방지합니다.
+- **HTMX 스왑 영역의 `aria-live` / `aria-busy` 토글**: 동적 콘텐츠 변경을 스크린리더가 실시간으로 안내합니다.
+
 ---
 
 ## 🛠 기술 스택 (Tech Stack)
 
-- **Backend**: Python 3.13, FastAPI, aiosqlite, Pydantic v2
+- **Backend**: Python 3.13, FastAPI 0.136, Uvicorn 0.46, aiosqlite, Pydantic v2
 - **Data Storage**: SQLite (WAL mode, `database.py` + `store.py`, 단일 DB 파일에 세션별 데이터 저장)
-- **Frontend**: Jinja2 Templates, HTMX 2.0 (self-hosted), TailwindCSS v4 CLI build, Chart.js 4.5 (self-hosted)
-- **Deployment**: Fly.io (Docker container + mounted volume)
+- **Frontend**: Jinja2 Templates, HTMX 2.0.10 (self-hosted), TailwindCSS v4.2 CLI build, Chart.js 4.5 (self-hosted), Heroicons SVG 매크로
+- **Tooling**: uv (Python 의존성), npm (Tailwind CLI), Ruff 0.15 (lint/format), pytest 9 + pytest-asyncio
+- **Deployment**: Fly.io (Docker container + mounted volume, 도쿄 리전)
 
 ---
 
@@ -108,7 +116,7 @@ docker run --rm ranker-test python -m pytest tests/
 │   ├── battle_empty.html # 배틀 불가 상태 안내
 │   ├── ranking.html     # 랭킹 테이블 및 차트
 │   ├── manage.html      # 항목/기준/설정 관리 UI
-│   └── partials/        # HTMX partial 응답 템플릿 (배틀 카드, 결과 모달, 항목 목록)
+│   └── partials/        # HTMX partial 응답 템플릿 (배틀 카드, 결과 모달, 항목 목록, _icons.html 아이콘 매크로)
 ├── Dockerfile           # 프로덕션 이미지 (Fly.io 배포용)
 ├── Dockerfile.dev       # 개발 이미지 (hot reload, docker compose 전용)
 ├── docker-compose.yml   # 로컬 개발 환경 오케스트레이션
