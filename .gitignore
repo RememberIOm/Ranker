@@ -6,12 +6,11 @@ __pycache__/
 .DS_Store
 .vscode/
 
-# AI Agent files
+# AI Agent files (개인 자산, 비공개 유지)
 ai/
-.claude/
-CLAUDE.md
 AGENTS.md
-GEMINI.md
+.opencode/
+opencode.json
 
 # Tailwind 빌드 아티팩트 (docker compose tailwind 서비스가 생성)
 static/output.css
