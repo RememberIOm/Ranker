@@ -9,7 +9,9 @@ import store
 
 
 class TestStoreValidation:
-    async def test_import_json_repairs_missing_mu(self, temp_store: store.DataStore) -> None:
+    async def test_import_json_repairs_missing_mu(
+        self, temp_store: store.DataStore
+    ) -> None:
         """import_json은 _load와 동일한 관대 파싱을 사용하여 누락된 mu/sigma_sq를 자동 보정합니다."""
         await temp_store.import_json(
             """
@@ -62,21 +64,28 @@ class TestStoreValidation:
         await temp_store.import_json(legacy_payload)
 
         # mu로 변환됨: (1510 - 1400) / 173.72 ≈ 0.633
-        assert temp_store.items[0]["mu"]["story"] == pytest.approx((1510 - 1400) / 173.72, abs=0.01)
+        assert temp_store.items[0]["mu"]["story"] == pytest.approx(
+            (1510 - 1400) / 173.72, abs=0.01
+        )
         # visual은 center와 동일 → mu ≈ 0
         assert temp_store.items[0]["mu"]["visual"] == pytest.approx(0.0, abs=0.01)
         # sigma_sq가 존재하고 양수
         assert temp_store.items[0]["sigma_sq"]["story"] > 0
         assert temp_store.items[0]["sigma_sq"]["visual"] > 0
         # criterion_matches가 높을수록 sigma_sq가 작음
-        assert temp_store.items[0]["sigma_sq"]["story"] < temp_store.items[0]["sigma_sq"]["visual"]
+        assert (
+            temp_store.items[0]["sigma_sq"]["story"]
+            < temp_store.items[0]["sigma_sq"]["visual"]
+        )
 
         # settings도 마이그레이션됨
         assert "draw_prior_max" in temp_store.settings
         assert "elo_k_max" not in temp_store.settings
         assert temp_store.settings["display_center"] == pytest.approx(1400.0)
 
-    async def test_add_item_initializes_mu_sigma(self, temp_store: store.DataStore) -> None:
+    async def test_add_item_initializes_mu_sigma(
+        self, temp_store: store.DataStore
+    ) -> None:
         """새 항목은 mu=0, sigma_sq=initial_sigma² 로 초기화됨"""
         await temp_store.add_item("NewItem")
         item = temp_store.items[0]
@@ -85,7 +94,9 @@ class TestStoreValidation:
             assert item["mu"][c["key"]] == pytest.approx(0.0)
             assert item["sigma_sq"][c["key"]] == pytest.approx(initial_sq)
 
-    async def test_set_criteria_syncs_mu_sigma(self, temp_store: store.DataStore) -> None:
+    async def test_set_criteria_syncs_mu_sigma(
+        self, temp_store: store.DataStore
+    ) -> None:
         """기준 추가/제거 시 mu/sigma_sq 동기화"""
         await temp_store.add_item("Alpha")
 
@@ -102,19 +113,49 @@ class TestStoreValidation:
         assert "story" not in item["mu"]
         assert "story" not in item["sigma_sq"]
 
+    async def test_import_clamps_draws_to_battles(
+        self, temp_store: store.DataStore
+    ) -> None:
+        """손상된 import_json: draws > battles → battles로 클램프
+
+        Beta prior `beta_param = (1-prior_max)*prior_strength + (battles-draws)`가
+        음수가 되어 매치 확률이 0/0이 되는 것을 방지하는 정합성 보호.
+        """
+        await temp_store.import_json(
+            """
+            {
+              "criteria": [
+                {"key": "story", "label": "스토리", "color": "blue", "weight": 1.0,
+                 "battles": 5, "draws": 99}
+              ],
+              "items": [
+                {"id": 1, "name": "Alpha", "mu": {"story": 0.0}, "sigma_sq": {"story": 4.0}}
+              ]
+            }
+            """
+        )
+
+        story = next(c for c in temp_store.criteria if c["key"] == "story")
+        assert story["battles"] == 5
+        assert story["draws"] == 5  # min(99, 5)로 클램프
+
 
 # --- Per-Criterion Matches ---
 
 
 class TestPerCriterionMatches:
-    async def test_criterion_matches_initialized_with_all_keys(self, temp_store: store.DataStore) -> None:
+    async def test_criterion_matches_initialized_with_all_keys(
+        self, temp_store: store.DataStore
+    ) -> None:
         await temp_store.add_item("Alpha")
         cm = temp_store.items[0].get("criterion_matches", {})
         expected_keys = {c["key"] for c in temp_store.criteria}
         assert set(cm.keys()) == expected_keys
         assert all(v == 0 for v in cm.values())
 
-    async def test_criterion_matches_incremented_after_vote(self, store_with_items: store.DataStore) -> None:
+    async def test_criterion_matches_incremented_after_vote(
+        self, store_with_items: store.DataStore
+    ) -> None:
         s = store_with_items
         token = await s.issue_battle_round(s.items[0]["id"], s.items[1]["id"])
         votes = {c["key"]: "1" for c in s.criteria}
@@ -177,7 +218,9 @@ class TestActiveRoundItem3Persistence:
 
 
 class TestExportImportRoundtrip:
-    async def test_roundtrip_preserves_data(self, store_with_items: store.DataStore) -> None:
+    async def test_roundtrip_preserves_data(
+        self, store_with_items: store.DataStore
+    ) -> None:
         """항목 추가 + 투표 후 export → import → 데이터 일치"""
         s = store_with_items
         token = await s.issue_battle_round(s.items[0]["id"], s.items[1]["id"])
@@ -315,8 +358,14 @@ class TestJsonMigration:
         session_dir.mkdir()
         session_id = "m" * 32
         data = {
-            "settings": {"initial_sigma": 2.0, "display_center": 1200.0, "display_scale": 173.72},
-            "criteria": [{"key": "story", "label": "스토리", "color": "blue", "weight": 1.0}],
+            "settings": {
+                "initial_sigma": 2.0,
+                "display_center": 1200.0,
+                "display_scale": 173.72,
+            },
+            "criteria": [
+                {"key": "story", "label": "스토리", "color": "blue", "weight": 1.0}
+            ],
             "items": [
                 {
                     "id": 1,
@@ -328,7 +377,9 @@ class TestJsonMigration:
                 }
             ],
         }
-        (session_dir / f"{session_id}.json").write_text(json.dumps(data), encoding="utf-8")
+        (session_dir / f"{session_id}.json").write_text(
+            json.dumps(data), encoding="utf-8"
+        )
 
         from database import migrate_json_sessions
 
@@ -367,11 +418,17 @@ class TestCascadeDelete:
 
         # items, criteria, item_ratings 행도 삭제 확인
         db = database.get_db()
-        async with db.execute("SELECT COUNT(*) FROM items WHERE session_id = ?", (session_id,)) as c:
+        async with db.execute(
+            "SELECT COUNT(*) FROM items WHERE session_id = ?", (session_id,)
+        ) as c:
             assert (await c.fetchone())[0] == 0
-        async with db.execute("SELECT COUNT(*) FROM criteria WHERE session_id = ?", (session_id,)) as c:
+        async with db.execute(
+            "SELECT COUNT(*) FROM criteria WHERE session_id = ?", (session_id,)
+        ) as c:
             assert (await c.fetchone())[0] == 0
-        async with db.execute("SELECT COUNT(*) FROM item_ratings WHERE session_id = ?", (session_id,)) as c:
+        async with db.execute(
+            "SELECT COUNT(*) FROM item_ratings WHERE session_id = ?", (session_id,)
+        ) as c:
             assert (await c.fetchone())[0] == 0
 
 

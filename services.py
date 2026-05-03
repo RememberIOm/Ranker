@@ -38,7 +38,7 @@ def bt_update(
     """
     p = sigmoid(mu_a - mu_b)
     w = p * (1.0 - p)  # Fisher information
-    g = outcome - p     # gradient
+    g = outcome - p  # gradient
 
     prec_a_new = 1.0 / sigma_sq_a + w
     prec_b_new = 1.0 / sigma_sq_b + w
@@ -131,7 +131,9 @@ def get_match_probabilities(
 
     # Bayesian Beta prior
     alpha = s["draw_prior_max"] * s["draw_prior_strength"] + draws
-    beta_param = (1.0 - s["draw_prior_max"]) * s["draw_prior_strength"] + (battles - draws)
+    beta_param = (1.0 - s["draw_prior_max"]) * s["draw_prior_strength"] + (
+        battles - draws
+    )
     draw_max = max(0.05, min(0.5, alpha / (alpha + beta_param)))
 
     # BT 승률 (logit 스케일 직접 사용)
@@ -159,13 +161,26 @@ def get_match_probabilities(
 
 
 def composite_rating(store: DataStore, item: dict[str, Any]) -> float:
-    """가중 복합 점수를 계산합니다. 매치메이킹과 랭킹에서 공통 사용."""
+    """가중 복합 점수를 계산합니다. 매치메이킹과 랭킹에서 공통 사용.
+
+    criteria가 비어 있거나 weight 합이 0 이하인 비정상 상태에서는
+    `display_center` (μ=0의 표시값)을 반환해 fallback이 0점으로 보이지 않게 합니다.
+    """
     criteria = store.criteria
-    total_weight = sum(c["weight"] for c in criteria) or 1.0
-    return sum(
-        display_rating(store, item["mu"].get(c["key"], 0.0)) * c["weight"]
-        for c in criteria
-    ) / total_weight
+    if not criteria:
+        return float(store.settings["display_center"])
+
+    total_weight = sum(c["weight"] for c in criteria)
+    if total_weight <= 0:
+        return float(store.settings["display_center"])
+
+    return (
+        sum(
+            display_rating(store, item["mu"].get(c["key"], 0.0)) * c["weight"]
+            for c in criteria
+        )
+        / total_weight
+    )
 
 
 # --- Matchmaking ---
@@ -218,7 +233,9 @@ def get_match_pair(
         if not item1:
             return None, None
         candidates = [i for i in items if i["id"] != item1["id"]]
-        item2 = max(candidates, key=lambda x: _pair_eig(item1, x, criteria_keys, initial_sq))
+        item2 = max(
+            candidates, key=lambda x: _pair_eig(item1, x, criteria_keys, initial_sq)
+        )
         return item1, item2
 
     # n이 클 때는 샘플링으로 후보 축소
@@ -283,7 +300,9 @@ def get_match_triple(
         best_pair = (others[0], others[1])
         for i in range(len(others)):
             for j in range(i + 1, len(others)):
-                eig = _triple_eig(item1, others[i], others[j], criteria_keys, initial_sq)
+                eig = _triple_eig(
+                    item1, others[i], others[j], criteria_keys, initial_sq
+                )
                 if eig > best_eig:
                     best_eig = eig
                     best_pair = (others[i], others[j])
@@ -300,7 +319,9 @@ def get_match_triple(
         for i in range(len(pool)):
             for j in range(i + 1, len(pool)):
                 for k in range(j + 1, len(pool)):
-                    eig = _triple_eig(pool[i], pool[j], pool[k], criteria_keys, initial_sq)
+                    eig = _triple_eig(
+                        pool[i], pool[j], pool[k], criteria_keys, initial_sq
+                    )
                     if eig > best_eig:
                         best_eig = eig
                         best_triple = (pool[i], pool[j], pool[k])
@@ -320,12 +341,16 @@ def get_match_triple(
                 top_pairs.sort(key=lambda x: x[0])
 
     best_eig = -1.0
-    best_result: tuple[dict[str, Any] | None, dict[str, Any] | None, dict[str, Any] | None] = (None, None, None)
+    best_result: tuple[
+        dict[str, Any] | None, dict[str, Any] | None, dict[str, Any] | None
+    ] = (None, None, None)
     for _, p1, p2 in top_pairs:
         others = [i for i in pool if i["id"] not in (p1["id"], p2["id"])]
         if not others:
             continue
-        p3 = max(others, key=lambda x: _triple_eig(p1, p2, x, criteria_keys, initial_sq))
+        p3 = max(
+            others, key=lambda x: _triple_eig(p1, p2, x, criteria_keys, initial_sq)
+        )
         eig = _triple_eig(p1, p2, p3, criteria_keys, initial_sq)
         if eig > best_eig:
             best_eig = eig

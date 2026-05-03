@@ -102,8 +102,22 @@ class TestBTUpdate:
 class TestHierarchicalShrinkage:
     async def test_pulls_toward_cross_mean(self, temp_store: store.DataStore) -> None:
         item = {
-            "mu": {"story": 2.0, "visual": 0.0, "ost": 0.0, "voice": 0.0, "char": 0.0, "fun": 0.0},
-            "sigma_sq": {"story": 1.0, "visual": 1.0, "ost": 1.0, "voice": 1.0, "char": 1.0, "fun": 1.0},
+            "mu": {
+                "story": 2.0,
+                "visual": 0.0,
+                "ost": 0.0,
+                "voice": 0.0,
+                "char": 0.0,
+                "fun": 0.0,
+            },
+            "sigma_sq": {
+                "story": 1.0,
+                "visual": 1.0,
+                "ost": 1.0,
+                "voice": 1.0,
+                "char": 1.0,
+                "fun": 1.0,
+            },
         }
         old_story_mu = item["mu"]["story"]
         hierarchical_shrinkage(temp_store, item)
@@ -113,8 +127,22 @@ class TestHierarchicalShrinkage:
     async def test_preserves_sigma_sq(self, temp_store: store.DataStore) -> None:
         """계층적 축소는 σ²를 변경하지 않음 — 불확실성 감소는 bt_update만"""
         item = {
-            "mu": {"story": 2.0, "visual": 0.0, "ost": 0.0, "voice": 0.0, "char": 0.0, "fun": 0.0},
-            "sigma_sq": {"story": 1.0, "visual": 1.0, "ost": 1.0, "voice": 1.0, "char": 1.0, "fun": 1.0},
+            "mu": {
+                "story": 2.0,
+                "visual": 0.0,
+                "ost": 0.0,
+                "voice": 0.0,
+                "char": 0.0,
+                "fun": 0.0,
+            },
+            "sigma_sq": {
+                "story": 1.0,
+                "visual": 1.0,
+                "ost": 1.0,
+                "voice": 1.0,
+                "char": 1.0,
+                "fun": 1.0,
+            },
         }
         old_sigmas = dict(item["sigma_sq"])
         hierarchical_shrinkage(temp_store, item)
@@ -124,8 +152,22 @@ class TestHierarchicalShrinkage:
     async def test_zero_strength_no_change(self, temp_store: store.DataStore) -> None:
         await temp_store.update_settings({"hierarchical_strength": 0.0})
         item = {
-            "mu": {"story": 2.0, "visual": 0.0, "ost": 0.0, "voice": 0.0, "char": 0.0, "fun": 0.0},
-            "sigma_sq": {"story": 1.0, "visual": 1.0, "ost": 1.0, "voice": 1.0, "char": 1.0, "fun": 1.0},
+            "mu": {
+                "story": 2.0,
+                "visual": 0.0,
+                "ost": 0.0,
+                "voice": 0.0,
+                "char": 0.0,
+                "fun": 0.0,
+            },
+            "sigma_sq": {
+                "story": 1.0,
+                "visual": 1.0,
+                "ost": 1.0,
+                "voice": 1.0,
+                "char": 1.0,
+                "fun": 1.0,
+            },
         }
         hierarchical_shrinkage(temp_store, item)
         assert item["mu"]["story"] == pytest.approx(2.0)
@@ -136,7 +178,9 @@ class TestHierarchicalShrinkage:
 
 class TestDisplayConversion:
     async def test_mu_zero_gives_center(self, temp_store: store.DataStore) -> None:
-        assert display_rating(temp_store, 0.0) == pytest.approx(temp_store.settings["display_center"])
+        assert display_rating(temp_store, 0.0) == pytest.approx(
+            temp_store.settings["display_center"]
+        )
 
     async def test_uncertainty_positive(self, temp_store: store.DataStore) -> None:
         u = display_uncertainty(temp_store, 4.0)
@@ -149,27 +193,41 @@ class TestDisplayConversion:
 
 class TestDrawProbability:
     async def test_prior_at_zero_battles(self, temp_store: store.DataStore) -> None:
-        result = get_match_probabilities(temp_store, 0.0, 4.0, 0.0, 4.0, battles=0, draws=0)
+        result = get_match_probabilities(
+            temp_store, 0.0, 4.0, 0.0, 4.0, battles=0, draws=0
+        )
         assert result["draw"] > 20.0
 
-    async def test_empirical_dominates_at_high_battles(self, temp_store: store.DataStore) -> None:
-        result_low = get_match_probabilities(temp_store, 0.0, 4.0, 0.0, 4.0, battles=200, draws=20)
-        result_default = get_match_probabilities(temp_store, 0.0, 4.0, 0.0, 4.0, battles=0, draws=0)
+    async def test_empirical_dominates_at_high_battles(
+        self, temp_store: store.DataStore
+    ) -> None:
+        result_low = get_match_probabilities(
+            temp_store, 0.0, 4.0, 0.0, 4.0, battles=200, draws=20
+        )
+        result_default = get_match_probabilities(
+            temp_store, 0.0, 4.0, 0.0, 4.0, battles=0, draws=0
+        )
         assert result_low["draw"] < result_default["draw"]
 
     async def test_smooth_transition(self, temp_store: store.DataStore) -> None:
         draws = 7
         results = []
         for b in range(15, 25):
-            r = get_match_probabilities(temp_store, 0.0, 4.0, 0.0, 4.0, battles=b, draws=draws)
+            r = get_match_probabilities(
+                temp_store, 0.0, 4.0, 0.0, 4.0, battles=b, draws=draws
+            )
             results.append(r["draw"])
         for i in range(len(results) - 1):
             assert abs(results[i + 1] - results[i]) < 5.0
 
     async def test_clamping(self, temp_store: store.DataStore) -> None:
-        result = get_match_probabilities(temp_store, 0.0, 4.0, 0.0, 4.0, battles=100, draws=100)
+        result = get_match_probabilities(
+            temp_store, 0.0, 4.0, 0.0, 4.0, battles=100, draws=100
+        )
         assert result["draw"] <= 100.0
-        result = get_match_probabilities(temp_store, 0.0, 4.0, 0.0, 4.0, battles=100, draws=0)
+        result = get_match_probabilities(
+            temp_store, 0.0, 4.0, 0.0, 4.0, battles=100, draws=0
+        )
         assert result["draw"] >= 0.0
 
 
@@ -177,7 +235,9 @@ class TestDrawProbability:
 
 
 class TestMatchmaking:
-    async def test_returns_pair_with_two_items(self, temp_store: store.DataStore) -> None:
+    async def test_returns_pair_with_two_items(
+        self, temp_store: store.DataStore
+    ) -> None:
         await temp_store.add_item("Alpha")
         await temp_store.add_item("Beta")
         item1, item2 = get_match_pair(temp_store)
@@ -185,7 +245,9 @@ class TestMatchmaking:
         assert item2 is not None
         assert item1["id"] != item2["id"]
 
-    async def test_returns_none_with_one_item(self, temp_store: store.DataStore) -> None:
+    async def test_returns_none_with_one_item(
+        self, temp_store: store.DataStore
+    ) -> None:
         await temp_store.add_item("Alpha")
         item1, item2 = get_match_pair(temp_store)
         assert item2 is None
@@ -204,12 +266,35 @@ class TestMatchmaking:
 
 
 class TestAdaptiveHierarchicalShrinkage:
-    async def test_more_matches_less_shrinkage(self, temp_store: store.DataStore) -> None:
+    async def test_more_matches_less_shrinkage(
+        self, temp_store: store.DataStore
+    ) -> None:
         """관측 수가 많은 기준은 축소가 적게 적용됨"""
         item = {
-            "mu": {"story": 2.0, "visual": 2.0, "ost": 0.0, "voice": 0.0, "char": 0.0, "fun": 0.0},
-            "sigma_sq": {"story": 1.0, "visual": 1.0, "ost": 1.0, "voice": 1.0, "char": 1.0, "fun": 1.0},
-            "criterion_matches": {"story": 50, "visual": 0, "ost": 0, "voice": 0, "char": 0, "fun": 0},
+            "mu": {
+                "story": 2.0,
+                "visual": 2.0,
+                "ost": 0.0,
+                "voice": 0.0,
+                "char": 0.0,
+                "fun": 0.0,
+            },
+            "sigma_sq": {
+                "story": 1.0,
+                "visual": 1.0,
+                "ost": 1.0,
+                "voice": 1.0,
+                "char": 1.0,
+                "fun": 1.0,
+            },
+            "criterion_matches": {
+                "story": 50,
+                "visual": 0,
+                "ost": 0,
+                "voice": 0,
+                "char": 0,
+                "fun": 0,
+            },
         }
         hierarchical_shrinkage(temp_store, item)
         # story(50회)는 visual(0회)보다 덜 축소 → cross_mean에서 더 멀리 유지
@@ -220,7 +305,9 @@ class TestAdaptiveHierarchicalShrinkage:
 
 
 class TestTripleMatchmaking:
-    async def test_returns_triple_with_three_items(self, temp_store: store.DataStore) -> None:
+    async def test_returns_triple_with_three_items(
+        self, temp_store: store.DataStore
+    ) -> None:
         await temp_store.add_item("Alpha")
         await temp_store.add_item("Beta")
         await temp_store.add_item("Gamma")
@@ -231,13 +318,17 @@ class TestTripleMatchmaking:
         ids = {item1["id"], item2["id"], item3["id"]}
         assert len(ids) == 3
 
-    async def test_returns_none_with_two_items(self, temp_store: store.DataStore) -> None:
+    async def test_returns_none_with_two_items(
+        self, temp_store: store.DataStore
+    ) -> None:
         await temp_store.add_item("Alpha")
         await temp_store.add_item("Beta")
         item1, item2, item3 = get_match_triple(temp_store)
         assert item1 is None
 
-    async def test_exhaustive_finds_optimal_triple(self, temp_store: store.DataStore) -> None:
+    async def test_exhaustive_finds_optimal_triple(
+        self, temp_store: store.DataStore
+    ) -> None:
         """소규모 풀에서 완전 탐색이 전역 최적 삼중항을 반환"""
         for i in range(10):
             await temp_store.add_item(f"Item{i}")
@@ -270,7 +361,9 @@ class TestTripleMatchmaking:
 
 
 class TestCompositeRating:
-    async def test_uniform_weights_equals_mean(self, temp_store: store.DataStore) -> None:
+    async def test_uniform_weights_equals_mean(
+        self, temp_store: store.DataStore
+    ) -> None:
         """모든 weight=1.0일 때 display_rating 평균과 일치"""
         # 모든 기준 weight를 1.0으로 통일
         for c in temp_store.criteria:
@@ -282,30 +375,54 @@ class TestCompositeRating:
         for i, k in enumerate(keys):
             item["mu"][k] = float(i) * 0.5
 
-        expected = sum(display_rating(temp_store, item["mu"][k]) for k in keys) / len(keys)
+        expected = sum(display_rating(temp_store, item["mu"][k]) for k in keys) / len(
+            keys
+        )
         assert composite_rating(temp_store, item) == pytest.approx(expected)
 
     async def test_custom_weights(self, temp_store: store.DataStore) -> None:
         """비균일 weight에서 가중 평균 정확성 검증"""
         # 기준 2개만 사용, 나머지 weight=0 대신 아주 작은 값
-        await temp_store.set_criteria([
-            {"key": "a", "label": "A", "color": "blue", "weight": 2.0},
-            {"key": "b", "label": "B", "color": "red", "weight": 1.0},
-        ])
+        await temp_store.set_criteria(
+            [
+                {"key": "a", "label": "A", "color": "blue", "weight": 2.0},
+                {"key": "b", "label": "B", "color": "red", "weight": 1.0},
+            ]
+        )
         await temp_store.add_item("Alpha")
         item = temp_store.items[0]
         item["mu"]["a"] = 1.0
         item["mu"]["b"] = 0.0
 
         # 가중 평균: (display(1.0)*2 + display(0.0)*1) / 3
-        expected = (display_rating(temp_store, 1.0) * 2 + display_rating(temp_store, 0.0) * 1) / 3
+        expected = (
+            display_rating(temp_store, 1.0) * 2 + display_rating(temp_store, 0.0) * 1
+        ) / 3
         assert composite_rating(temp_store, item) == pytest.approx(expected)
 
     async def test_zero_mu_gives_center(self, temp_store: store.DataStore) -> None:
         """모든 mu=0.0 → display_center 반환"""
         await temp_store.add_item("Alpha")
         item = temp_store.items[0]
-        assert composite_rating(temp_store, item) == pytest.approx(temp_store.settings["display_center"])
+        assert composite_rating(temp_store, item) == pytest.approx(
+            temp_store.settings["display_center"]
+        )
+
+    async def test_empty_criteria_returns_display_center(
+        self, temp_store: store.DataStore
+    ) -> None:
+        """criteria가 비어 있어도 0이 아닌 display_center를 반환 (회귀 보호)
+
+        예전 `or 1.0` fallback은 빈 criteria에서 0을 반환해 매치메이킹·랭킹·확률
+        계산이 모두 0점으로 표시되는 사용자 영향이 있었음.
+        """
+        await temp_store.add_item("Alpha")
+        item = temp_store.items[0]
+        # criteria를 강제로 비움 (정상 경로에선 발생하지 않지만 일시 상태 방어)
+        temp_store._data["criteria"] = []
+        assert composite_rating(temp_store, item) == pytest.approx(
+            temp_store.settings["display_center"]
+        )
 
 
 # --- Item Rank ---
@@ -335,5 +452,3 @@ class TestGetItemRank:
         await temp_store.add_item("Beta")
         rank, total = get_item_rank(temp_store, 9999)
         assert rank == total == 2
-
-

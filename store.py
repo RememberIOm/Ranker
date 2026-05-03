@@ -11,7 +11,6 @@ import time
 from itertools import groupby
 from typing import Any
 
-from pydantic import ValidationError
 
 logger = logging.getLogger("ranker.store")
 
@@ -137,15 +136,21 @@ def _normalize_loaded_data(data: Any) -> dict[str, Any]:
                 normalized_draws = max(0, int(draws_raw))
             except (TypeError, ValueError):
                 normalized_draws = 0
+            # 손상된 import 방어: draws > battles면 Beta prior beta_param이 음수가 될 수 있음.
+            # 무승부는 전체 배틀의 부분집합이라는 invariant를 강제 보정.
+            if normalized_draws > normalized_battles:
+                normalized_draws = normalized_battles
 
-            criteria.append({
-                "key": normalized_key,
-                "label": label.strip(),
-                "color": color.strip(),
-                "weight": normalized_weight,
-                "battles": normalized_battles,
-                "draws": normalized_draws,
-            })
+            criteria.append(
+                {
+                    "key": normalized_key,
+                    "label": label.strip(),
+                    "color": color.strip(),
+                    "weight": normalized_weight,
+                    "battles": normalized_battles,
+                    "draws": normalized_draws,
+                }
+            )
 
     if not criteria:
         criteria = defaults["criteria"]
@@ -155,7 +160,7 @@ def _normalize_loaded_data(data: Any) -> dict[str, Any]:
         initial_sigma = float(initial_sigma)
     except (TypeError, ValueError):
         initial_sigma = float(defaults["settings"]["initial_sigma"])
-    initial_sigma_sq = initial_sigma ** 2
+    initial_sigma_sq = initial_sigma**2
 
     display_center = settings.get("display_center", 1200.0)
     display_scale = settings.get("display_scale", 173.72)
@@ -202,7 +207,7 @@ def _normalize_loaded_data(data: Any) -> dict[str, Any]:
             # Elo→BT 마이그레이션: "ratings" 존재 + "mu" 부재 시 변환
             mu_raw = raw_item.get("mu")
             ratings_raw = raw_item.get("ratings")
-            is_legacy = (isinstance(ratings_raw, dict) and not isinstance(mu_raw, dict))
+            is_legacy = isinstance(ratings_raw, dict) and not isinstance(mu_raw, dict)
 
             if is_legacy:
                 mu: dict[str, float] = {}
@@ -236,14 +241,16 @@ def _normalize_loaded_data(data: Any) -> dict[str, Any]:
                     except (TypeError, ValueError):
                         sigma_sq[key] = initial_sigma_sq
 
-            items.append({
-                "id": item_id,
-                "name": name.strip(),
-                "mu": mu,
-                "sigma_sq": sigma_sq,
-                "matches_played": matches_played,
-                "criterion_matches": criterion_matches,
-            })
+            items.append(
+                {
+                    "id": item_id,
+                    "name": name.strip(),
+                    "mu": mu,
+                    "sigma_sq": sigma_sq,
+                    "matches_played": matches_played,
+                    "criterion_matches": criterion_matches,
+                }
+            )
 
     # active_round (진행 중인 배틀 라운드) 복원 — DB에 영속화되어 VM 재시작 후에도 투표 가능.
     # 검증 실패(같은 ID, 잘못된 토큰 등) 시 None으로 관대 복원 — 전체 로드 실패를 피함.
@@ -380,14 +387,16 @@ class DataStore:
                     mu[r["criterion_key"]] = r["mu"]
                     sigma_sq[r["criterion_key"]] = r["sigma_sq"]
                     criterion_matches[r["criterion_key"]] = r["criterion_matches"]
-            items.append({
-                "id": item_id,
-                "name": name,
-                "mu": mu,
-                "sigma_sq": sigma_sq,
-                "matches_played": matches_played,
-                "criterion_matches": criterion_matches,
-            })
+            items.append(
+                {
+                    "id": item_id,
+                    "name": name,
+                    "mu": mu,
+                    "sigma_sq": sigma_sq,
+                    "matches_played": matches_played,
+                    "criterion_matches": criterion_matches,
+                }
+            )
         self._data["items"] = items
 
         # 진행 중 라운드
@@ -420,8 +429,12 @@ class DataStore:
                 last_accessed=time.time(),
             )
         except OSError as exc:
-            logger.error("session_save_failed — session_id=%s: %s", self._session_id, exc)
-            raise SessionSaveError(f"세션 저장에 실패했습니다: {self._session_id}") from exc
+            logger.error(
+                "session_save_failed — session_id=%s: %s", self._session_id, exc
+            )
+            raise SessionSaveError(
+                f"세션 저장에 실패했습니다: {self._session_id}"
+            ) from exc
 
     async def _save(self) -> None:
         lock = _get_lock(self._session_id)
@@ -595,7 +608,10 @@ class DataStore:
             await self._save_to_db()
 
     async def issue_battle_round(
-        self, item1_id: int, item2_id: int, item3_id: int | None = None,
+        self,
+        item1_id: int,
+        item2_id: int,
+        item3_id: int | None = None,
     ) -> str:
         """배틀 라운드 토큰을 발급하고 DB에 영속화합니다.
 
@@ -617,8 +633,15 @@ class DataStore:
             await self._save_to_db()
             return token
 
-    async def apply_battle_vote(self, payload: BattleVoteRequest) -> tuple[dict[str, Any], bool]:
-        from services import bt_update, hierarchical_shrinkage, display_rating, display_uncertainty
+    async def apply_battle_vote(
+        self, payload: BattleVoteRequest
+    ) -> tuple[dict[str, Any], bool]:
+        from services import (
+            bt_update,
+            hierarchical_shrinkage,
+            display_rating,
+            display_uncertainty,
+        )
 
         lock = _get_lock(self._session_id)
         async with lock:
@@ -629,7 +652,9 @@ class DataStore:
                 or active_round["item1_id"] != payload.item1_id
                 or active_round["item2_id"] != payload.item2_id
             ):
-                raise StaleBattleRoundError("이 대결은 만료되었거나 이미 처리되었습니다. 새로고침 후 다시 시도해주세요.")
+                raise StaleBattleRoundError(
+                    "이 대결은 만료되었거나 이미 처리되었습니다. 새로고침 후 다시 시도해주세요."
+                )
 
             a1 = self._get_item_from_data(payload.item1_id)
             a2 = self._get_item_from_data(payload.item2_id)
@@ -664,16 +689,26 @@ class DataStore:
                 old_mu2 = a2["mu"].get(key, 0.0)
                 old_sq2 = a2["sigma_sq"].get(key, initial_sq)
 
+                # winner는 BattleVoteRequest의 Literal["1", "2", "draw"]로 검증되지만,
+                # 향후 Vote 종류 확장 시 누락된 분기가 silent 무승부로 흡수되지 않도록 fail-fast.
                 match winner:
                     case "1":
                         outcome = 1.0
                     case "2":
                         outcome = 0.0
-                    case _:
+                    case "draw":
                         outcome = 0.5
+                    case _:
+                        raise InvalidBattleVoteError(
+                            f"기준 '{key}'에 알 수 없는 투표 값이 포함되어 있습니다: {winner!r}"
+                        )
 
                 new_mu1, new_sq1, new_mu2, new_sq2 = bt_update(
-                    old_mu1, old_sq1, old_mu2, old_sq2, outcome,
+                    old_mu1,
+                    old_sq1,
+                    old_mu2,
+                    old_sq2,
+                    outcome,
                 )
 
                 a1["mu"][key] = new_mu1
@@ -699,20 +734,22 @@ class DataStore:
                 old_disp2 = display_rating(self, old_mu2)
                 new_disp2 = display_rating(self, new_mu2)
 
-                results.append({
-                    "key": key,
-                    "label": criterion["label"],
-                    "color": criterion["color"],
-                    "winner": winner,
-                    "old_r1": round(old_disp1, 1),
-                    "new_r1": round(new_disp1, 1),
-                    "diff_r1": round(new_disp1 - old_disp1, 1),
-                    "old_r2": round(old_disp2, 1),
-                    "new_r2": round(new_disp2, 1),
-                    "diff_r2": round(new_disp2 - old_disp2, 1),
-                    "sigma1": round(display_uncertainty(self, new_sq1), 1),
-                    "sigma2": round(display_uncertainty(self, new_sq2), 1),
-                })
+                results.append(
+                    {
+                        "key": key,
+                        "label": criterion["label"],
+                        "color": criterion["color"],
+                        "winner": winner,
+                        "old_r1": round(old_disp1, 1),
+                        "new_r1": round(new_disp1, 1),
+                        "diff_r1": round(new_disp1 - old_disp1, 1),
+                        "old_r2": round(old_disp2, 1),
+                        "new_r2": round(new_disp2, 1),
+                        "diff_r2": round(new_disp2 - old_disp2, 1),
+                        "sigma1": round(display_uncertainty(self, new_sq1), 1),
+                        "sigma2": round(display_uncertainty(self, new_sq2), 1),
+                    }
+                )
 
             # 모든 기준 업데이트 후 계층적 축소
             if self._data["settings"]["hierarchical_strength"] > 0:
@@ -737,15 +774,22 @@ class DataStore:
                 False,  # 정규화 불필요 — Bayesian prior가 대체
             )
 
-    async def apply_three_way_vote(self, payload: "ThreeWayBattleVoteRequest") -> dict[str, Any]:
+    async def apply_three_way_vote(
+        self, payload: "ThreeWayBattleVoteRequest"
+    ) -> dict[str, Any]:
         """3-way 배틀 투표를 처리합니다.
 
         기준별 best/worst 선택을 3개 쌍대비교로 분해하여 BT 업데이트합니다.
         동시 업데이트: 원본 값에서 모든 그래디언트를 계산 후 일괄 적용하여
         순차 적용 시 발생하는 업데이트 순서 편향을 제거합니다.
         """
-        from schemas import ThreeWayBattleVoteRequest  # noqa: F811
-        from services import sigmoid, _SIGMA_SQ_FLOOR, hierarchical_shrinkage, display_rating, display_uncertainty
+        from services import (
+            sigmoid,
+            _SIGMA_SQ_FLOOR,
+            hierarchical_shrinkage,
+            display_rating,
+            display_uncertainty,
+        )
 
         lock = _get_lock(self._session_id)
         async with lock:
@@ -757,7 +801,9 @@ class DataStore:
                 or active_round["item2_id"] != payload.item2_id
                 or active_round.get("item3_id") != payload.item3_id
             ):
-                raise StaleBattleRoundError("이 대결은 만료되었거나 이미 처리되었습니다. 새로고침 후 다시 시도해주세요.")
+                raise StaleBattleRoundError(
+                    "이 대결은 만료되었거나 이미 처리되었습니다. 새로고침 후 다시 시도해주세요."
+                )
 
             item_ids = [payload.item1_id, payload.item2_id, payload.item3_id]
             items_3 = [self._get_item_from_data(iid) for iid in item_ids]
@@ -789,13 +835,25 @@ class DataStore:
                 vote = payload.votes[key]
 
                 # best/worst/tied ID 추출
+                # id_key는 클라이언트에서 문자열로 전달되므로 정수 변환·중복·소속 검증을 모두 InvalidBattleVoteError로 통일
                 best_id: int | None = None
                 worst_id: int | None = None
                 tied_ids: list[int] = []
                 best_count = 0
                 worst_count = 0
+                seen_item_ids: set[int] = set()
                 for id_key, role in vote.items():
-                    item_id = int(id_key)
+                    try:
+                        item_id = int(id_key)
+                    except (TypeError, ValueError):
+                        raise InvalidBattleVoteError(
+                            f"기준 '{key}'에 숫자가 아닌 항목 ID가 포함되어 있습니다: {id_key!r}"
+                        )
+                    if item_id in seen_item_ids:
+                        raise InvalidBattleVoteError(
+                            f"기준 '{key}'에서 항목 ID {item_id}가 중복 등장했습니다."
+                        )
+                    seen_item_ids.add(item_id)
                     if role == "best":
                         best_id = item_id
                         best_count += 1
@@ -822,7 +880,9 @@ class DataStore:
 
                 if best_id is not None and worst_id is None and len(tied_ids) == 2:
                     # Mode A: best only — best 1명 + tied 2명
-                    if best_id not in item_ids or any(t not in item_ids for t in tied_ids):
+                    if best_id not in item_ids or any(
+                        t not in item_ids for t in tied_ids
+                    ):
                         raise InvalidBattleVoteError(
                             f"기준 '{key}'의 투표 ID가 대결 항목에 없습니다."
                         )
@@ -833,7 +893,9 @@ class DataStore:
                         (tied_a, tied_b, 0.5),
                     ]
 
-                elif best_id is not None and worst_id is not None and len(tied_ids) == 0:
+                elif (
+                    best_id is not None and worst_id is not None and len(tied_ids) == 0
+                ):
                     # Mode B: 순위 완전 결정 — best > middle > worst
                     if best_id not in item_ids or worst_id not in item_ids:
                         raise InvalidBattleVoteError(
@@ -843,7 +905,9 @@ class DataStore:
                         raise InvalidBattleVoteError(
                             f"기준 '{key}'에서 best와 worst가 같을 수 없습니다."
                         )
-                    middle_id_result = [iid for iid in item_ids if iid != best_id and iid != worst_id][0]
+                    middle_id_result = [
+                        iid for iid in item_ids if iid != best_id and iid != worst_id
+                    ][0]
                     pairs = [
                         (best_id, middle_id_result, 1.0),
                         (best_id, worst_id, 1.0),
@@ -852,7 +916,9 @@ class DataStore:
 
                 elif best_id is None and worst_id is not None and len(tied_ids) == 2:
                     # Mode C: worst only — worst 1명 + tied 2명
-                    if worst_id not in item_ids or any(t not in item_ids for t in tied_ids):
+                    if worst_id not in item_ids or any(
+                        t not in item_ids for t in tied_ids
+                    ):
                         raise InvalidBattleVoteError(
                             f"기준 '{key}'의 투표 ID가 대결 항목에 없습니다."
                         )
@@ -880,12 +946,24 @@ class DataStore:
                     raise InvalidBattleVoteError(
                         f"기준 '{key}'의 투표 조합이 올바르지 않습니다."
                     )
+
+                # 방어: 모드 분해 후 자기 자신과의 비교 쌍이 절대 발생하지 않도록 검증
+                # (정상 경로에서는 위의 seen_item_ids·item_ids 검증으로 차단되지만 회귀 시 명시 실패)
+                for a_id, b_id, _ in pairs:
+                    if a_id == b_id:
+                        raise InvalidBattleVoteError(
+                            f"기준 '{key}'에서 같은 항목끼리는 비교할 수 없습니다."
+                        )
+
                 item_by_id = {item["id"]: item for item in items_3}
 
                 # 동시 업데이트: 원본 값에서 모든 그래디언트·정밀도를 계산 후 일괄 적용
                 # 순차 적용 시 후속 쌍이 이미 변경된 값을 사용하는 편향을 제거합니다.
                 orig_mu = {iid: item_by_id[iid]["mu"].get(key, 0.0) for iid in item_ids}
-                orig_sq = {iid: item_by_id[iid]["sigma_sq"].get(key, initial_sq) for iid in item_ids}
+                orig_sq = {
+                    iid: item_by_id[iid]["sigma_sq"].get(key, initial_sq)
+                    for iid in item_ids
+                }
                 grad_accum: dict[int, float] = {iid: 0.0 for iid in item_ids}
                 w_accum: dict[int, float] = {iid: 0.0 for iid in item_ids}
 
@@ -900,8 +978,12 @@ class DataStore:
 
                 for iid in item_ids:
                     prec_new = 1.0 / orig_sq[iid] + w_accum[iid]
-                    item_by_id[iid]["mu"][key] = orig_mu[iid] + grad_accum[iid] / prec_new
-                    item_by_id[iid]["sigma_sq"][key] = max(_SIGMA_SQ_FLOOR, 1.0 / prec_new)
+                    item_by_id[iid]["mu"][key] = (
+                        orig_mu[iid] + grad_accum[iid] / prec_new
+                    )
+                    item_by_id[iid]["sigma_sq"][key] = max(
+                        _SIGMA_SQ_FLOOR, 1.0 / prec_new
+                    )
 
                 # 기준별 배틀 통계 — 3 쌍 = 3 배틀
                 criterion["battles"] = criterion.get("battles", 0) + 3
@@ -913,7 +995,9 @@ class DataStore:
                 for item in items_3:
                     if "criterion_matches" not in item:
                         item["criterion_matches"] = {}
-                    item["criterion_matches"][key] = item["criterion_matches"].get(key, 0) + 2
+                    item["criterion_matches"][key] = (
+                        item["criterion_matches"].get(key, 0) + 2
+                    )
 
                 # 결과 수집
                 new_ratings: dict[str, float] = {}
@@ -924,19 +1008,26 @@ class DataStore:
                     new_r = display_rating(self, item["mu"].get(key, 0.0))
                     new_ratings[k] = round(new_r, 1)
                     diffs[k] = round(new_r - old_ratings[k], 1)
-                    sigmas[k] = round(display_uncertainty(self, item["sigma_sq"].get(key, initial_sq)), 1)
+                    sigmas[k] = round(
+                        display_uncertainty(
+                            self, item["sigma_sq"].get(key, initial_sq)
+                        ),
+                        1,
+                    )
 
-                results.append({
-                    "key": key,
-                    "label": criterion["label"],
-                    "color": criterion["color"],
-                    "best_id": best_id_result,
-                    "worst_id": worst_id_result,
-                    "middle_id": middle_id_result,
-                    "ratings": new_ratings,
-                    "diffs": diffs,
-                    "sigmas": sigmas,
-                })
+                results.append(
+                    {
+                        "key": key,
+                        "label": criterion["label"],
+                        "color": criterion["color"],
+                        "best_id": best_id_result,
+                        "worst_id": worst_id_result,
+                        "middle_id": middle_id_result,
+                        "ratings": new_ratings,
+                        "diffs": diffs,
+                        "sigmas": sigmas,
+                    }
+                )
 
             # 계층적 축소
             if self._data["settings"]["hierarchical_strength"] > 0:
@@ -986,7 +1077,8 @@ async def session_exists(session_id: str) -> bool:
     """세션이 DB에 존재하는지 확인합니다."""
     db = get_db()
     async with db.execute(
-        "SELECT 1 FROM sessions WHERE id = ?", (session_id,),
+        "SELECT 1 FROM sessions WHERE id = ?",
+        (session_id,),
     ) as cursor:
         return await cursor.fetchone() is not None
 
@@ -1004,7 +1096,8 @@ async def cleanup_expired_sessions() -> int:
     cutoff = time.time() - SESSION_TTL_SECONDS
     db = get_db()
     cursor = await db.execute(
-        "DELETE FROM sessions WHERE last_accessed < ?", (cutoff,),
+        "DELETE FROM sessions WHERE last_accessed < ?",
+        (cutoff,),
     )
     removed = cursor.rowcount
     await db.commit()
