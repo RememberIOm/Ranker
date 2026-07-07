@@ -159,8 +159,13 @@
   .mode-chip.active-mode {
     @apply border-amber-500 bg-amber-100 text-amber-800 dark:border-amber-400 dark:bg-amber-500/20 dark:text-amber-300;
   }
+  /* corner badge overlay: absolute so appearing/disappearing never resizes the button */
   .role-icon {
-    @apply mt-0.5 inline-flex min-h-5 items-center gap-1 text-xs font-bold uppercase tracking-wide empty:hidden;
+    @apply absolute top-1 right-1.5 inline-flex animate-fade-in items-center gap-1 text-[11px] font-bold uppercase tracking-wide empty:hidden;
+  }
+  /* icon only on narrow screens — the text label would overlap the centered A/B/C letter */
+  .role-icon > span {
+    @apply hidden sm:inline;
   }
 
   /* --- color swatches --- */
