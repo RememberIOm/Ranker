@@ -313,12 +313,18 @@
       btn.disabled = busy;
       btn.classList.toggle('opacity-60', busy);
     }
-    form.addEventListener('submit', function () {
-      setBusy(true);
-      /* ponytail: time-based re-enable covers cancelled hx-confirm dialogs too */
-      setTimeout(function () { setBusy(false); }, 2000);
-    });
-    form.addEventListener('htmx:afterRequest', function () { setBusy(false); });
+    if (form.hasAttribute('hx-post')) {
+      // HTMX path: disable only while a request is in flight, so a cancelled
+      // hx-confirm dialog never leaves the button stuck disabled.
+      form.addEventListener('htmx:beforeRequest', function () { setBusy(true); });
+      form.addEventListener('htmx:afterRequest', function () { setBusy(false); });
+    } else {
+      // Classic POST: stay disabled until navigation replaces the page.
+      // Skip when another handler cancelled the submit (confirm dialogs).
+      form.addEventListener('submit', function (e) {
+        if (!e.defaultPrevented) setBusy(true);
+      });
+    }
   });
 </script>
 {% endblock %}

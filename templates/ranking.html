@@ -130,11 +130,17 @@
     menu.classList.remove('hidden');
     btn.setAttribute('aria-expanded', 'true');
     // flip upward if the menu would overflow the viewport bottom
-    menu.classList.remove('bottom-full', 'mb-1');
+    // (inline styles reliably override the .dropdown-menu component defaults)
+    menu.style.top = '';
+    menu.style.bottom = '';
+    menu.style.marginTop = '';
+    menu.style.marginBottom = '';
     var rect = menu.getBoundingClientRect();
     if (rect.bottom > window.innerHeight) {
-      menu.classList.remove('top-full', 'mt-1');
-      menu.classList.add('bottom-full', 'mb-1');
+      menu.style.top = 'auto';
+      menu.style.bottom = '100%';
+      menu.style.marginTop = '0';
+      menu.style.marginBottom = '0.25rem';
     }
   }
 
