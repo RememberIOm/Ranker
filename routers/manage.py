@@ -3,7 +3,6 @@
 # 세션별 DataStore를 사용합니다.
 
 import json
-import logging
 import re
 import hashlib
 import unicodedata
@@ -12,25 +11,12 @@ from fastapi import APIRouter, Request, Form, UploadFile, File, Depends
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from pydantic import ValidationError
 
-from deps import is_htmx, require_store
-from schemas import SettingsModel
+from deps import import_json_upload, is_htmx, require_store
+from schemas import CriterionModel, SettingsModel
 from store import DataStore
 from template_env import templates
 
-logger = logging.getLogger("ranker.manage")
-
 router = APIRouter(prefix="/manage", tags=["manage"])
-
-_SETTINGS_BOUNDS: dict[str, tuple] = {
-    "initial_sigma": (0.1, 10.0),
-    "draw_prior_max": (0.0, 1.0),
-    "draw_prior_strength": (1, 1000),
-    "draw_bandwidth": (0.1, 10.0),
-    "hierarchical_strength": (0.0, 100.0),
-    "display_center": (0.0, 100000.0),
-    "display_scale": (1.0, 10000.0),
-    "result_skip_seconds": (0.5, 60.0),
-}
 
 
 def _safe_redirect(url: str, fallback: str) -> str:
@@ -52,6 +38,13 @@ def _htmx_toast(message: str, toast_type: str = "success") -> HTMLResponse:
     resp = HTMLResponse("")
     resp.headers["HX-Trigger"] = json.dumps({"showToast": {"message": message, "type": toast_type}})
     return resp
+
+
+def _form_error(request: Request, message: str) -> HTMLResponse:
+    """폼 검증 실패 응답 — HTMX면 에러 토스트, 아니면 400."""
+    if is_htmx(request):
+        return _htmx_toast(message, "error")
+    return HTMLResponse(message, status_code=400)
 
 
 @router.get("", response_class=HTMLResponse)
@@ -141,9 +134,7 @@ async def update_criteria(request: Request, store: DataStore = Depends(require_s
     weights = form.getlist("weight")
 
     if not (len(keys) == len(labels) == len(colors) == len(weights)):
-        if is_htmx(request):
-            return _htmx_toast("폼 데이터가 올바르지 않습니다.", "error")
-        return HTMLResponse("폼 데이터가 올바르지 않습니다.", status_code=400)
+        return _form_error(request, "폼 데이터가 올바르지 않습니다.")
 
     used_keys: set[str] = set()
     new_criteria = []
@@ -156,14 +147,13 @@ async def update_criteria(request: Request, store: DataStore = Depends(require_s
         key = raw_key.strip()
         if not key:
             key = _generate_key(lbl, used_keys)
+        if key in used_keys:
+            return _form_error(request, f"중복된 key가 있습니다: '{key}'")
 
         try:
             weight_val = float(w) if w else 1.0
         except ValueError:
-            msg = f"'{lbl}'의 가중치는 숫자여야 합니다."
-            if is_htmx(request):
-                return _htmx_toast(msg, "error")
-            return HTMLResponse(msg, status_code=400)
+            return _form_error(request, f"'{lbl}'의 가중치는 숫자여야 합니다.")
 
         used_keys.add(key)
         new_criteria.append({
@@ -174,12 +164,12 @@ async def update_criteria(request: Request, store: DataStore = Depends(require_s
         })
 
     try:
-        await store.set_criteria(new_criteria)
+        for criterion in new_criteria:
+            CriterionModel(**criterion)  # key 형식·weight 범위 검증
     except ValidationError as exc:
-        msg = f"기준 저장 실패: {exc.errors()[0]['msg']}"
-        if is_htmx(request):
-            return _htmx_toast(msg, "error")
-        return HTMLResponse(msg, status_code=400)
+        return _form_error(request, f"기준 저장 실패: {exc.errors()[0]['msg']}")
+
+    await store.set_criteria(new_criteria)
 
     if is_htmx(request):
         return _htmx_toast("평가 기준이 저장되었습니다.")
@@ -205,56 +195,27 @@ def _generate_key(label: str, existing: set[str]) -> str:
 # --- Settings ---
 
 
+_NUMERIC_SETTINGS_FIELDS = (
+    "initial_sigma", "draw_prior_max", "draw_prior_strength", "draw_bandwidth",
+    "hierarchical_strength", "display_center", "display_scale",
+    "result_skip_seconds",
+)
+
+
 @router.post("/settings")
 async def update_settings(request: Request, store: DataStore = Depends(require_store)) -> Response:
-
     form = await request.form()
-    patch: dict = {}
 
-    int_fields = {"draw_prior_strength"}
-    float_fields = {
-        "initial_sigma", "draw_prior_max", "draw_bandwidth",
-        "hierarchical_strength", "display_center", "display_scale",
-        "result_skip_seconds",
-    }
-    bool_fields = {"result_auto_skip"}
-    literal_fields = {"battle_mode": {"2way", "3way"}}
+    # 형변환·범위 검증은 SettingsModel에 위임 — 잘못된 값은 400으로 응답
+    patch: dict = {key: form[key] for key in _NUMERIC_SETTINGS_FIELDS if form.get(key)}
+    patch["result_auto_skip"] = "result_auto_skip" in form
+    if form.get("battle_mode") in {"2way", "3way"}:
+        patch["battle_mode"] = form["battle_mode"]
 
-    for key in int_fields:
-        val = form.get(key)
-        if val is not None and val != "":
-            parsed = int(val)
-            if key in _SETTINGS_BOUNDS:
-                lo, hi = _SETTINGS_BOUNDS[key]
-                parsed = max(lo, min(hi, parsed))
-            patch[key] = parsed
-
-    for key in float_fields:
-        val = form.get(key)
-        if val is not None and val != "":
-            parsed = float(val)
-            if key in _SETTINGS_BOUNDS:
-                lo, hi = _SETTINGS_BOUNDS[key]
-                parsed = max(lo, min(hi, parsed))
-            patch[key] = parsed
-
-    for key in bool_fields:
-        patch[key] = key in form
-
-    for key, allowed in literal_fields.items():
-        val = form.get(key)
-        if val is not None and val in allowed:
-            patch[key] = val
-
-    # Pydantic 모델로 재검증
-    merged = {**store.settings, **patch}
     try:
-        validated = SettingsModel(**merged).model_dump(mode="python")
+        validated = SettingsModel(**{**store.settings, **patch}).model_dump(mode="python")
     except ValidationError as exc:
-        msg = f"설정 값이 올바르지 않습니다: {exc.errors()[0]['msg']}"
-        if is_htmx(request):
-            return _htmx_toast(msg, "error")
-        return HTMLResponse(msg, status_code=400)
+        return _form_error(request, f"설정 값이 올바르지 않습니다: {exc.errors()[0]['msg']}")
 
     await store.update_settings(validated)
 
@@ -282,12 +243,7 @@ async def import_data(
     store: DataStore = Depends(require_store),
 ) -> Response:
     """업로드된 JSON 파일로 전체 데이터를 교체합니다."""
-    _MAX_UPLOAD_BYTES = 1_000_000
-    raw = await file.read(_MAX_UPLOAD_BYTES + 1)
-    if len(raw) > _MAX_UPLOAD_BYTES:
-        return HTMLResponse("파일 크기는 1MB를 초과할 수 없습니다.", status_code=413)
-    try:
-        await store.import_json(raw.decode("utf-8"))
-    except (UnicodeDecodeError, ValidationError, ValueError):
-        return HTMLResponse("유효하지 않은 JSON 파일입니다.", status_code=400)
+    error = await import_json_upload(file, store)
+    if error:
+        return error
     return RedirectResponse(url="/manage?tab=data", status_code=303)

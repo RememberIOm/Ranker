@@ -1,11 +1,30 @@
 # schemas.py
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 
 VoteChoice = Literal["1", "2", "draw"]
 ThreeWayRole = Literal["best", "worst", "tied"]
+
+
+def _safe_relative_path(value: str | None) -> str | None:
+    """오픈 리다이렉트 방지 — 상대 경로만 허용합니다."""
+    if value in (None, ""):
+        return None
+    if value.startswith("/") and not value.startswith("//"):
+        return value
+    raise ValueError("redirect_to는 안전한 상대 경로여야 합니다.")
+
+
+SafeRedirect = Annotated[str | None, AfterValidator(_safe_relative_path)]
 
 
 class SettingsModel(BaseModel):
@@ -138,16 +157,7 @@ class BattleVoteRequest(BaseModel):
     item2_id: int = Field(ge=1)
     round_token: str = Field(min_length=16, max_length=255)
     votes: dict[str, VoteChoice] = Field(min_length=1)
-    redirect_to: str | None = None
-
-    @field_validator("redirect_to")
-    @classmethod
-    def validate_redirect_to(cls, value: str | None) -> str | None:
-        if value in (None, ""):
-            return None
-        if value.startswith("/") and not value.startswith("//"):
-            return value
-        raise ValueError("redirect_to는 안전한 상대 경로여야 합니다.")
+    redirect_to: SafeRedirect = None
 
     @model_validator(mode="after")
     def validate_item_pair(self) -> "BattleVoteRequest":
@@ -198,16 +208,7 @@ class ThreeWayBattleVoteRequest(BaseModel):
     item3_id: int = Field(ge=1)
     round_token: str = Field(min_length=16, max_length=255)
     votes: dict[str, dict[str, ThreeWayRole]] = Field(min_length=1)
-    redirect_to: str | None = None
-
-    @field_validator("redirect_to")
-    @classmethod
-    def validate_redirect_to(cls, value: str | None) -> str | None:
-        if value in (None, ""):
-            return None
-        if value.startswith("/") and not value.startswith("//"):
-            return value
-        raise ValueError("redirect_to는 안전한 상대 경로여야 합니다.")
+    redirect_to: SafeRedirect = None
 
     @model_validator(mode="after")
     def validate_item_triple(self) -> "ThreeWayBattleVoteRequest":

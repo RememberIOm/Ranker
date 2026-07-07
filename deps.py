@@ -5,7 +5,9 @@
 import re
 import uuid
 
-from fastapi import Cookie, Request
+from fastapi import Cookie, Request, UploadFile
+from fastapi.responses import HTMLResponse
+from pydantic import ValidationError
 
 from store import DataStore, InvalidSessionDataError, get_store, session_exists
 
@@ -55,11 +57,23 @@ async def require_store(
     """
     세션이 없으면 RequiresSessionException을 발생시킵니다.
     HTML을 반환하는 라우터 엔드포인트에서 Depends(require_store)로 사용합니다.
-    DB 로드 오류는 절대 데이터를 삭제하지 않습니다 — 사용자 데이터 보호.
     """
-    if not session_id or not _is_valid_session_id(session_id) or not await session_exists(session_id):
+    store = await get_session_store(request, session_id)
+    if store is None:
         raise RequiresSessionException()
+    return store
+
+
+_MAX_UPLOAD_BYTES = 1_000_000  # 1 MB
+
+
+async def import_json_upload(file: UploadFile, store: DataStore) -> HTMLResponse | None:
+    """업로드된 JSON 파일을 store로 import합니다. 실패 시 에러 응답, 성공 시 None."""
+    raw = await file.read(_MAX_UPLOAD_BYTES + 1)
+    if len(raw) > _MAX_UPLOAD_BYTES:
+        return HTMLResponse("파일 크기는 1MB를 초과할 수 없습니다.", status_code=413)
     try:
-        return await get_store(session_id)
-    except InvalidSessionDataError:
-        raise RequiresSessionException() from None
+        await store.import_json(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValidationError, ValueError):
+        return HTMLResponse("유효하지 않은 JSON 파일입니다.", status_code=400)
+    return None

@@ -1,8 +1,6 @@
 # routers/ranking.py
 # 세션별 DataStore를 사용하여 랭킹 페이지를 렌더링합니다.
 
-import logging
-
 from fastapi import APIRouter, Request, Depends
 from fastapi.responses import HTMLResponse
 
@@ -10,8 +8,6 @@ from deps import require_store
 from services import composite_rating, display_rating, display_uncertainty
 from store import DataStore
 from template_env import templates
-
-logger = logging.getLogger("ranker.ranking")
 
 router = APIRouter(prefix="/ranking", tags=["ranking"])
 

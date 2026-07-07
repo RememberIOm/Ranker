@@ -26,7 +26,7 @@ from store import (
 from services import (
     get_match_pair,
     get_match_triple,
-    get_item_rank,
+    get_item_ranks,
     get_match_probabilities,
     display_rating,
     display_uncertainty,
@@ -74,15 +74,14 @@ def _build_battle_context(
             "probs": probs,
         })
 
-    # 순위 계산
-    rank1, total = get_item_rank(store, item1["id"])
-    rank2, _ = get_item_rank(store, item2["id"])
+    # 순위 계산 (한 번의 정렬로 두 항목 조회)
+    ranks, total = get_item_ranks(store)
 
     return {
         "item1": item1,
         "item2": item2,
-        "rank1": rank1,
-        "rank2": rank2,
+        "rank1": ranks.get(item1["id"], total),
+        "rank2": ranks.get(item2["id"], total),
         "total_items": total,
         "criteria_info": criteria_info,
         "focus_mode": focus_mode,
@@ -153,20 +152,16 @@ def _build_3way_context(
             "strengths": [s_a, s_b, s_c],
         })
 
-    ranks = []
-    for item in items_3:
-        rank, total = get_item_rank(store, item["id"])
-        ranks.append(rank)
-    total_items = total if items_3 else 0
+    ranks, total = get_item_ranks(store)
 
     return {
         "item1": item1,
         "item2": item2,
         "item3": item3,
-        "rank1": ranks[0],
-        "rank2": ranks[1],
-        "rank3": ranks[2],
-        "total_items": total_items,
+        "rank1": ranks.get(item1["id"], total),
+        "rank2": ranks.get(item2["id"], total),
+        "rank3": ranks.get(item3["id"], total),
+        "total_items": total,
         "criteria_info": criteria_info,
         "focus_mode": focus_mode,
         "focus_id": focus_id,
@@ -205,80 +200,59 @@ def _battle_template(request: Request, ctx: dict[str, Any], *, is_3way: bool) ->
     return templates.TemplateResponse(request, full, ctx)
 
 
+async def _pick_match(
+    store: DataStore, focus_id: int | None = None
+) -> tuple[dict[str, Any] | None, bool]:
+    """배틀 모드에 맞는 매치를 선정하고 라운드를 발급합니다.
+
+    3-way 모드에서 삼중항 구성이 불가하면 2-way로 fallback합니다.
+
+    Returns:
+        (ctx, is_3way) — 매치 구성 불가 시 (None, False).
+    """
+    focus_mode = focus_id is not None
+    if store.settings.get("battle_mode", "2way") == "3way":
+        item1, item2, item3 = get_match_triple(store, focus_id=focus_id)
+        if item1 and item2 and item3:
+            token = await store.issue_battle_round(item1["id"], item2["id"], item3["id"])
+            ctx = _build_3way_context(
+                store, item1, item2, item3, token, focus_mode=focus_mode, focus_id=focus_id
+            )
+            return ctx, True
+
+    item1, item2 = get_match_pair(store, focus_id=focus_id)
+    if not item1 or not item2:
+        return None, False
+    token = await store.issue_battle_round(item1["id"], item2["id"])
+    ctx = _build_battle_context(
+        store, item1, item2, token, focus_mode=focus_mode, focus_id=focus_id
+    )
+    return ctx, False
+
+
 @router.get("", response_class=HTMLResponse)
 async def get_battle(request: Request, store: DataStore = Depends(require_store)) -> HTMLResponse:
     if not store.criteria:
         return templates.TemplateResponse(request, "battle_empty.html", _EMPTY_NO_CRITERIA)
 
-    battle_mode = store.settings.get("battle_mode", "2way")
-
-    match battle_mode:
-        case "3way":
-            item1, item2, item3 = get_match_triple(store)
-            if not item1 or not item2 or not item3:
-                # 3개 미만이면 2-way로 fallback 시도
-                item1, item2 = get_match_pair(store)
-                if not item1 or not item2:
-                    ctx = {**_EMPTY_NOT_ENOUGH, "description": _EMPTY_NOT_ENOUGH["description"].format(min_count=2)}
-                    return templates.TemplateResponse(request, "battle_empty.html", ctx)
-                round_token = await store.issue_battle_round(item1["id"], item2["id"])
-                ctx = _build_battle_context(store, item1, item2, round_token)
-                return _battle_template(request, ctx, is_3way=False)
-
-            round_token = await store.issue_battle_round(item1["id"], item2["id"], item3["id"])
-            ctx = _build_3way_context(store, item1, item2, item3, round_token)
-            return _battle_template(request, ctx, is_3way=True)
-
-        case _:  # 2-way (기본)
-            item1, item2 = get_match_pair(store)
-            if not item1 or not item2:
-                ctx = {**_EMPTY_NOT_ENOUGH, "description": _EMPTY_NOT_ENOUGH["description"].format(min_count=2)}
-                return templates.TemplateResponse(request, "battle_empty.html", ctx)
-
-            round_token = await store.issue_battle_round(item1["id"], item2["id"])
-            ctx = _build_battle_context(store, item1, item2, round_token)
-            return _battle_template(request, ctx, is_3way=False)
+    ctx, is_3way = await _pick_match(store)
+    if ctx is None:
+        empty_ctx = {**_EMPTY_NOT_ENOUGH, "description": _EMPTY_NOT_ENOUGH["description"].format(min_count=2)}
+        return templates.TemplateResponse(request, "battle_empty.html", empty_ctx)
+    return _battle_template(request, ctx, is_3way=is_3way)
 
 
 @router.get("/focus/{item_id}", response_class=HTMLResponse)
 async def focus_battle(item_id: int, request: Request, store: DataStore = Depends(require_store)) -> Response:
     if not store.criteria:
         return HTMLResponse("평가 기준이 없습니다.", status_code=400)
+    if not store.get_item(item_id):
+        return HTMLResponse("존재하지 않는 항목입니다.", status_code=404)
 
-    battle_mode = store.settings.get("battle_mode", "2way")
-
-    match battle_mode:
-        case "3way":
-            item1, item2, item3 = get_match_triple(store, focus_id=item_id)
-            if not item1:
-                return HTMLResponse("존재하지 않는 항목입니다.", status_code=404)
-            if not item2 or not item3:
-                # 3-way 불가 시 2-way fallback
-                item1, item2 = get_match_pair(store, focus_id=item_id)
-                if not item1:
-                    return HTMLResponse("존재하지 않는 항목입니다.", status_code=404)
-                if not item2:
-                    return HTMLResponse("상대할 항목 데이터가 부족합니다.", status_code=200)
-                round_token = await store.issue_battle_round(item1["id"], item2["id"])
-                ctx = _build_battle_context(store, item1, item2, round_token, focus_mode=True, focus_id=item_id)
-                return _battle_template(request, ctx, is_3way=False)
-
-            round_token = await store.issue_battle_round(item1["id"], item2["id"], item3["id"])
-            ctx = _build_3way_context(store, item1, item2, item3, round_token, focus_mode=True, focus_id=item_id)
-            return _battle_template(request, ctx, is_3way=True)
-
-        case _:  # 2-way
-            item1, item2 = get_match_pair(store, focus_id=item_id)
-            if not item1:
-                return HTMLResponse("존재하지 않는 항목입니다.", status_code=404)
-            if not item2:
-                return HTMLResponse("상대할 항목 데이터가 부족합니다.", status_code=200)
-
-            round_token = await store.issue_battle_round(item1["id"], item2["id"])
-            ctx = _build_battle_context(
-                store, item1, item2, round_token, focus_mode=True, focus_id=item_id
-            )
-            return _battle_template(request, ctx, is_3way=False)
+    ctx, is_3way = await _pick_match(store, focus_id=item_id)
+    if ctx is None:
+        return HTMLResponse("상대할 항목 데이터가 부족합니다.", status_code=200)
+    return _battle_template(request, ctx, is_3way=is_3way)
 
 
 def _parse_focus_id(redirect_to: str | None) -> int | None:
@@ -289,48 +263,52 @@ def _parse_focus_id(redirect_to: str | None) -> int | None:
     return int(m.group(1)) if m else None
 
 
-async def _render_next_battle(
-    store: DataStore,
-    redirect_to: str | None,
-) -> tuple[str, bool]:
-    """다음 배틀 카드 HTML을 렌더링합니다. (html, is_3way) 반환. 실패 시 빈 문자열."""
+async def _render_next_battle(store: DataStore, redirect_to: str | None) -> str:
+    """다음 배틀 카드 HTML을 렌더링합니다. 실패 시 빈 문자열."""
     try:
-        focus_id = _parse_focus_id(redirect_to)
-        focus_mode = focus_id is not None
-        battle_mode = store.settings.get("battle_mode", "2way")
-        env = templates.env
-
-        if battle_mode == "3way":
-            if focus_mode:
-                item1, item2, item3 = get_match_triple(store, focus_id=focus_id)
-            else:
-                item1, item2, item3 = get_match_triple(store)
-
-            if item1 and item2 and item3:
-                round_token = await store.issue_battle_round(item1["id"], item2["id"], item3["id"])
-                ctx = _build_3way_context(store, item1, item2, item3, round_token, focus_mode=focus_mode, focus_id=focus_id)
-                return env.get_template("partials/battle_3way_cards.html").render(**ctx), True
-
-            # 3-way 불가 → 2-way fallback
-            if focus_mode:
-                item1, item2 = get_match_pair(store, focus_id=focus_id)
-            else:
-                item1, item2 = get_match_pair(store)
-        else:
-            if focus_mode:
-                item1, item2 = get_match_pair(store, focus_id=focus_id)
-            else:
-                item1, item2 = get_match_pair(store)
-
-        if not item1 or not item2:
-            return "", False
-
-        round_token = await store.issue_battle_round(item1["id"], item2["id"])
-        ctx = _build_battle_context(store, item1, item2, round_token, focus_mode=focus_mode, focus_id=focus_id)
-        return env.get_template("partials/battle_cards.html").render(**ctx), False
+        ctx, is_3way = await _pick_match(store, focus_id=_parse_focus_id(redirect_to))
+        if ctx is None:
+            return ""
+        partial = "partials/battle_3way_cards.html" if is_3way else "partials/battle_cards.html"
+        return templates.env.get_template(partial).render(**ctx)
     except Exception:
         logger.exception("next_battle_render_failed")
-        return "", False
+        return ""
+
+
+async def _apply_vote(coro: Any, session_id: str | None) -> dict[str, Any]:
+    """store 계층의 투표 예외를 HTTP 응답 코드로 변환합니다."""
+    try:
+        return await coro
+    except BattleItemNotFoundError as exc:
+        logger.warning("battle_item_not_found — session_id=%s", session_id)
+        raise HTTPException(status_code=404, detail="대결 항목을 찾을 수 없습니다.") from exc
+    except StaleBattleRoundError as exc:
+        logger.warning("stale_round — session_id=%s", session_id)
+        raise HTTPException(status_code=409, detail="대결이 만료되었습니다. 새로고침 후 다시 시도해주세요.") from exc
+    except InvalidBattleVoteError as exc:
+        logger.warning("invalid_vote — session_id=%s: %s", session_id, exc)
+        raise HTTPException(status_code=422, detail="투표 데이터가 올바르지 않습니다.") from exc
+    except SessionSaveError as exc:
+        raise HTTPException(status_code=500, detail="세션 저장에 실패했습니다. 잠시 후 다시 시도해주세요.") from exc
+
+
+async def _htmx_vote_response(
+    store: DataStore,
+    response_data: dict[str, Any],
+    result_template: str,
+    redirect_to: str | None,
+) -> HTMLResponse:
+    """결과 모달 HTML + OOB 다음 배틀 카드를 조립합니다."""
+    result_html = templates.env.get_template(result_template).render(
+        **response_data,
+        result_auto_skip=store.settings.get("result_auto_skip", False),
+        result_skip_seconds=store.settings.get("result_skip_seconds", 3.0),
+    )
+    next_html = await _render_next_battle(store, redirect_to)
+    if next_html:
+        result_html += f'\n<div id="battle-arena" hx-swap-oob="innerHTML">{next_html}</div>'
+    return HTMLResponse(content=result_html)
 
 
 @router.post("/vote")
@@ -344,41 +322,12 @@ async def vote(
     if not store:
         raise HTTPException(status_code=401, detail="No active session")
 
-    try:
-        response_data, _ = await store.apply_battle_vote(payload)
-    except BattleItemNotFoundError as exc:
-        logger.warning("battle_item_not_found — session_id=%s", session_id)
-        raise HTTPException(status_code=404, detail="대결 항목을 찾을 수 없습니다.") from exc
-    except StaleBattleRoundError as exc:
-        logger.warning("stale_round — session_id=%s", session_id)
-        raise HTTPException(status_code=409, detail="대결이 만료되었습니다. 새로고침 후 다시 시도해주세요.") from exc
-    except InvalidBattleVoteError as exc:
-        logger.warning("invalid_vote — session_id=%s: %s", session_id, exc)
-        raise HTTPException(status_code=422, detail="투표 데이터가 올바르지 않습니다.") from exc
-    except SessionSaveError as exc:
-        raise HTTPException(status_code=500, detail="세션 저장에 실패했습니다. 잠시 후 다시 시도해주세요.") from exc
-
+    response_data = await _apply_vote(store.apply_battle_vote(payload), session_id)
     if not is_htmx(request):
         return BattleVoteResponse(**response_data)
-
-    # HTMX: 결과 모달 HTML + OOB 다음 배틀 카드
-    env = templates.env
-    result_ctx = {
-        "a1_name": response_data["a1_name"],
-        "a2_name": response_data["a2_name"],
-        "results": response_data["results"],
-        "next_url": response_data["next_url"],
-        "result_auto_skip": store.settings.get("result_auto_skip", False),
-        "result_skip_seconds": store.settings.get("result_skip_seconds", 3.0),
-    }
-    result_html = env.get_template("partials/battle_result.html").render(**result_ctx)
-
-    next_html, _ = await _render_next_battle(store, payload.redirect_to)
-
-    combined = result_html
-    if next_html:
-        combined += f'\n<div id="battle-arena" hx-swap-oob="innerHTML">{next_html}</div>'
-    return HTMLResponse(content=combined)
+    return await _htmx_vote_response(
+        store, response_data, "partials/battle_result.html", payload.redirect_to
+    )
 
 
 @router.post("/vote/3way")
@@ -392,42 +341,9 @@ async def vote_3way(
     if not store:
         raise HTTPException(status_code=401, detail="No active session")
 
-    try:
-        response_data = await store.apply_three_way_vote(payload)
-    except BattleItemNotFoundError as exc:
-        logger.warning("3way_item_not_found — session_id=%s", session_id)
-        raise HTTPException(status_code=404, detail="대결 항목을 찾을 수 없습니다.") from exc
-    except StaleBattleRoundError as exc:
-        logger.warning("3way_stale_round — session_id=%s", session_id)
-        raise HTTPException(status_code=409, detail="대결이 만료되었습니다. 새로고침 후 다시 시도해주세요.") from exc
-    except InvalidBattleVoteError as exc:
-        logger.warning("3way_invalid_vote — session_id=%s: %s", session_id, exc)
-        raise HTTPException(status_code=422, detail="투표 데이터가 올바르지 않습니다.") from exc
-    except SessionSaveError as exc:
-        raise HTTPException(status_code=500, detail="세션 저장에 실패했습니다. 잠시 후 다시 시도해주세요.") from exc
-
+    response_data = await _apply_vote(store.apply_three_way_vote(payload), session_id)
     if not is_htmx(request):
         return ThreeWayBattleVoteResponse(**response_data)
-
-    # HTMX: 결과 모달 HTML + OOB 다음 배틀 카드
-    env = templates.env
-    result_ctx = {
-        "a1_id": response_data["a1_id"],
-        "a2_id": response_data["a2_id"],
-        "a3_id": response_data["a3_id"],
-        "a1_name": response_data["a1_name"],
-        "a2_name": response_data["a2_name"],
-        "a3_name": response_data["a3_name"],
-        "results": response_data["results"],
-        "next_url": response_data["next_url"],
-        "result_auto_skip": store.settings.get("result_auto_skip", False),
-        "result_skip_seconds": store.settings.get("result_skip_seconds", 3.0),
-    }
-    result_html = env.get_template("partials/battle_3way_result.html").render(**result_ctx)
-
-    next_html, _ = await _render_next_battle(store, payload.redirect_to)
-
-    combined = result_html
-    if next_html:
-        combined += f'\n<div id="battle-arena" hx-swap-oob="innerHTML">{next_html}</div>'
-    return HTMLResponse(content=combined)
+    return await _htmx_vote_response(
+        store, response_data, "partials/battle_3way_result.html", payload.redirect_to
+    )

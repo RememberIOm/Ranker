@@ -362,23 +362,25 @@ def get_match_triple(
 # --- Ranking ---
 
 
+def get_item_ranks(store: DataStore) -> tuple[dict[int, int], int]:
+    """전체 항목의 {item_id: rank} 맵과 총 항목 수를 반환합니다 (rank=1이 최고).
+
+    한 번의 정렬로 여러 항목의 순위를 조회할 때 사용합니다.
+    """
+    scores = sorted(
+        ((composite_rating(store, item), item["id"]) for item in store.items),
+        key=lambda x: x[0],
+        reverse=True,
+    )
+    return {iid: i + 1 for i, (_, iid) in enumerate(scores)}, len(scores)
+
+
 def get_item_rank(store: DataStore, item_id: int) -> tuple[int, int]:
     """가중 합산 점수 기준으로 item_id의 순위를 반환합니다.
 
     Returns:
         (rank, total): rank=1이 최고, total은 전체 항목 수.
-        항목이 없으면 (0, 0) 반환.
+        item_id가 목록에 없으면 (total, total)을 반환합니다 (최하위 취급).
     """
-    items = store.items
-    if not items:
-        return 0, 0
-
-    scores: list[tuple[float, int]] = [
-        (composite_rating(store, item), item["id"]) for item in items
-    ]
-    scores.sort(key=lambda x: x[0], reverse=True)
-    total = len(scores)
-    for i, (_, iid) in enumerate(scores):
-        if iid == item_id:
-            return i + 1, total
-    return total, total
+    ranks, total = get_item_ranks(store)
+    return ranks.get(item_id, total), total

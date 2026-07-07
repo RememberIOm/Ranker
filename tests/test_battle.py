@@ -38,32 +38,11 @@ class TestBattleVoteValidation:
             redirect_to="/battle",
         )
 
-        result, should_normalize = await store_with_items.apply_battle_vote(payload)
+        result = await store_with_items.apply_battle_vote(payload)
         assert result["a1_id"] == item1["id"]
-        assert should_normalize is False
 
         with pytest.raises(store.StaleBattleRoundError):
             await store_with_items.apply_battle_vote(payload)
-
-    async def test_apply_battle_vote_never_normalizes(
-        self, store_with_items: store.DataStore
-    ) -> None:
-        """Bayesian BT에서는 정규화가 불필요 — should_normalize 항상 False"""
-        item1 = store_with_items.items[0]
-        item2 = store_with_items.items[1]
-        votes = {criterion["key"]: "1" for criterion in store_with_items.criteria}
-
-        for _ in range(5):
-            token = await store_with_items.issue_battle_round(item1["id"], item2["id"])
-            payload = BattleVoteRequest(
-                item1_id=item1["id"],
-                item2_id=item2["id"],
-                round_token=token,
-                votes=votes,
-                redirect_to="/battle",
-            )
-            _, should_normalize = await store_with_items.apply_battle_vote(payload)
-            assert should_normalize is False
 
     async def test_unknown_winner_value_raises(
         self, store_with_items: store.DataStore
@@ -107,7 +86,7 @@ class TestBattleVoteValidation:
             votes=votes,
             redirect_to="/battle",
         )
-        result, _ = await store_with_items.apply_battle_vote(payload)
+        result = await store_with_items.apply_battle_vote(payload)
         for r in result["results"]:
             assert "sigma1" in r
             assert "sigma2" in r

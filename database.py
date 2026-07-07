@@ -1,6 +1,7 @@
 # database.py
 # SQLite 데이터베이스 초기화, 커넥션 관리, JSON 마이그레이션을 담당합니다.
 
+import asyncio
 import json
 import logging
 import os
@@ -17,6 +18,11 @@ logger = logging.getLogger("ranker.database")
 DB_PATH: Path = Path(os.getenv("DATABASE_PATH", "./data/ranker.db"))
 
 _connection: aiosqlite.Connection | None = None
+
+# 단일 커넥션을 모든 코루틴이 공유하므로, 멀티 스테이트먼트 트랜잭션 중간에
+# 다른 코루틴의 execute/commit이 끼어들면 트랜잭션이 뒤섞입니다.
+# 모든 DB 쓰기는 이 락을 잡고 수행해야 합니다.
+db_write_lock = asyncio.Lock()
 
 _SCHEMA_SQL = """\
 PRAGMA journal_mode=WAL;
@@ -162,57 +168,58 @@ async def _insert_session_data(
     """세션 데이터를 DB에 삽입합니다 (단일 트랜잭션)."""
     settings_json = json.dumps(data["settings"], ensure_ascii=False)
 
-    await db.execute("BEGIN IMMEDIATE")
-    try:
-        await db.execute(
-            "INSERT OR REPLACE INTO sessions (id, settings, created_at, last_accessed) VALUES (?, ?, ?, ?)",
-            (session_id, settings_json, created_at, last_accessed),
-        )
-
-        await db.execute("DELETE FROM criteria WHERE session_id = ?", (session_id,))
-        await db.executemany(
-            "INSERT INTO criteria (session_id, key, label, color, weight, battles, draws, sort_order) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            [
-                (session_id, c["key"], c["label"], c["color"], c["weight"], c.get("battles", 0), c.get("draws", 0), i)
-                for i, c in enumerate(data["criteria"])
-            ],
-        )
-
-        await db.execute("DELETE FROM items WHERE session_id = ?", (session_id,))
-        await db.executemany(
-            "INSERT INTO items (session_id, id, name, matches_played) VALUES (?, ?, ?, ?)",
-            [(session_id, item["id"], item["name"], item["matches_played"]) for item in data["items"]],
-        )
-
-        ratings_rows: list[tuple[str, int, str, float, float, int]] = []
-        for item in data["items"]:
-            for key in item["mu"]:
-                ratings_rows.append((
-                    session_id,
-                    item["id"],
-                    key,
-                    item["mu"][key],
-                    item["sigma_sq"][key],
-                    item.get("criterion_matches", {}).get(key, 0),
-                ))
-        if ratings_rows:
-            await db.executemany(
-                "INSERT INTO item_ratings (session_id, item_id, criterion_key, mu, sigma_sq, criterion_matches) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                ratings_rows,
-            )
-
-        await db.execute("DELETE FROM active_rounds WHERE session_id = ?", (session_id,))
-        ar = data.get("active_round")
-        if ar:
+    async with db_write_lock:
+        await db.execute("BEGIN IMMEDIATE")
+        try:
             await db.execute(
-                "INSERT INTO active_rounds (session_id, token, item1_id, item2_id, item3_id, issued_at) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (session_id, ar["token"], ar["item1_id"], ar["item2_id"], ar.get("item3_id"), ar["issued_at"]),
+                "INSERT OR REPLACE INTO sessions (id, settings, created_at, last_accessed) VALUES (?, ?, ?, ?)",
+                (session_id, settings_json, created_at, last_accessed),
             )
 
-        await db.commit()
-    except Exception:
-        await db.rollback()
-        raise
+            await db.execute("DELETE FROM criteria WHERE session_id = ?", (session_id,))
+            await db.executemany(
+                "INSERT INTO criteria (session_id, key, label, color, weight, battles, draws, sort_order) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    (session_id, c["key"], c["label"], c["color"], c["weight"], c.get("battles", 0), c.get("draws", 0), i)
+                    for i, c in enumerate(data["criteria"])
+                ],
+            )
+
+            await db.execute("DELETE FROM items WHERE session_id = ?", (session_id,))
+            await db.executemany(
+                "INSERT INTO items (session_id, id, name, matches_played) VALUES (?, ?, ?, ?)",
+                [(session_id, item["id"], item["name"], item["matches_played"]) for item in data["items"]],
+            )
+
+            ratings_rows: list[tuple[str, int, str, float, float, int]] = []
+            for item in data["items"]:
+                for key in item["mu"]:
+                    ratings_rows.append((
+                        session_id,
+                        item["id"],
+                        key,
+                        item["mu"][key],
+                        item["sigma_sq"][key],
+                        item.get("criterion_matches", {}).get(key, 0),
+                    ))
+            if ratings_rows:
+                await db.executemany(
+                    "INSERT INTO item_ratings (session_id, item_id, criterion_key, mu, sigma_sq, criterion_matches) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    ratings_rows,
+                )
+
+            await db.execute("DELETE FROM active_rounds WHERE session_id = ?", (session_id,))
+            ar = data.get("active_round")
+            if ar:
+                await db.execute(
+                    "INSERT INTO active_rounds (session_id, token, item1_id, item2_id, item3_id, issued_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (session_id, ar["token"], ar["item1_id"], ar["item2_id"], ar.get("item3_id"), ar["issued_at"]),
+                )
+
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            raise

@@ -9,13 +9,17 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request, UploadFile, File
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import ValidationError
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from database import init_db, close_db, migrate_json_sessions
-from deps import create_session_id, get_session_store, RequiresSessionException
+from deps import (
+    RequiresSessionException,
+    create_session_id,
+    get_session_store,
+    import_json_upload,
+)
 from store import (
     SESSION_TTL_SECONDS,
     SessionSaveError,
@@ -35,6 +39,15 @@ def _env_flag(name: str, default: bool = False) -> bool:
 
 
 COOKIE_SECURE = _env_flag("COOKIE_SECURE", False)
+
+
+def _set_session_cookie(response: Response, session_id: str) -> None:
+    response.set_cookie(
+        key="session_id", value=session_id,
+        max_age=SESSION_TTL_SECONDS,
+        httponly=True, samesite="strict",
+        secure=COOKIE_SECURE,
+    )
 
 logging.basicConfig(
     level=logging.INFO,
@@ -109,12 +122,7 @@ class SessionCookieRefreshMiddleware(BaseHTTPMiddleware):
             return response
         session_id = request.cookies.get("session_id")
         if session_id and await session_exists(session_id):
-            response.set_cookie(
-                key="session_id", value=session_id,
-                max_age=SESSION_TTL_SECONDS,
-                httponly=True, samesite="strict",
-                secure=COOKIE_SECURE,
-            )
+            _set_session_cookie(response, session_id)
         return response
 
 
@@ -164,16 +172,8 @@ async def start_new_session():
     await store.save()
 
     response = RedirectResponse(url="/manage", status_code=303)
-    response.set_cookie(
-        key="session_id", value=sid,
-        max_age=SESSION_TTL_SECONDS,
-        httponly=True, samesite="strict",
-        secure=COOKIE_SECURE,
-    )
+    _set_session_cookie(response, sid)
     return response
-
-
-_MAX_UPLOAD_BYTES = 1_000_000  # 1 MB
 
 
 @app.post("/upload")
@@ -182,21 +182,12 @@ async def upload_session(file: UploadFile = File(...)):
     sid = create_session_id()
     store = await get_store(sid)
 
-    raw = await file.read(_MAX_UPLOAD_BYTES + 1)
-    if len(raw) > _MAX_UPLOAD_BYTES:
-        return HTMLResponse("파일 크기는 1MB를 초과할 수 없습니다.", status_code=413)
-    try:
-        await store.import_json(raw.decode("utf-8"))
-    except (UnicodeDecodeError, ValidationError, ValueError):
-        return HTMLResponse("유효하지 않은 JSON 파일입니다.", status_code=400)
+    error = await import_json_upload(file, store)
+    if error:
+        return error
 
     response = RedirectResponse(url="/battle", status_code=303)
-    response.set_cookie(
-        key="session_id", value=sid,
-        max_age=SESSION_TTL_SECONDS,
-        httponly=True, samesite="strict",
-        secure=COOKIE_SECURE,
-    )
+    _set_session_cookie(response, sid)
     return response
 
 
