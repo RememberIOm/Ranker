@@ -58,7 +58,7 @@
     </div>
 
     <div class="mb-3 flex flex-wrap items-center gap-2">
-      <span class="mr-auto text-sm font-extrabold tracking-wide uppercase text-{{ c.color }}-600 dark:text-{{ c.color }}-400">{{ c.label }}</span>
+      <span class="mr-auto text-xl font-extrabold tracking-wide uppercase text-{{ c.color }}-600 dark:text-{{ c.color }}-400">{{ c.label }}</span>
       <button type="button" id="tied-btn-{{ c.key }}" class="mode-chip hidden" onclick="toggleTied('{{ c.key }}')" title="나머지 두 항목이 비슷하면 클릭">≈ 나머지 비슷</button>
       <button type="button" id="worst-only-btn-{{ c.key }}" class="mode-chip hidden" onclick="toggleWorstOnly('{{ c.key }}')" title="이 항목만 Worst로 표시">⬇ 이것만 Worst</button>
       <button type="button" id="all-tied-btn-{{ c.key }}" class="mode-chip" onclick="toggleAllTied('{{ c.key }}')" title="셋 다 비슷">≈ 모두 비슷</button>

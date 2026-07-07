@@ -67,7 +67,7 @@
       </button>
       <button type="button" id="btn-{{ c.key }}-draw" class="vote-btn min-w-24 sm:min-w-32" onclick="selectVote('{{ c.key }}','draw')"
               aria-pressed="false" aria-label="{{ c.label }} — 무승부 선택">
-        <span class="max-w-full truncate text-sm font-extrabold tracking-wide uppercase text-{{ c.color }}-600 dark:text-{{ c.color }}-400">{{ c.label }}</span>
+        <span class="max-w-full truncate text-lg font-extrabold tracking-wide uppercase text-{{ c.color }}-600 dark:text-{{ c.color }}-400">{{ c.label }}</span>
         <span class="text-xs font-semibold text-zinc-500 tabular-nums dark:text-zinc-400">Draw &middot; {{ c.probs.draw }}%</span>
       </button>
       <button type="button" id="btn-{{ c.key }}-2" class="vote-btn" onclick="selectVote('{{ c.key }}','2')"
