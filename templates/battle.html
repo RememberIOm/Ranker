@@ -1,369 +1,276 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div id="battle-arena" aria-live="polite">
+<div class="mx-auto max-w-3xl">
+  <div id="battle-arena" aria-live="polite">
     {% include "partials/battle_cards.html" %}
+  </div>
+  <div id="result-modal-container"></div>
 </div>
-<div id="result-modal-container"></div>
-
-<style>
-    /* 2-way 선택 상태 — 색상이 모드별로 다르므로 페이지 로컬 유지 */
-    .vote-btn.selected-1 {
-        background: linear-gradient(135deg, rgba(139, 92, 246, 0.15), rgba(139, 92, 246, 0.05));
-        box-shadow: inset 0 0 0 2px rgba(139, 92, 246, 0.5);
-    }
-    .dark .vote-btn.selected-1 {
-        background: linear-gradient(135deg, rgba(139, 92, 246, 0.25), rgba(139, 92, 246, 0.1));
-    }
-    .vote-btn.selected-draw {
-        background: linear-gradient(135deg, rgba(156, 163, 175, 0.2), rgba(156, 163, 175, 0.05));
-        box-shadow: inset 0 0 0 2px rgba(156, 163, 175, 0.5);
-    }
-    .dark .vote-btn.selected-draw {
-        background: linear-gradient(135deg, rgba(156, 163, 175, 0.25), rgba(156, 163, 175, 0.1));
-    }
-    .vote-btn.selected-2 {
-        background: linear-gradient(135deg, rgba(236, 72, 153, 0.15), rgba(236, 72, 153, 0.05));
-        box-shadow: inset 0 0 0 2px rgba(236, 72, 153, 0.5);
-    }
-    .dark .vote-btn.selected-2 {
-        background: linear-gradient(135deg, rgba(236, 72, 153, 0.25), rgba(236, 72, 153, 0.1));
-    }
-    .criteria-card.voted {
-        border-color: rgba(139, 92, 246, 0.3);
-    }
-    .dark .criteria-card.voted {
-        border-color: rgba(139, 92, 246, 0.4);
-    }
-</style>
-
 {% endblock %}
 
 {% block scripts %}
 <script>
-    // --- State (let — reinit 시 재할당 필요) ---
-    let item1Id = {{ item1.id }};
-    let item2Id = {{ item2.id }};
-    let roundToken = {{ round_token | tojson }};
-    let redirectTo = {% if focus_mode %}{{ ("/battle/focus/" ~ focus_id) | tojson }}{% else %}""{% endif %};
-    const criteriaKeys = {{ criteria_info | map(attribute = 'key') | list | tojson }};
-    let totalCriteria = criteriaKeys.length;
-    const votes = {};
-    let isSubmitting = false;
+  /* ================= 2-way battle state ================= */
+  var item1Id, item2Id, roundToken, redirectTo, criteriaKeys;
+  var votes = {};
+  var isSubmitting = false;
 
-    // --- Vote Selection ---
-    function selectVote(key, choice) {
-        votes[key] = choice;
-        ['1', 'draw', '2'].forEach(c => {
-            const btn = document.getElementById(`btn-${key}-${c}`);
-            btn.classList.remove('selected-1', 'selected-2', 'selected-draw');
-            btn.setAttribute('aria-pressed', c === choice ? 'true' : 'false');
-        });
-        document.getElementById(`btn-${key}-${choice}`).classList.add(`selected-${choice}`);
-        document.querySelector(`.criteria-card[data-key="${key}"]`).classList.add('voted');
-        updateProgress();
-    }
+  var SUBMIT_BTN_LABEL = document.getElementById('submit-btn').innerHTML;
+  var SPINNER_HTML = '<svg class="h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 0 1 8-8v4a4 4 0 0 0-4 4H4z"></path></svg><span>처리 중...</span>';
+  var RING_CIRCUMFERENCE = 87.96;
 
-    function selectAllAs(choice) {
-        criteriaKeys.forEach(key => selectVote(key, choice));
-    }
+  function readBattleState() {
+    var st = document.getElementById('battle-state');
+    item1Id = parseInt(st.dataset.item1Id, 10);
+    item2Id = parseInt(st.dataset.item2Id, 10);
+    roundToken = st.dataset.roundToken;
+    redirectTo = st.dataset.redirectTo || '';
+    criteriaKeys = JSON.parse(st.dataset.criteriaKeys || '[]');
+  }
+  readBattleState();
 
-    function clearAll() {
-        criteriaKeys.forEach(key => {
-            delete votes[key];
-            ['1', 'draw', '2'].forEach(c => {
-                const btn = document.getElementById(`btn-${key}-${c}`);
-                btn.classList.remove('selected-1', 'selected-2', 'selected-draw');
-                btn.setAttribute('aria-pressed', 'false');
-            });
-            document.querySelector(`.criteria-card[data-key="${key}"]`).classList.remove('voted');
-        });
-        updateProgress();
-    }
-
-    // --- Progress ---
-    function updateProgress() {
-        const count = Object.keys(votes).length;
-        const pct = count / totalCriteria;
-        const ring = document.getElementById('progress-ring');
-        ring.style.strokeDashoffset = 87.96 * (1 - pct);
-        ring.closest('[role="progressbar"]').setAttribute('aria-valuenow', count);
-        document.getElementById('progress-count').textContent = `${count}/${totalCriteria}`;
-
-        const label = document.getElementById('progress-label');
-        if (count === 0) label.textContent = '기준을 선택해주세요';
-        else if (count < totalCriteria) label.textContent = `${totalCriteria - count}개 남았습니다`;
-        else label.textContent = '모든 기준 선택 완료!';
-
-        const btn = document.getElementById('submit-btn');
-        if (count === totalCriteria) {
-            btn.disabled = false;
-            btn.className = 'px-8 py-3 rounded-xl font-bold text-white shadow-lg transition-all duration-300 bg-gradient-to-r from-brand-600 to-pink-500 hover:from-brand-700 hover:to-pink-600 cursor-pointer transform hover:scale-105 active:scale-95';
-        } else {
-            btn.disabled = true;
-            btn.className = 'px-8 py-3 rounded-xl font-bold text-white shadow-lg transition-all duration-300 bg-gray-300 dark:bg-gray-600 cursor-not-allowed';
-        }
-    }
-
-    // --- Submit ---
-    async function submitAllVotes() {
-        if (Object.keys(votes).length < totalCriteria || isSubmitting) return;
-        isSubmitting = true;
-        const submitBtn = document.getElementById('submit-btn');
-        submitBtn.disabled = true;
-        submitBtn.innerHTML = '<span class="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2"></span>처리 중...';
-
-        try {
-            const res = await fetchWithTimeout('/battle/vote', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'HX-Request': 'true',
-                },
-                body: JSON.stringify({
-                    item1_id: item1Id,
-                    item2_id: item2Id,
-                    round_token: roundToken,
-                    votes: votes,
-                    redirect_to: redirectTo || null,
-                }),
-            });
-
-            if (!res.ok) {
-                const data = await res.json().catch(() => ({}));
-                handleVoteError(res.status, data);
-                return;
-            }
-
-            const html = await res.text();
-            const container = document.getElementById('result-modal-container');
-            // innerHTML 설정 후 OOB swap 수동 처리
-            const temp = document.createElement('div');
-            temp.innerHTML = html;
-
-            // OOB swap 요소 추출 및 적용
-            temp.querySelectorAll('[hx-swap-oob]').forEach(oob => {
-                const target = document.getElementById(oob.id);
-                if (target) target.innerHTML = oob.innerHTML;
-                oob.remove();
-            });
-
-            container.innerHTML = temp.innerHTML;
-            initResultModal();
-        } catch (err) {
-            console.error(err);
-            showToast(err.message || '투표를 저장하는 중 오류가 발생했습니다. 다시 시도해주세요.', 'error', 5000);
-        } finally {
-            isSubmitting = false;
-            const container = document.getElementById('result-modal-container');
-            if (!container.innerHTML.trim()) {
-                updateProgress();
-                document.getElementById('submit-btn').innerHTML = SUBMIT_BTN_LABEL;
-            }
-        }
-    }
-
-    // 제출 버튼 텍스트(SVG + 라벨) — partial 마크업과 일치
-    const SUBMIT_BTN_LABEL = '<svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M14.5 17.5 4 7V4h3l10.5 10.5"/><path stroke-linecap="round" stroke-linejoin="round" d="M13 19l3-3m4 4-3-3m3 1 1.5-1.5"/><path stroke-linecap="round" stroke-linejoin="round" d="M16 4h3v3L9 17m-2 2-3-3m1 3 1.5-1.5"/></svg> 결과 확인';
-
-    function handleVoteError(status, data) {
-        const detail = typeof data?.detail === 'string'
-            ? data.detail
-            : typeof data?.error === 'string'
-                ? data.error
-                : '투표를 처리할 수 없습니다. 새로고침 후 다시 시도해주세요.';
-
-        if (status === 401) {
-            showToast('서버와의 연결이 일시적으로 끊겼습니다. 새로고침합니다...', 'warning', 3000);
-            setTimeout(() => location.reload(), 1500);
-            return;
-        }
-        if (status === 409) {
-            showToast('대결이 만료되었습니다. 새로운 대결을 불러옵니다...', 'warning', 3000);
-            setTimeout(() => location.reload(), 1500);
-            return;
-        }
-
-        showToast(detail, 'error', 5000);
-    }
-
-    // --- Result Modal 초기화 ---
-    function initResultModal() {
-        const modal = document.getElementById('result-modal');
-        if (!modal) return;
-
-        const autoSkip = modal.dataset.autoSkip === 'true';
-        const skipSeconds = parseFloat(modal.dataset.skipSeconds || '3');
-        // prefers-reduced-motion이 활성화되면 자동 진행을 비활성화 (수동 닫기로 전환)
-        const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-        const effectiveAutoSkip = autoSkip && !prefersReducedMotion;
-
-        // 포커스 트랩 fallback용으로 모달 자체를 포커스 가능하게
-        modal.setAttribute('tabindex', '-1');
-
-        // 모달 표시 애니메이션
-        requestAnimationFrame(() => {
-            modal.classList.remove('opacity-0');
-            const inner = modal.querySelector(':scope > div');
-            if (inner) {
-                inner.classList.remove('scale-95');
-                inner.classList.add('scale-100');
-            }
-        });
-
-        if (effectiveAutoSkip) {
-            const MODAL_ANIM_MS = 300;
-            modal._progressTimer = setTimeout(() => {
-                const prog = document.getElementById('modal-progress');
-                if (prog) prog.style.width = '100%';
-            }, MODAL_ANIM_MS + 50);
-            modal._autoSkipTimer = setTimeout(dismissModal, MODAL_ANIM_MS + skipSeconds * 1000);
-            // 자동 모드: 모달 자체에 포커스 (포커스가 외부로 새지 않게)
-            modal.focus();
-        } else {
-            // reduced-motion으로 인해 자동이 비활성화된 경우 UI도 수동 모드로 전환
-            if (autoSkip && prefersReducedMotion) {
-                document.getElementById('auto-skip-area')?.classList.add('hidden');
-                document.getElementById('click-skip-area')?.classList.remove('hidden');
-            }
-            const nextBtn = document.getElementById('next-battle-btn');
-            if (nextBtn) nextBtn.focus();
-
-            modal.addEventListener('click', function handler(e) {
-                if (e.target === modal) {
-                    modal.removeEventListener('click', handler);
-                    dismissModal();
-                }
-            });
-        }
-
-        // 통합 키보드 핸들러: Escape 닫기 + Tab 포커스 트랩 + (수동 모드) Space/Enter 닫기
-        function getFocusables() {
-            return Array.from(modal.querySelectorAll(
-                'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-            ));
-        }
-        modal._keyHandler = function (e) {
-            if (e.key === 'Escape') {
-                e.preventDefault();
-                dismissModal();
-                return;
-            }
-            if (e.key === 'Tab') {
-                const focusables = getFocusables();
-                if (focusables.length === 0) {
-                    e.preventDefault();
-                    modal.focus();
-                    return;
-                }
-                const first = focusables[0];
-                const last = focusables[focusables.length - 1];
-                const active = document.activeElement;
-                if (!modal.contains(active)) {
-                    e.preventDefault();
-                    first.focus();
-                    return;
-                }
-                if (e.shiftKey && active === first) {
-                    e.preventDefault();
-                    last.focus();
-                } else if (!e.shiftKey && active === last) {
-                    e.preventDefault();
-                    first.focus();
-                }
-                return;
-            }
-            // 자동 진행 중이 아닐 때만 Space/Enter로 닫기 (cancelAutoSkip 호출 시 _autoSkipTimer 제거됨)
-            if (!modal._autoSkipTimer && (e.code === 'Space' || e.code === 'Enter')) {
-                e.preventDefault();
-                dismissModal();
-            }
-        };
-        document.addEventListener('keydown', modal._keyHandler);
-    }
-
-    // 자동 스킵 취소 — "유지" 버튼이 호출, 결과를 천천히 보고 수동으로 닫기
-    function cancelAutoSkip() {
-        const modal = document.getElementById('result-modal');
-        if (!modal) return;
-        if (modal._autoSkipTimer) {
-            clearTimeout(modal._autoSkipTimer);
-            modal._autoSkipTimer = null;
-        }
-        if (modal._progressTimer) {
-            clearTimeout(modal._progressTimer);
-            modal._progressTimer = null;
-        }
-        // progress 바 transition 중단 후 현재 위치에서 고정
-        const prog = document.getElementById('modal-progress');
-        if (prog) {
-            const computedWidth = getComputedStyle(prog).width;
-            prog.style.transition = 'none';
-            prog.style.width = computedWidth;
-        }
-        document.getElementById('auto-skip-area')?.classList.add('hidden');
-        document.getElementById('click-skip-area')?.classList.remove('hidden');
-        const nextBtn = document.getElementById('next-battle-btn');
-        if (nextBtn) nextBtn.focus();
-        modal.addEventListener('click', function handler(e) {
-            if (e.target === modal) {
-                modal.removeEventListener('click', handler);
-                dismissModal();
-            }
-        });
-    }
-
-    function dismissModal() {
-        const modal = document.getElementById('result-modal');
-        if (modal) {
-            if (modal._keyHandler) document.removeEventListener('keydown', modal._keyHandler);
-            if (modal._autoSkipTimer) clearTimeout(modal._autoSkipTimer);
-            if (modal._progressTimer) clearTimeout(modal._progressTimer);
-        }
-        document.getElementById('result-modal-container').innerHTML = '';
-        reinitBattleState();
-    }
-
-    function reinitBattleState() {
-        const state = document.getElementById('battle-state');
-        if (!state) {
-            window.location.href = redirectTo || '/battle';
-            return;
-        }
-
-        // OOB swap으로 이미 DOM에 있는 새 배틀 카드에서 상태 읽기
-        item1Id = parseInt(state.dataset.item1Id);
-        item2Id = parseInt(state.dataset.item2Id);
-        roundToken = state.dataset.roundToken;
-        redirectTo = state.dataset.redirectTo || '';
-
-        // 새 배틀이 3-way이면 페이지 전환
-        if (state.dataset.battleMode === '3way') {
-            window.location.href = redirectTo || '/battle';
-            return;
-        }
-
-        criteriaKeys.length = 0;
-        criteriaKeys.push(...JSON.parse(state.dataset.criteriaKeys));
-        totalCriteria = criteriaKeys.length;
-
-        Object.keys(votes).forEach(k => delete votes[k]);
-        isSubmitting = false;
-        updateProgress();
-
-        // 새 배틀 카드로 포커스 이동
-        const firstVoteBtn = document.querySelector('#criteria-list .vote-btn');
-        if (firstVoteBtn) firstVoteBtn.focus();
-    }
-
-    // --- Keyboard shortcuts ---
-    document.addEventListener('keydown', (e) => {
-        if (document.getElementById('result-modal')) return;
-        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-        if (e.key === 'Enter' && !document.getElementById('submit-btn').disabled) {
-            e.preventDefault();
-            submitAllVotes();
-        }
+  /* ================= voting ================= */
+  function selectVote(key, choice) {
+    votes[key] = choice;
+    ['1', 'draw', '2'].forEach(function (c) {
+      var btn = document.getElementById('btn-' + key + '-' + c);
+      if (!btn) return;
+      btn.setAttribute('aria-pressed', String(c === choice));
+      btn.classList.remove('selected-1', 'selected-draw', 'selected-2');
     });
+    var chosen = document.getElementById('btn-' + key + '-' + choice);
+    if (chosen) chosen.classList.add('selected-' + choice);
+    var card = document.querySelector('.criteria-card[data-key="' + CSS.escape(key) + '"]');
+    if (card) card.classList.add('voted');
+    updateProgress();
+  }
+
+  function selectAllAs(choice) {
+    criteriaKeys.forEach(function (k) { selectVote(k, choice); });
+  }
+
+  function clearAll() {
+    votes = {};
+    document.querySelectorAll('#criteria-list .vote-btn').forEach(function (btn) {
+      btn.setAttribute('aria-pressed', 'false');
+      btn.classList.remove('selected-1', 'selected-draw', 'selected-2');
+    });
+    document.querySelectorAll('#criteria-list .criteria-card').forEach(function (card) {
+      card.classList.remove('voted');
+    });
+    updateProgress();
+  }
+
+  function updateProgress() {
+    var total = criteriaKeys.length;
+    var done = criteriaKeys.filter(function (k) { return votes[k]; }).length;
+    var ring = document.getElementById('progress-ring');
+    if (ring) ring.style.strokeDashoffset = (RING_CIRCUMFERENCE * (1 - (total ? done / total : 0))).toFixed(2);
+    var count = document.getElementById('progress-count');
+    if (count) count.textContent = done + '/' + total;
+    var label = document.getElementById('progress-label');
+    if (label) {
+      label.textContent = done === 0 ? '기준을 선택해주세요'
+        : done < total ? (total - done) + '개 남았습니다'
+        : '모든 기준 선택 완료!';
+    }
+    var bar = document.querySelector('[role="progressbar"]');
+    if (bar) bar.setAttribute('aria-valuenow', String(done));
+    var btn = document.getElementById('submit-btn');
+    if (btn) btn.disabled = isSubmitting || total === 0 || done !== total;
+  }
+
+  /* ================= submit ================= */
+  function handleVoteError(status, data) {
+    if (status === 401) {
+      showToast('서버와의 연결이 일시적으로 끊겼습니다. 새로고침합니다...', 'warning', 3000);
+      setTimeout(function () { location.reload(); }, 1500);
+      return;
+    }
+    if (status === 409) {
+      showToast('대결이 만료되었습니다. 새로운 대결을 불러옵니다...', 'warning', 3000);
+      setTimeout(function () { location.reload(); }, 1500);
+      return;
+    }
+    var msg = '투표를 처리할 수 없습니다. 새로고침 후 다시 시도해주세요.';
+    if (data && typeof data.detail === 'string') msg = data.detail;
+    else if (data && typeof data.error === 'string') msg = data.error;
+    showToast(msg, 'error', 5000);
+  }
+
+  async function submitAllVotes() {
+    if (isSubmitting) return;
+    var btn = document.getElementById('submit-btn');
+    if (!btn || btn.disabled) return;
+    isSubmitting = true;
+    btn.disabled = true;
+    btn.innerHTML = SPINNER_HTML;
+    try {
+      var res = await fetchWithTimeout('/battle/vote', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'HX-Request': 'true' },
+        body: JSON.stringify({
+          item1_id: item1Id,
+          item2_id: item2Id,
+          round_token: roundToken,
+          votes: votes,
+          redirect_to: redirectTo || null
+        })
+      });
+      if (!res.ok) {
+        var data = {};
+        try { data = await res.json(); } catch (e) {}
+        handleVoteError(res.status, data);
+        return;
+      }
+      applyVoteResponse(await res.text());
+    } catch (err) {
+      showToast((err && err.message) || '투표를 저장하는 중 오류가 발생했습니다. 다시 시도해주세요.', 'error', 5000);
+    } finally {
+      if (!document.getElementById('result-modal')) {
+        isSubmitting = false;
+        var b = document.getElementById('submit-btn');
+        if (b) { b.innerHTML = SUBMIT_BTN_LABEL; }
+        updateProgress();
+      }
+    }
+  }
+
+  function applyVoteResponse(html) {
+    // Manual OOB processing (htmx does not see this fetch): apply OOB swaps
+    // first, then inject the remaining HTML (the result modal).
+    var tmp = document.createElement('div');
+    tmp.innerHTML = html;
+    tmp.querySelectorAll('[hx-swap-oob]').forEach(function (oob) {
+      var target = document.getElementById(oob.id);
+      if (target) target.innerHTML = oob.innerHTML;
+      oob.remove();
+    });
+    document.getElementById('result-modal-container').innerHTML = tmp.innerHTML;
+    initResultModal();
+  }
+
+  /* ================= result modal ================= */
+  var modalTimers = [];
+  var modalKeyHandler = null;
+  var autoSkipRunning = false;
+
+  function initResultModal() {
+    var modal = document.getElementById('result-modal');
+    if (!modal) return;
+    var autoSkip = modal.dataset.autoSkip === 'true';
+    var skipSeconds = parseFloat(modal.dataset.skipSeconds || '3') || 3;
+    var prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var effectiveAutoSkip = autoSkip && !prefersReducedMotion;
+    if (autoSkip && prefersReducedMotion) {
+      var autoArea = document.getElementById('auto-skip-area');
+      var clickArea = document.getElementById('click-skip-area');
+      if (autoArea) autoArea.classList.add('hidden');
+      if (clickArea) clickArea.classList.remove('hidden');
+    }
+    modal.setAttribute('tabindex', '-1');
+    requestAnimationFrame(function () {
+      modal.classList.remove('opacity-0');
+      if (modal.firstElementChild) modal.firstElementChild.classList.remove('scale-95');
+    });
+
+    modal.addEventListener('click', function (e) {
+      if (e.target === modal && !autoSkipRunning) dismissModal();
+    });
+
+    if (effectiveAutoSkip) {
+      autoSkipRunning = true;
+      modalTimers.push(setTimeout(function () {
+        var bar = document.getElementById('modal-progress');
+        if (bar) bar.style.width = '100%';
+      }, 300));
+      modalTimers.push(setTimeout(dismissModal, 300 + skipSeconds * 1000));
+      modal.focus();
+    } else {
+      autoSkipRunning = false;
+      var nextBtn = document.getElementById('next-battle-btn');
+      (nextBtn || modal).focus();
+    }
+
+    modalKeyHandler = function (e) {
+      var m = document.getElementById('result-modal');
+      if (!m) return;
+      if (e.key === 'Escape') { e.preventDefault(); dismissModal(); return; }
+      if (e.key === 'Tab') {
+        var focusables = Array.prototype.filter.call(
+          m.querySelectorAll('a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])'),
+          function (el) { return el.offsetParent !== null; }
+        );
+        if (!focusables.length) { e.preventDefault(); m.focus(); return; }
+        var first = focusables[0], last = focusables[focusables.length - 1];
+        if (!m.contains(document.activeElement)) { e.preventDefault(); first.focus(); return; }
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+        return;
+      }
+      if ((e.key === ' ' || e.key === 'Enter') && !autoSkipRunning) {
+        if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+        e.preventDefault();
+        dismissModal();
+      }
+    };
+    document.addEventListener('keydown', modalKeyHandler);
+  }
+
+  function cancelAutoSkip() {
+    modalTimers.forEach(clearTimeout);
+    modalTimers = [];
+    autoSkipRunning = false;
+    var bar = document.getElementById('modal-progress');
+    if (bar) {
+      var w = getComputedStyle(bar).width;
+      bar.style.transitionDuration = '0ms';
+      bar.style.width = w;
+    }
+    var autoArea = document.getElementById('auto-skip-area');
+    var clickArea = document.getElementById('click-skip-area');
+    if (autoArea) autoArea.classList.add('hidden');
+    if (clickArea) clickArea.classList.remove('hidden');
+    var nextBtn = document.getElementById('next-battle-btn');
+    if (nextBtn) nextBtn.focus();
+  }
+
+  function dismissModal() {
+    if (modalKeyHandler) {
+      document.removeEventListener('keydown', modalKeyHandler);
+      modalKeyHandler = null;
+    }
+    modalTimers.forEach(clearTimeout);
+    modalTimers = [];
+    autoSkipRunning = false;
+    var container = document.getElementById('result-modal-container');
+    if (container) container.innerHTML = '';
+    reinitBattleState();
+  }
+
+  function reinitBattleState() {
+    var st = document.getElementById('battle-state');
+    if (!st || st.dataset.battleMode !== '2way') {
+      window.location.href = redirectTo || '/battle';
+      return;
+    }
+    readBattleState();
+    votes = {};
+    isSubmitting = false;
+    updateProgress();
+    var firstBtn = document.querySelector('#criteria-list .vote-btn');
+    if (firstBtn) firstBtn.focus();
+  }
+
+  /* ================= keyboard shortcut ================= */
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Enter') return;
+    if (document.getElementById('result-modal')) return;
+    var active = document.activeElement;
+    if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) return;
+    var btn = document.getElementById('submit-btn');
+    if (btn && !btn.disabled) { e.preventDefault(); submitAllVotes(); }
+  });
 </script>
 {% endblock %}

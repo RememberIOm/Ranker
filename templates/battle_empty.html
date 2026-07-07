@@ -1,13 +1,10 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="flex flex-col items-center justify-center min-h-[60vh] text-center space-y-6">
-    <span class="text-6xl" aria-hidden="true">{{ icon }}</span>
-    <h2 class="text-2xl font-bold text-gray-900 dark:text-white">{{ title }}</h2>
-    <p class="text-gray-500 dark:text-gray-400 max-w-md">{{ description }}</p>
-    <a href="{{ link_url }}"
-       class="px-8 py-3 bg-brand-600 hover:bg-brand-700 text-white rounded-xl font-bold shadow-lg shadow-brand-500/30 transition">
-        {{ link_text }}
-    </a>
-</div>
+<section class="flex min-h-[60dvh] flex-col items-center justify-center text-center">
+  <div class="animate-float text-7xl" aria-hidden="true">{{ icon }}</div>
+  <h2 class="animate-slide-up mt-6 font-display text-2xl font-bold sm:text-3xl">{{ title }}</h2>
+  <p class="animate-slide-up mt-3 text-sm leading-relaxed text-zinc-600 sm:text-base dark:text-zinc-400" style="animation-delay: 80ms">{{ description }}</p>
+  <a href="{{ link_url }}" class="btn-primary animate-slide-up mt-8 px-8 py-3.5 text-base" style="animation-delay: 160ms">{{ link_text }}</a>
+</section>
 {% endblock %}

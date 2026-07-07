@@ -1,52 +1,28 @@
-{# partials/manage_item_row.html — 단일 항목 행 #}
-<li class="p-4 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors group">
-    <div id="view-row-{{ item.id }}"
-        class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div class="flex items-center gap-3 overflow-hidden">
-            <div class="w-2 h-2 rounded-full bg-brand-400 shrink-0"></div>
-            <span class="font-medium text-gray-800 dark:text-gray-200 truncate text-lg"
-                title="{{ item.name }}">
-                {{ item.name }}
-            </span>
-            {% if item.matches_played < 10 %} <span
-                class="text-[11px] font-bold px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400 border border-yellow-200 dark:border-yellow-800">
-                NEW</span>
-                {% endif %}
-        </div>
-        <div
-            class="flex items-center gap-2 self-end sm:self-auto shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
-            <a href="/battle/focus/{{ item.id }}"
-                class="px-3 py-1.5 text-xs font-bold rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-300 dark:hover:bg-blue-900/50 transition">
-                Focus
-            </a>
-            <button onclick="toggleEdit('{{ item.id }}')"
-                class="px-3 py-1.5 text-xs font-bold rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600 transition">
-                Edit
-            </button>
-            <form action="/manage/delete" method="post"
-                  hx-post="/manage/delete" hx-target="closest li" hx-swap="outerHTML"
-                  hx-confirm="{{ item.name | e }} 항목을 삭제하시겠습니까?"
-                  class="inline">
-                <input type="hidden" name="item_id" value="{{ item.id }}">
-                <button type="submit"
-                    class="px-3 py-1.5 text-xs font-bold rounded-lg bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-900/30 dark:text-red-300 dark:hover:bg-red-900/50 transition">
-                    Delete
-                </button>
-            </form>
-        </div>
-    </div>
-    <form id="edit-row-{{ item.id }}" action="/manage/edit" method="post"
-        hx-post="/manage/edit" hx-target="closest li" hx-swap="outerHTML"
-        class="hidden flex flex-col sm:flex-row gap-2 w-full animate-fade-in">
+{% from "partials/_icons.html" import icon %}
+<li class="group px-4 py-2.5 transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/40">
+  <div id="view-row-{{ item.id }}" class="flex min-h-11 items-center gap-3">
+    <span class="h-2 w-2 shrink-0 rounded-full bg-violet-500" aria-hidden="true"></span>
+    <span class="min-w-0 flex-1 truncate text-sm font-semibold" title="{{ item.name }}">{{ item.name }}</span>
+    {% if item.matches_played < 10 %}
+    <span class="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-extrabold tracking-wide text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400">NEW</span>
+    {% endif %}
+    <div class="flex shrink-0 items-center gap-0.5 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100">
+      <a href="/battle/focus/{{ item.id }}" class="action-chip">{{ icon('target', 'w-4 h-4') }}<span>Focus</span></a>
+      <button type="button" class="action-chip" onclick="toggleEdit('{{ item.id }}')">{{ icon('pencil', 'w-4 h-4') }}<span>Edit</span></button>
+      <form action="/manage/delete" method="post"
+            hx-post="/manage/delete" hx-target="closest li" hx-swap="outerHTML"
+            hx-confirm="{{ item.name | e }} 항목을 삭제하시겠습니까?">
         <input type="hidden" name="item_id" value="{{ item.id }}">
-        <input type="text" id="input-name-{{ item.id }}" name="new_name" value="{{ item.name }}"
-            required autocomplete="off"
-            class="flex-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 dark:focus:ring-brand-400 outline-none text-gray-900 dark:text-white">
-        <div class="flex gap-2">
-            <button type="submit"
-                class="px-4 py-2 bg-brand-600 hover:bg-brand-500 text-white rounded-lg text-xs font-bold shadow-md">Save</button>
-            <button type="button" onclick="toggleEdit('{{ item.id }}')"
-                class="px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg text-xs font-bold">Cancel</button>
-        </div>
-    </form>
+        <button type="submit" class="action-chip text-rose-500 hover:bg-rose-100 hover:text-rose-700 dark:text-rose-400 dark:hover:bg-rose-500/15 dark:hover:text-rose-300">{{ icon('trash', 'w-4 h-4') }}<span>Delete</span></button>
+      </form>
+    </div>
+  </div>
+  <form id="edit-row-{{ item.id }}" class="hidden min-h-11 items-center gap-2" action="/manage/edit" method="post"
+        hx-post="/manage/edit" hx-target="closest li" hx-swap="outerHTML">
+    <input type="hidden" name="item_id" value="{{ item.id }}">
+    <input id="input-name-{{ item.id }}" type="text" name="new_name" value="{{ item.name }}" required autocomplete="off"
+           class="field-input min-h-10 flex-1 px-3 text-sm" aria-label="새 이름">
+    <button type="submit" class="btn-primary min-h-10 px-4 text-xs">Save</button>
+    <button type="button" class="btn-ghost min-h-10 px-4 text-xs" onclick="toggleEdit('{{ item.id }}')">Cancel</button>
+  </form>
 </li>

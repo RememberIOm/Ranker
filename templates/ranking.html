@@ -2,270 +2,227 @@
 {% from "partials/_icons.html" import icon %}
 
 {% block content %}
-<div class="max-w-7xl mx-auto space-y-8">
+<div class="animate-fade-in">
+  <header class="mb-6">
+    <h1 class="flex items-center gap-2.5 font-display text-2xl font-extrabold tracking-tight sm:text-3xl">
+      <span class="text-amber-500">{{ icon('trophy', 'w-7 h-7') }}</span> Ranking Board
+    </h1>
+    <p class="mt-1.5 text-sm text-zinc-600 dark:text-zinc-400">항목별 점수를 클릭하여 랭킹을 정렬하세요.</p>
+  </header>
 
-    <!-- 헤더 -->
-    <div class="flex flex-col md:flex-row md:items-end justify-between gap-4">
-        <div>
-            <h1 class="text-3xl font-bold text-gray-900 dark:text-white">Ranking Board</h1>
-            <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">항목별 점수를 클릭하여 랭킹을 정렬하세요.</p>
-        </div>
+  <nav class="mb-6 flex gap-2 overflow-x-auto pb-1 scrollbar-hide" aria-label="랭킹 정렬">
+    <a href="/ranking?sort_by=total"
+       class="inline-flex min-h-11 shrink-0 items-center rounded-full px-4 text-sm font-bold transition {{ 'bg-violet-600 text-white shadow-sm' if sort_by == 'total' else 'border border-zinc-300 bg-white text-zinc-600 hover:border-violet-400 hover:text-violet-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-violet-500 dark:hover:text-violet-300' }}"
+       {% if sort_by == 'total' %}aria-current="page"{% endif %}>종합</a>
+    {% for c in criteria %}
+    <a href="/ranking?sort_by={{ c.key }}"
+       class="inline-flex min-h-11 shrink-0 items-center rounded-full px-4 text-sm font-bold transition {{ 'bg-' ~ c.color ~ '-600 text-white shadow-sm' if sort_by == c.key else 'border border-zinc-300 bg-white text-zinc-600 hover:border-violet-400 hover:text-violet-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-violet-500 dark:hover:text-violet-300' }}"
+       {% if sort_by == c.key %}aria-current="page"{% endif %}>{{ c.label }}</a>
+    {% endfor %}
+  </nav>
 
-        <!-- 카테고리 필터 -->
-        <div class="flex space-x-1 bg-gray-100 dark:bg-gray-800 p-1 rounded-xl overflow-x-auto scrollbar-hide">
-            <a href="/ranking?sort_by=total"
-               class="px-4 py-2 rounded-lg text-sm font-bold whitespace-nowrap transition-all duration-200
-               {% if sort_by == 'total' %}
-                   bg-yellow-500 text-white shadow-sm
-               {% else %}
-                   text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300
-               {% endif %}">
-                종합
-            </a>
-            {% for c in criteria %}
-            <a href="/ranking?sort_by={{ c.key }}"
-               class="px-4 py-2 rounded-lg text-sm font-bold whitespace-nowrap transition-all duration-200
-               {% if sort_by == c.key %}
-                   bg-{{ c.color }}-500 text-white shadow-sm
-               {% else %}
-                   text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300
-               {% endif %}">
-                {{ c.label }}
-            </a>
-            {% endfor %}
-        </div>
+  <section class="card mb-6 p-4 sm:p-5">
+    <h2 class="font-display text-sm font-bold tracking-wide text-zinc-700 uppercase dark:text-zinc-300">Distribution: {{ chart_data.category }}</h2>
+    <div class="mt-3 h-52 sm:h-64">
+      <canvas id="distributionChart" role="img" aria-label="{{ chart_data.category }} 점수 분포 — 항목 {{ items | length }}개. 자세한 점수는 아래 표를 참고하세요."></canvas>
     </div>
+  </section>
 
-    <!-- 차트 영역 -->
-    <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700 p-6">
-        <h2 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">
-            Distribution: <span class="text-brand-600 dark:text-brand-400">{{ chart_data.category }}</span>
-        </h2>
-        <div class="h-64 w-full relative">
-            <canvas id="distributionChart"
-                role="img"
-                aria-label="{{ chart_data.category }} 점수 분포 — 항목 {{ items|length }}개. 자세한 점수는 아래 표를 참고하세요."></canvas>
-        </div>
-    </div>
-
-    <!-- 랭킹 테이블 -->
-    <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
-        <div class="overflow-x-auto">
-            <table class="w-full text-left border-collapse whitespace-nowrap">
-                <thead>
-                    <tr class="bg-gray-50 dark:bg-gray-700/50 border-b border-gray-200 dark:border-gray-700 text-xs uppercase text-gray-500 dark:text-gray-400 font-semibold">
-                        <th class="p-4 text-center w-16" scope="col">#</th>
-                        <th class="p-4" scope="col">Title</th>
-                        <th class="p-4 text-center bg-yellow-50/50 dark:bg-yellow-900/20" scope="col">
-                            <a href="/ranking?sort_by=total"
-                               class="text-yellow-600 dark:text-yellow-400 hover:bg-yellow-100 dark:hover:bg-yellow-900/20 px-2 py-1 rounded transition inline-block
-                               {% if sort_by == 'total' %}font-extrabold{% endif %}"
-                               aria-current="{{ 'page' if sort_by == 'total' else 'false' }}">Total</a>
-                        </th>
-                        {% for c in criteria %}
-                        <th class="p-4 text-center" scope="col">
-                            <a href="/ranking?sort_by={{ c.key }}"
-                               class="hover:text-{{ c.color }}-500 px-2 py-1 rounded transition inline-block
-                               {% if sort_by == c.key %}text-{{ c.color }}-600 dark:text-{{ c.color }}-400 font-extrabold{% endif %}"
-                               aria-current="{{ 'page' if sort_by == c.key else 'false' }}">{{ c.label }}</a>
-                        </th>
-                        {% endfor %}
-                        <th class="p-4 text-center text-gray-400" scope="col">Matches</th>
-                        <th class="p-4 text-center text-gray-400 w-16" scope="col"><span class="sr-only">Actions</span></th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-gray-100 dark:divide-gray-700">
-                    {% for item in items %}
-                    <tr class="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors group animate-slide-up" style="animation-delay: {{ loop.index0 * 40 }}ms">
-                        <td class="p-4 text-center font-mono text-gray-400 text-sm">{{ loop.index }}</td>
-                        <td class="p-4 font-bold text-gray-800 dark:text-gray-100 group-hover:text-brand-600 dark:group-hover:text-brand-400 transition-colors">
-                            <span id="rank-view-{{ item.id }}">{{ item.name }}</span>
-                            <form id="rank-edit-{{ item.id }}" action="/manage/edit" method="post" class="hidden items-center gap-2">
-                                <input type="hidden" name="item_id" value="{{ item.id }}">
-                                <input type="hidden" name="redirect_url" value="/ranking?sort_by={{ sort_by }}">
-                                <input type="text" name="new_name" value="{{ item.name }}" required autocomplete="off"
-                                    class="px-3 py-1.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 dark:focus:ring-brand-400 outline-none text-gray-900 dark:text-white w-48">
-                                <button type="submit" class="px-3 py-1.5 bg-brand-600 text-white rounded-lg text-xs font-bold">Save</button>
-                                <button type="button" onclick="toggleRankEdit('{{ item.id }}')" class="px-3 py-1.5 bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-lg text-xs font-bold">Cancel</button>
-                            </form>
-                        </td>
-                        <td class="p-4 text-center font-mono font-bold text-lg text-yellow-600 dark:text-yellow-400 bg-yellow-50/30 dark:bg-yellow-900/20">
-                            {{ item.total }}
-                            {% if item.avg_sigma > 150 %}
-                            <span class="block text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400 font-semibold mt-0.5">불확실</span>
-                            {% endif %}
-                        </td>
-                        {% for c in criteria %}
-                        <td class="p-4 text-center font-mono text-sm
-                            {% if sort_by == c.key %} font-bold text-gray-900 dark:text-white {% else %} text-gray-500 dark:text-gray-400 {% endif %}">
-                            {{ item[c.key] }}<span class="text-[10px] font-normal text-gray-400 ml-0.5">±{{ item[c.key ~ '_sigma']|round(0)|int }}</span>
-                        </td>
-                        {% endfor %}
-                        <td class="p-4 text-center">
-                            <span class="text-xs font-mono px-2 py-1 rounded bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400">
-                                {{ item.matches }}
-                            </span>
-                        </td>
-                        <td class="p-4 text-center relative">
-                            <div class="relative inline-block">
-                                <button onclick="toggleDropdown(this)"
-                                    class="min-w-11 min-h-11 inline-flex items-center justify-center p-2.5 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition opacity-100 sm:opacity-0 sm:group-hover:opacity-100 focus:opacity-100"
-                                    aria-haspopup="true" aria-expanded="false" aria-label="{{ item.name }} 메뉴">
-                                    <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="4" r="2"/><circle cx="10" cy="10" r="2"/><circle cx="10" cy="16" r="2"/></svg>
-                                </button>
-                                <div class="hidden absolute right-0 top-8 z-30 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 py-1 w-32 text-left dropdown-menu" role="menu">
-                                    <a href="/battle/focus/{{ item.id }}" role="menuitem"
-                                       class="inline-flex items-center gap-1.5 w-full px-4 py-2 text-xs font-bold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition">
-                                        {{ icon("target", "w-3.5 h-3.5") }} Focus
-                                    </a>
-                                    <button onclick="this.closest('.relative').querySelector('div[role=menu]').classList.add('hidden'); this.closest('.relative').querySelector('[aria-haspopup]').setAttribute('aria-expanded','false'); toggleRankEdit('{{ item.id }}')"
-                                       role="menuitem"
-                                       class="inline-flex items-center gap-1.5 w-full text-left px-4 py-2 text-xs font-bold text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition">
-                                        {{ icon("pencil", "w-3.5 h-3.5") }} Edit
-                                    </button>
-                                    <form action="/manage/delete" method="post" class="block delete-form" data-name="{{ item.name | e }}">
-                                        <input type="hidden" name="item_id" value="{{ item.id }}">
-                                        <input type="hidden" name="redirect_url" value="/ranking?sort_by={{ sort_by }}">
-                                        <button type="submit" role="menuitem"
-                                           class="inline-flex items-center gap-1.5 w-full text-left px-4 py-2 text-xs font-bold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 transition">
-                                            {{ icon("trash", "w-3.5 h-3.5") }} Delete
-                                        </button>
-                                    </form>
-                                </div>
-                            </div>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </div>
+  <div class="card overflow-x-auto">
+    <table class="w-full min-w-max text-left text-sm">
+      <thead class="border-b border-zinc-200 text-xs font-bold tracking-wide text-zinc-500 uppercase dark:border-zinc-800 dark:text-zinc-400">
+        <tr>
+          <th scope="col" class="px-4 py-3.5">#</th>
+          <th scope="col" class="px-4 py-3.5">Title</th>
+          <th scope="col" class="px-4 py-3.5 text-right">
+            <a href="/ranking?sort_by=total" aria-current="{{ 'page' if sort_by == 'total' else 'false' }}"
+               class="inline-flex min-h-9 items-center rounded-md px-1.5 hover:text-violet-600 dark:hover:text-violet-400 {{ 'text-violet-600 dark:text-violet-400' if sort_by == 'total' }}">Total</a>
+          </th>
+          {% for c in criteria %}
+          <th scope="col" class="px-4 py-3.5 text-right">
+            <a href="/ranking?sort_by={{ c.key }}" aria-current="{{ 'page' if sort_by == c.key else 'false' }}"
+               class="inline-flex min-h-9 items-center rounded-md px-1.5 hover:text-violet-600 dark:hover:text-violet-400 {{ 'text-' ~ c.color ~ '-600 dark:text-' ~ c.color ~ '-400' if sort_by == c.key }}">{{ c.label }}</a>
+          </th>
+          {% endfor %}
+          <th scope="col" class="px-4 py-3.5 text-right">Matches</th>
+          <th scope="col" class="px-4 py-3.5"><span class="sr-only">Actions</span></th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-zinc-100 dark:divide-zinc-800/70">
+        {% for item in items %}
+        <tr class="group transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/40">
+          <td class="px-4 py-3 font-display font-extrabold tabular-nums {{ 'text-amber-500' if loop.index == 1 else ('text-zinc-400 dark:text-zinc-500' if loop.index > 3 else 'text-violet-500 dark:text-violet-400') }}">{{ loop.index }}</td>
+          <td class="max-w-56 px-4 py-3">
+            <span id="rank-view-{{ item.id }}" class="font-semibold break-words">{{ item.name }}</span>
+            <form id="rank-edit-{{ item.id }}" action="/manage/edit" method="post" class="hidden items-center gap-2">
+              <input type="hidden" name="item_id" value="{{ item.id }}">
+              <input type="hidden" name="redirect_url" value="/ranking?sort_by={{ sort_by }}">
+              <input type="text" name="new_name" value="{{ item.name }}" required autocomplete="off" class="field-input min-h-9 w-36 px-2.5 text-xs" aria-label="새 이름">
+              <button type="submit" class="btn-primary min-h-9 px-3 text-xs">Save</button>
+              <button type="button" class="btn-ghost min-h-9 px-3 text-xs" onclick="toggleRankEdit('{{ item.id }}')">Cancel</button>
+            </form>
+          </td>
+          <td class="px-4 py-3 text-right">
+            <span class="font-display font-bold tabular-nums {{ 'text-violet-600 dark:text-violet-400' if sort_by == 'total' }}">{{ item.total }}</span>
+            {% if item.avg_sigma > 150 %}
+            <span class="ml-1 inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700 dark:bg-amber-500/15 dark:text-amber-400">불확실</span>
+            {% endif %}
+          </td>
+          {% for c in criteria %}
+          <td class="px-4 py-3 text-right tabular-nums">
+            <span class="{{ 'font-bold text-' ~ c.color ~ '-600 dark:text-' ~ c.color ~ '-400' if sort_by == c.key else 'font-medium' }}">{{ item[c.key] }}</span>
+            <span class="text-[10px] text-zinc-400 dark:text-zinc-500">&plusmn;{{ item[c.key ~ '_sigma'] | round(0) | int }}</span>
+          </td>
+          {% endfor %}
+          <td class="px-4 py-3 text-right font-medium tabular-nums text-zinc-500 dark:text-zinc-400">{{ item.matches }}</td>
+          <td class="relative px-2 py-3 text-right">
+            <button type="button" onclick="toggleDropdown(this)" aria-haspopup="true" aria-expanded="false" aria-label="{{ item.name }} 메뉴"
+                    class="icon-btn opacity-100 transition-opacity lg:opacity-0 lg:group-hover:opacity-100 lg:focus-visible:opacity-100 lg:group-focus-within:opacity-100">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="h-5 w-5" aria-hidden="true"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></svg>
+            </button>
+            <div class="dropdown-menu hidden text-left" role="menu">
+              <a href="/battle/focus/{{ item.id }}" role="menuitem" class="menu-item">{{ icon('target', 'w-4 h-4') }} Focus</a>
+              <button type="button" role="menuitem" class="menu-item" onclick="closeAllDropdowns(); toggleRankEdit('{{ item.id }}')">{{ icon('pencil', 'w-4 h-4') }} Edit</button>
+              <form class="delete-form" data-name="{{ item.name | e }}" action="/manage/delete" method="post">
+                <input type="hidden" name="item_id" value="{{ item.id }}">
+                <input type="hidden" name="redirect_url" value="/ranking?sort_by={{ sort_by }}">
+                <button type="submit" role="menuitem" class="menu-item text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-500/10">{{ icon('trash', 'w-4 h-4') }} Delete</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
-<script src="/static/vendor/chart.umd.min.js"></script>
+<script src="/static/vendor/chart.umd.min.js" defer></script>
 <script>
-    // --- Inline Edit Toggle ---
-    function toggleRankEdit(id) {
-        const viewEl = document.getElementById(`rank-view-${id}`);
-        const editEl = document.getElementById(`rank-edit-${id}`);
-        if (editEl.classList.contains('hidden')) {
-            viewEl.classList.add('hidden');
-            editEl.classList.remove('hidden');
-            editEl.classList.add('flex');
-            editEl.querySelector('input[name="new_name"]').focus();
-        } else {
-            viewEl.classList.remove('hidden');
-            editEl.classList.add('hidden');
-            editEl.classList.remove('flex');
-        }
+  /* ================= inline rename ================= */
+  function toggleRankEdit(id) {
+    var view = document.getElementById('rank-view-' + id);
+    var edit = document.getElementById('rank-edit-' + id);
+    if (!view || !edit) return;
+    var opening = edit.classList.contains('hidden');
+    view.classList.toggle('hidden', opening);
+    edit.classList.toggle('hidden', !opening);
+    edit.classList.toggle('flex', opening);
+    if (opening) {
+      var input = edit.querySelector('input[name="new_name"]');
+      if (input) { input.focus(); input.select(); }
     }
+  }
 
-    // --- Dropdown Toggle ---
-    function toggleDropdown(btn) {
-        const menu = btn.nextElementSibling;
-        const isOpen = !menu.classList.contains('hidden');
-        closeAllDropdowns();
-        if (!isOpen) {
-            menu.classList.remove('hidden');
-            btn.setAttribute('aria-expanded', 'true');
-            // 화면 하단 오버플로 시 위로 열기
-            const rect = menu.getBoundingClientRect();
-            if (rect.bottom > window.innerHeight - 8) {
-                menu.style.top = 'auto';
-                menu.style.bottom = '100%';
-                menu.style.marginBottom = '4px';
-            } else {
-                menu.style.top = '';
-                menu.style.bottom = '';
-                menu.style.marginBottom = '';
-            }
-        }
+  /* ================= kebab dropdowns ================= */
+  function closeAllDropdowns() {
+    document.querySelectorAll('[role="menu"]').forEach(function (m) { m.classList.add('hidden'); });
+    document.querySelectorAll('[aria-haspopup]').forEach(function (b) { b.setAttribute('aria-expanded', 'false'); });
+  }
+
+  function toggleDropdown(btn) {
+    var menu = btn.nextElementSibling;
+    var wasOpen = menu && !menu.classList.contains('hidden');
+    closeAllDropdowns();
+    if (!menu || wasOpen) return;
+    menu.classList.remove('hidden');
+    btn.setAttribute('aria-expanded', 'true');
+    // flip upward if the menu would overflow the viewport bottom
+    menu.classList.remove('bottom-full', 'mb-1');
+    var rect = menu.getBoundingClientRect();
+    if (rect.bottom > window.innerHeight) {
+      menu.classList.remove('top-full', 'mt-1');
+      menu.classList.add('bottom-full', 'mb-1');
     }
+  }
 
-    function closeAllDropdowns() {
-        document.querySelectorAll('[role="menu"]').forEach(menu => menu.classList.add('hidden'));
-        document.querySelectorAll('[aria-haspopup]').forEach(btn => btn.setAttribute('aria-expanded', 'false'));
-    }
+  document.addEventListener('click', function (e) {
+    if (e.target.closest('[aria-haspopup]') || e.target.closest('[role="menu"]')) return;
+    closeAllDropdowns();
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') closeAllDropdowns();
+  });
 
-    // 외부 클릭 시 드롭다운 닫기
-    document.addEventListener('click', (e) => {
-        if (!e.target.closest('[aria-haspopup]') && !e.target.closest('[role="menu"]')) {
-            closeAllDropdowns();
-        }
+  /* ================= delete confirmation ================= */
+  document.querySelectorAll('.delete-form').forEach(function (form) {
+    form.addEventListener('submit', function (e) {
+      if (form.dataset.confirmed) return;
+      e.preventDefault();
+      showConfirm("'" + form.dataset.name + "' 항목을 삭제하시겠습니까?", function () {
+        form.dataset.confirmed = 'true';
+        form.submit();
+      });
     });
+  });
 
-    // Escape로 드롭다운 닫기
-    document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') closeAllDropdowns();
-    });
-
-    // 삭제 확인 — showConfirm 사용
-    document.querySelectorAll('.delete-form').forEach(form => {
-        form.addEventListener('submit', (e) => {
-            e.preventDefault();
-            const name = form.dataset.name;
-            showConfirm(`'${name}' 항목을 삭제하시겠습니까?`, () => form.submit());
-        });
-    });
-    const labels = {{ chart_data.labels | tojson }};
-    const counts = {{ chart_data.counts | tojson }};
-    const categoryName = {{ chart_data.category | tojson }};
-
-    const colorMap = {
-        'STORY': '59, 130, 246',
-        'VISUAL': '168, 85, 247',
-        'OST': '236, 72, 153',
-        'VOICE': '34, 197, 94',
-        'CHAR': '99, 102, 241',
-        'FUN': '239, 68, 68',
-        '종합 점수': '234, 179, 8',
+  /* ================= distribution chart ================= */
+  (function () {
+    var chartData = {{ chart_data | tojson }};
+    var criteriaList = {{ criteria | tojson }};
+    var PALETTE = {
+      red: '#ef4444', orange: '#f97316', yellow: '#eab308', green: '#22c55e',
+      teal: '#14b8a6', blue: '#3b82f6', indigo: '#6366f1', purple: '#a855f7',
+      pink: '#ec4899', gray: '#71717a'
     };
-    let colorTheme = colorMap[categoryName] || '139, 92, 246';
+    var chartInstance = null;
 
-    const ctx = document.getElementById('distributionChart').getContext('2d');
-
-    function getChartOptions() {
-        const isDark = document.documentElement.classList.contains('dark');
-        const gridColor = isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)';
-        const textColor = isDark ? '#94a3b8' : '#64748b';
-        return {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: { legend: { display: false }, tooltip: {
-                backgroundColor: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.9)',
-                titleColor: isDark ? '#fff' : '#1e293b',
-                bodyColor: isDark ? '#ccc' : '#475569',
-                borderColor: isDark ? '#333' : '#e2e8f0',
-                borderWidth: 1, padding: 10, displayColors: false
-            }},
-            scales: {
-                x: { grid: { display: false }, ticks: { color: textColor } },
-                y: { beginAtZero: true, grid: { color: gridColor, borderDash: [4, 4] }, ticks: { color: textColor, precision: 0 } }
-            },
-            interaction: { mode: 'nearest', axis: 'x', intersect: false }
-        };
+    function categoryColor(category) {
+      if (category && category !== '종합 점수') {
+        for (var i = 0; i < criteriaList.length; i++) {
+          if (criteriaList[i].label.toUpperCase() === category) {
+            return PALETTE[criteriaList[i].color] || '#7c3aed';
+          }
+        }
+      }
+      return '#7c3aed';
     }
 
-    let chartInstance = null;
-    function initChart() {
-        if (chartInstance) chartInstance.destroy();
-        const gradient = ctx.createLinearGradient(0, 0, 0, 400);
-        gradient.addColorStop(0, `rgba(${colorTheme}, 0.5)`);
-        gradient.addColorStop(1, `rgba(${colorTheme}, 0.0)`);
-        chartInstance = new Chart(ctx, {
-            type: 'line',
-            data: { labels, datasets: [{ label: 'Count', data: counts,
-                borderColor: `rgba(${colorTheme}, 1)`, backgroundColor: gradient,
-                borderWidth: 3, pointBackgroundColor: `rgba(${colorTheme}, 1)`,
-                pointBorderColor: '#fff', pointHoverBackgroundColor: '#fff',
-                pointHoverBorderColor: `rgba(${colorTheme}, 1)`,
-                pointRadius: 4, pointHoverRadius: 6, fill: true, tension: 0.4 }] },
-            options: getChartOptions()
-        });
+    function renderChart() {
+      var canvas = document.getElementById('distributionChart');
+      if (!canvas || typeof Chart === 'undefined') return;
+      if (chartInstance) chartInstance.destroy();
+      var isDark = document.documentElement.classList.contains('dark');
+      var gridColor = isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)';
+      var tickColor = isDark ? '#a1a1aa' : '#71717a';
+      var color = categoryColor(chartData.category);
+      chartInstance = new Chart(canvas.getContext('2d'), {
+        type: 'line',
+        data: {
+          labels: chartData.labels,
+          datasets: [{
+            data: chartData.counts,
+            borderColor: color,
+            backgroundColor: color + '22',
+            fill: true,
+            tension: 0.35,
+            pointRadius: 3,
+            pointHoverRadius: 5,
+            pointBackgroundColor: color,
+            borderWidth: 2
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          interaction: { mode: 'nearest', axis: 'x', intersect: false },
+          scales: {
+            x: { grid: { color: gridColor }, ticks: { color: tickColor } },
+            y: { beginAtZero: true, grid: { color: gridColor }, ticks: { color: tickColor, precision: 0 } }
+          }
+        }
+      });
     }
-    initChart();
-    window.addEventListener('theme-changed', initChart);
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', renderChart);
+    } else {
+      renderChart();
+    }
+    window.addEventListener('theme-changed', renderChart);
+  })();
 </script>
 {% endblock %}

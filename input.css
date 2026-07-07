@@ -1,114 +1,200 @@
+/* Ranker — "Arena Violet" design system. Tailwind CSS v4 entry. */
 @import "tailwindcss";
 
-/* 클래스 기반 다크모드 */
-@custom-variant dark (&:where(.dark, .dark *));
-
-/* 정적 스캔 대상 */
+/* Class scanning */
 @source "./templates/**/*.html";
 
-/* 동적 클래스 강제 포함 (Jinja2 런타임 생성 색상 클래스) */
-@source inline("{bg,text,ring}-{red,orange,yellow,green,teal,blue,indigo,purple,pink,gray}-{300,400,500,600,700}");
-@source inline("{hover:text,hover:bg,dark:text,dark:ring}-{red,orange,yellow,green,teal,blue,indigo,purple,pink,gray}-{300,400,500,600,700}");
+/* Safelist: templates compose color classes at runtime from stored criterion
+   colors (text-{color}-600, bg-{color}-500, ring-{color}-300, …) for the
+   10-color palette. Guarantee they exist in the build. */
+@source inline("{dark:,}text-{red,orange,yellow,green,teal,blue,indigo,purple,pink,gray}-{300,400,500,600,700}");
+@source inline("{hover:,dark:,dark:hover:,}bg-{red,orange,yellow,green,teal,blue,indigo,purple,pink,gray}-{300,400,500,600,700}");
+@source inline("{dark:,}ring-{red,orange,yellow,green,teal,blue,indigo,purple,pink,gray}-{300,400,500,600,700}");
+@source inline("{dark:,}border-{red,orange,yellow,green,teal,blue,indigo,purple,pink,gray}-{300,400,500,600,700}");
+
+/* Accent classes composed via Jinja loops for the 3-way item letters (A/B/C) */
+@source inline("{dark:,}{bg,text}-{violet,rose,sky}-{100,300,400,500,600,700}");
+@source inline("dark:bg-{violet,rose,sky}-500/15");
+
+/* Class-based dark mode driven by .dark on <html> */
+@custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
-    --font-sans: 'Inter', sans-serif;
+  --font-sans: "Noto Sans KR", ui-sans-serif, system-ui, -apple-system, "Apple SD Gothic Neo", sans-serif;
+  --font-display: "Outfit", "Noto Sans KR", ui-sans-serif, system-ui, sans-serif;
 
-    --color-brand-50:  #f5f3ff;
-    --color-brand-100: #ede9fe;
-    --color-brand-200: #ddd6fe;
-    --color-brand-400: #a78bfa;
-    --color-brand-500: #8b5cf6;
-    --color-brand-600: #7c3aed;
-    --color-brand-700: #6d28d9;
-    --color-brand-800: #5b21b6;
-    --color-brand-900: #4c1d95;
-}
+  --animate-toast-in: toast-in 0.25s cubic-bezier(0.21, 1.02, 0.73, 1) both;
+  --animate-toast-out: toast-out 0.2s ease-in both;
+  --animate-float: float 5s ease-in-out infinite;
+  --animate-slide-up: slide-up 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-fade-in: fade-in 0.4s ease-out both;
+  --animate-bounce-in: bounce-in 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  --animate-result-row: result-row 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
 
-/* 스크롤바 커스텀 */
-::-webkit-scrollbar { width: 8px; height: 8px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
-::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-.dark ::-webkit-scrollbar-thumb { background: #475569; }
-
-/* 커스텀 유틸리티 */
-@keyframes float {
+  @keyframes toast-in {
+    from { opacity: 0; transform: translateY(-0.5rem) scale(0.97); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  @keyframes toast-out {
+    from { opacity: 1; transform: translateY(0); }
+    to { opacity: 0; transform: translateY(-0.5rem); }
+  }
+  @keyframes float {
     0%, 100% { transform: translateY(0); }
-    50%       { transform: translateY(-5px); }
-}
-@utility animate-float {
-    animation: float 3s ease-in-out infinite;
+    50% { transform: translateY(-6px); }
+  }
+  @keyframes slide-up {
+    from { opacity: 0; transform: translateY(0.75rem); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes bounce-in {
+    from { opacity: 0; transform: scale(0.92); }
+    to { opacity: 1; transform: scale(1); }
+  }
+  @keyframes result-row {
+    from { opacity: 0; transform: translateX(-0.5rem); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+  @keyframes shimmer {
+    from { background-position: -200% 0; }
+    to { background-position: 200% 0; }
+  }
 }
 
 @utility scrollbar-hide {
-    scrollbar-width: none;
-    &::-webkit-scrollbar { display: none; }
+  scrollbar-width: none;
+  &::-webkit-scrollbar { display: none; }
 }
 
-/* 토스트 알림 애니메이션 */
-@keyframes toast-in {
-    from { transform: translateY(-1rem); opacity: 0; }
-    to   { transform: translateY(0); opacity: 1; }
-}
-@keyframes toast-out {
-    from { transform: translateY(0); opacity: 1; }
-    to   { transform: translateY(-1rem); opacity: 0; }
-}
-@utility animate-toast-in {
-    animation: toast-in 0.3s ease-out forwards;
-}
-@utility animate-toast-out {
-    animation: toast-out 0.25s ease-in forwards;
+@layer base {
+  html { scroll-behavior: smooth; }
+  :focus-visible {
+    outline: 2px solid var(--color-violet-500);
+    outline-offset: 2px;
+  }
+  button, [role="button"], a, label, select, input[type="checkbox"], input[type="radio"] {
+    touch-action: manipulation;
+  }
 }
 
-/* 카드 입장 애니메이션 */
-@keyframes slide-up {
-    from { opacity: 0; transform: translateY(8px); }
-    to   { opacity: 1; transform: translateY(0); }
-}
-@utility animate-slide-up {
-    animation: slide-up 0.3s ease-out both;
+@layer components {
+  /* --- layout chrome --- */
+  .nav-link {
+    @apply inline-flex min-h-11 items-center rounded-lg px-3 py-2 text-sm font-semibold text-zinc-600 transition-colors hover:bg-zinc-200/60 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800/70 dark:hover:text-zinc-100;
+  }
+  .nav-active {
+    @apply bg-violet-100/90 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300;
+  }
+  .icon-btn {
+    @apply inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-xl text-zinc-500 transition-colors hover:bg-zinc-200/60 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800/70 dark:hover:text-zinc-100;
+  }
+
+  /* --- surfaces --- */
+  .card {
+    @apply rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900;
+  }
+
+  /* --- buttons --- */
+  .btn-primary {
+    @apply inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-xl bg-violet-600 px-5 text-sm font-bold text-white shadow-sm transition hover:bg-violet-500 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50;
+  }
+  .btn-secondary {
+    @apply inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-xl border border-zinc-300 bg-white px-4 text-sm font-semibold text-zinc-700 shadow-sm transition hover:bg-zinc-100 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800;
+  }
+  .btn-ghost {
+    @apply inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-xl px-4 text-sm font-semibold text-zinc-600 transition hover:bg-zinc-200/60 hover:text-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800/70 dark:hover:text-zinc-100;
+  }
+  .action-chip {
+    @apply inline-flex min-h-9 cursor-pointer items-center gap-1 rounded-lg px-2.5 text-xs font-semibold text-zinc-500 transition-colors hover:bg-zinc-200/70 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-700/70 dark:hover:text-zinc-100;
+  }
+
+  /* --- forms --- */
+  .field-input {
+    @apply w-full min-h-11 rounded-xl border border-zinc-300 bg-white px-3.5 text-sm text-zinc-900 shadow-sm transition placeholder:text-zinc-400 focus:border-violet-500 focus:ring-2 focus:ring-violet-500/30 focus:outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-500;
+  }
+  .field-label {
+    @apply mb-1.5 block text-sm font-semibold text-zinc-800 dark:text-zinc-200;
+  }
+  .field-help {
+    @apply mb-1.5 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400;
+  }
+  .field-hint {
+    @apply mt-1.5 text-xs font-medium text-violet-600 dark:text-violet-400;
+  }
+
+  /* --- battle vote buttons --- */
+  .vote-btn {
+    @apply relative flex min-h-11 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-xl border-2 border-zinc-200 bg-zinc-50 px-2 py-2.5 text-center transition select-none hover:border-violet-300 hover:bg-violet-50 active:scale-[0.98] dark:border-zinc-700 dark:bg-zinc-800/60 dark:hover:border-violet-600 dark:hover:bg-violet-500/10;
+  }
+  .vote-btn.selected-1,
+  .vote-btn.sel-best {
+    @apply border-violet-500 bg-violet-100 ring-2 ring-violet-400/40 dark:border-violet-400 dark:bg-violet-500/20;
+  }
+  .vote-btn.selected-2 {
+    @apply border-rose-500 bg-rose-100 ring-2 ring-rose-400/40 dark:border-rose-400 dark:bg-rose-500/20;
+  }
+  .vote-btn.selected-draw,
+  .vote-btn.sel-tied {
+    @apply border-amber-500 bg-amber-100 ring-2 ring-amber-400/40 dark:border-amber-400 dark:bg-amber-500/15;
+  }
+  .vote-btn.sel-worst {
+    @apply border-rose-500 bg-rose-100 ring-2 ring-rose-400/40 dark:border-rose-400 dark:bg-rose-500/20;
+  }
+  .vote-btn.sel-middle {
+    @apply border-sky-500 bg-sky-100 ring-2 ring-sky-400/40 dark:border-sky-400 dark:bg-sky-500/15;
+  }
+  .criteria-card {
+    @apply rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm transition-shadow dark:border-zinc-800 dark:bg-zinc-900;
+  }
+  .criteria-card.voted {
+    @apply border-violet-300 shadow-md shadow-violet-500/10 dark:border-violet-700;
+  }
+  .mode-chip {
+    @apply inline-flex min-h-9 cursor-pointer items-center gap-1 rounded-full border border-zinc-300 bg-white px-3 text-xs font-semibold text-zinc-600 transition hover:border-violet-400 hover:text-violet-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:border-violet-500 dark:hover:text-violet-300;
+  }
+  .mode-chip.active-mode {
+    @apply border-amber-500 bg-amber-100 text-amber-800 dark:border-amber-400 dark:bg-amber-500/20 dark:text-amber-300;
+  }
+  .role-icon {
+    @apply mt-0.5 inline-flex min-h-5 items-center gap-1 text-[11px] font-bold uppercase tracking-wide;
+  }
+
+  /* --- color swatches --- */
+  .color-swatch {
+    @apply h-11 w-11 cursor-pointer rounded-full border-2 border-transparent transition hover:scale-105;
+  }
+  .color-swatch.swatch-selected {
+    @apply border-white ring-2 ring-zinc-900 dark:border-zinc-900 dark:ring-white;
+  }
+
+  /* --- dropdown --- */
+  .dropdown-menu {
+    @apply absolute right-0 top-full z-30 mt-1 w-40 rounded-xl border border-zinc-200 bg-white p-1.5 shadow-lg dark:border-zinc-700 dark:bg-zinc-900;
+  }
+  .menu-item {
+    @apply flex w-full min-h-11 cursor-pointer items-center gap-2 rounded-lg px-3 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800;
+  }
+
+  /* --- toasts --- */
+  .toast {
+    @apply pointer-events-auto flex max-w-sm items-center gap-2.5 rounded-xl border px-4 py-3 text-sm font-medium shadow-lg backdrop-blur;
+  }
+  .toast-success { @apply border-emerald-300 bg-emerald-50/95 text-emerald-900 dark:border-emerald-700 dark:bg-emerald-950/90 dark:text-emerald-200; }
+  .toast-error   { @apply border-rose-300 bg-rose-50/95 text-rose-900 dark:border-rose-700 dark:bg-rose-950/90 dark:text-rose-200; }
+  .toast-warning { @apply border-amber-300 bg-amber-50/95 text-amber-900 dark:border-amber-700 dark:bg-amber-950/90 dark:text-amber-200; }
+  .toast-info    { @apply border-violet-300 bg-violet-50/95 text-violet-900 dark:border-violet-700 dark:bg-violet-950/90 dark:text-violet-200; }
 }
 
-/* 편집 폼 등장 애니메이션 */
-@keyframes fade-in {
-    from { opacity: 0; transform: translateY(-5px); }
-    to   { opacity: 1; transform: translateY(0); }
-}
-@utility animate-fade-in {
-    animation: fade-in 0.2s ease-out;
-}
-
-/* 배틀 Focus 모드 배너 — 중앙 고정 후 바운스 진입 */
-@keyframes bounce-in {
-    0%   { opacity: 0; transform: translate(-50%, -20px); }
-    50%  { transform: translate(-50%, 5px); }
-    100% { opacity: 1; transform: translate(-50%, 0); }
-}
-@utility animate-bounce-in {
-    animation: bounce-in 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
-}
-
-/* 결과 모달 행 등장 애니메이션 (battle / battle_3way 공용) */
-@keyframes result-row-in {
-    from { opacity: 0; transform: translateY(8px); }
-    to   { opacity: 1; transform: translateY(0); }
-}
-@utility animate-result-row {
-    animation: result-row-in 0.3s ease forwards;
-}
-
-/* index 페이지 hover shimmer — arbitrary animate-[shimmer_*] 참조용 키프레임 */
-@keyframes shimmer {
-    100% { transform: translateX(100%); }
-}
-
-/* 모션 민감 사용자 대응: OS의 "동작 줄이기" 설정 존중 */
+/* Reduced motion: neutralize all animation/transition globally */
 @media (prefers-reduced-motion: reduce) {
-    *, ::before, ::after {
-        animation-duration: 0.01ms !important;
-        animation-iteration-count: 1 !important;
-        transition-duration: 0.01ms !important;
-        scroll-behavior: auto !important;
-    }
+  *, ::before, ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

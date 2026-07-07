@@ -1,84 +1,48 @@
-{# partials/battle_result.html — 2-way 배틀 결과 모달 (서버 렌더링) #}
 {% from "partials/_icons.html" import icon %}
-<div id="result-modal"
-    class="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center z-50 opacity-0 transition-opacity duration-300"
-    role="dialog" aria-modal="true" aria-label="대결 결과" aria-hidden="false"
-    data-auto-skip="{{ 'true' if result_auto_skip else 'false' }}"
-    data-skip-seconds="{{ result_skip_seconds }}"
-    data-next-url="{{ next_url }}">
-    <div
-        class="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl max-w-lg w-full mx-4 border border-gray-200 dark:border-gray-800 transform scale-95 transition-transform duration-300 relative overflow-hidden max-h-[85vh] flex flex-col">
-
-        <div class="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-brand-500 via-purple-500 to-pink-500"></div>
-
-        <div class="p-6 pb-3">
-            <h3 class="text-xl font-black text-center">
-                <span
-                    class="bg-clip-text text-transparent bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-300">Battle
-                    Result</span>
-            </h3>
-        </div>
-
-        {# Header: item names #}
-        <div class="px-6 pb-3">
-            <div class="grid grid-cols-[1fr_auto_1fr] gap-2 text-center">
-                <div class="text-sm font-bold text-brand-600 dark:text-brand-400 break-words">{{ a1_name }}</div>
-                <div class="text-xs text-gray-400 self-center shrink-0">vs</div>
-                <div class="text-sm font-bold text-pink-600 dark:text-pink-400 break-words">{{ a2_name }}</div>
-            </div>
-        </div>
-
-        {# Per-criteria results #}
-        <div class="overflow-y-auto px-6 pb-4 flex-1">
-            {% for r in results %}
-            {% set win_icon = '◀' if r.winner == '1' else ('▶' if r.winner == '2' else '=') %}
-            {% set win_color = 'text-brand-500' if r.winner == '1' else ('text-pink-500' if r.winner == '2' else 'text-gray-400') %}
-            {% set d1 = r.diff_r1 %}
-            {% set d2 = r.diff_r2 %}
-            <div class="flex items-center gap-2 py-2.5 border-b border-gray-200 dark:border-gray-800 last:border-0 opacity-0 translate-y-2 animate-result-row"
-                 style="animation-delay: {{ loop.index0 * 60 }}ms">
-                <div class="flex-1 text-right">
-                    <span class="font-mono text-sm font-bold text-gray-700 dark:text-gray-200">{{ r.new_r1 | round(0) | int }}</span><span class="text-[10px] text-gray-400 ml-0.5">&plusmn;{{ r.sigma1 | round(0) | int }}</span>
-                    <span class="text-xs font-bold ml-1 {% if d1 > 0 %}text-green-500{% elif d1 < 0 %}text-red-500{% else %}text-gray-400{% endif %}">{{ '{:+.1f}'.format(d1) }}</span>
-                </div>
-                <div class="w-24 md:w-28 text-center shrink-0">
-                    <span class="text-xs font-bold {{ win_color }}" aria-hidden="true">{{ win_icon }}</span>
-                    <div class="text-[11px] font-bold text-gray-600 dark:text-gray-300">{{ r.label }}</div>
-                </div>
-                <div class="flex-1 text-left">
-                    <span class="text-xs font-bold mr-1 {% if d2 > 0 %}text-green-500{% elif d2 < 0 %}text-red-500{% else %}text-gray-400{% endif %}">{{ '{:+.1f}'.format(d2) }}</span>
-                    <span class="font-mono text-sm font-bold text-gray-700 dark:text-gray-200">{{ r.new_r2 | round(0) | int }}</span><span class="text-[10px] text-gray-400 ml-0.5">&plusmn;{{ r.sigma2 | round(0) | int }}</span>
-                </div>
-            </div>
-            {% endfor %}
-        </div>
-
-        {# Footer: auto-skip / click-skip #}
-        <div class="px-6 pb-6">
-            <div id="auto-skip-area" class="{{ '' if result_auto_skip else 'hidden' }}">
-                <div class="relative w-full h-1.5 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden mb-3">
-                    <div id="modal-progress"
-                        class="absolute left-0 top-0 h-full bg-gradient-to-r from-brand-500 to-pink-500 w-0 transition-all ease-out"
-                        style="transition-duration: {{ (result_skip_seconds * 1000) | int }}ms"></div>
-                </div>
-                <div class="flex items-center justify-between gap-3">
-                    <p class="text-[11px] text-gray-400 uppercase tracking-widest animate-pulse">
-                        {{ result_skip_seconds }}초 후 자동 이동...
-                    </p>
-                    <button type="button" onclick="cancelAutoSkip()"
-                        class="min-h-11 text-xs font-bold text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 px-3 py-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition">
-                        유지
-                    </button>
-                </div>
-            </div>
-
-            <div id="click-skip-area" class="{{ '' if not result_auto_skip else 'hidden' }}">
-                <button id="next-battle-btn" onclick="dismissModal()"
-                    class="w-full py-3 rounded-xl font-bold text-white bg-gradient-to-r from-brand-600 to-pink-500 hover:from-brand-700 hover:to-pink-600 shadow-lg transition-all duration-200 transform hover:scale-[1.02] active:scale-95 inline-flex items-center justify-center gap-2">
-                    {{ icon("swords", "w-5 h-5") }} 다음 대결
-                </button>
-                <p class="text-center text-[11px] text-gray-400 mt-2">아무 곳이나 클릭하거나 스페이스바를 눌러도 넘어갑니다</p>
-            </div>
-        </div>
+<div id="result-modal" role="dialog" aria-modal="true" aria-label="대결 결과" aria-hidden="false"
+     data-auto-skip="{{ 'true' if result_auto_skip else 'false' }}"
+     data-skip-seconds="{{ result_skip_seconds }}"
+     data-next-url="{{ next_url }}"
+     class="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/60 p-4 opacity-0 backdrop-blur-sm transition-opacity duration-300">
+  <div class="card w-full max-w-lg scale-95 p-5 transition-transform duration-300 sm:p-6">
+    <p class="text-center font-display text-[11px] font-extrabold tracking-widest text-violet-600 uppercase dark:text-violet-400">Battle Result</p>
+    <div class="mt-2 flex items-center justify-center gap-3 text-center">
+      <span class="min-w-0 flex-1 truncate text-right font-display text-base font-bold sm:text-lg">{{ a1_name }}</span>
+      <span class="shrink-0 rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-bold text-zinc-500 uppercase dark:bg-zinc-800 dark:text-zinc-400">vs</span>
+      <span class="min-w-0 flex-1 truncate text-left font-display text-base font-bold sm:text-lg">{{ a2_name }}</span>
     </div>
+
+    <div class="mt-4 flex max-h-[45dvh] flex-col gap-1.5 overflow-y-auto pr-1">
+      {% for r in results %}
+      <div class="animate-result-row grid grid-cols-[1fr_auto_1fr] items-center gap-2 rounded-xl bg-zinc-50 px-3 py-2.5 dark:bg-zinc-800/60" style="animation-delay: {{ loop.index0 * 50 }}ms">
+        <div class="flex items-baseline justify-end gap-1.5 text-right">
+          <span class="font-display text-sm font-bold tabular-nums">{{ r.new_r1 | round(0) | int }}<span class="text-[10px] font-medium text-zinc-400">&plusmn;{{ r.sigma1 | round(0) | int }}</span></span>
+          <span class="text-xs font-bold tabular-nums {{ 'text-emerald-600 dark:text-emerald-400' if r.diff_r1 > 0 else ('text-rose-600 dark:text-rose-400' if r.diff_r1 < 0 else 'text-zinc-400 dark:text-zinc-500') }}">{{ '%+.1f' | format(r.diff_r1) }}</span>
+        </div>
+        <div class="flex items-center justify-center gap-1.5">
+          <span aria-hidden="true" class="w-4 text-center text-sm font-bold {{ 'text-violet-500' if r.winner == '1' else 'text-zinc-300 dark:text-zinc-600' }}">{{ '◀' if r.winner == '1' else ('▶' if r.winner == '2' else '=') }}</span>
+          <span class="max-w-24 truncate text-[11px] font-extrabold tracking-wide uppercase text-{{ r.color }}-600 dark:text-{{ r.color }}-400">{{ r.label }}</span>
+        </div>
+        <div class="flex items-baseline justify-start gap-1.5">
+          <span class="text-xs font-bold tabular-nums {{ 'text-emerald-600 dark:text-emerald-400' if r.diff_r2 > 0 else ('text-rose-600 dark:text-rose-400' if r.diff_r2 < 0 else 'text-zinc-400 dark:text-zinc-500') }}">{{ '%+.1f' | format(r.diff_r2) }}</span>
+          <span class="font-display text-sm font-bold tabular-nums">{{ r.new_r2 | round(0) | int }}<span class="text-[10px] font-medium text-zinc-400">&plusmn;{{ r.sigma2 | round(0) | int }}</span></span>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <div id="auto-skip-area" class="{{ '' if result_auto_skip else 'hidden' }} mt-5">
+      <div class="h-1.5 w-full rounded-full bg-zinc-200 dark:bg-zinc-800">
+        <div id="modal-progress" class="h-full rounded-full bg-violet-500 transition-[width] ease-linear" style="width: 0%; transition-duration: {{ (result_skip_seconds * 1000) | int }}ms"></div>
+      </div>
+      <div class="mt-3 flex items-center justify-between gap-3">
+        <p class="text-xs font-medium text-zinc-500 dark:text-zinc-400">{{ result_skip_seconds }}초 후 자동 이동...</p>
+        <button type="button" onclick="cancelAutoSkip()" class="btn-secondary px-4 py-2 text-xs">유지</button>
+      </div>
+    </div>
+    <div id="click-skip-area" class="{{ 'hidden' if result_auto_skip else '' }} mt-5 text-center">
+      <button type="button" id="next-battle-btn" onclick="dismissModal()" class="btn-primary w-full py-3 sm:w-auto sm:px-10">{{ icon('swords') }}<span>다음 대결</span></button>
+      <p class="mt-2.5 text-[11px] text-zinc-400 dark:text-zinc-500">아무 곳이나 클릭하거나 스페이스바를 눌러도 넘어갑니다</p>
+    </div>
+  </div>
 </div>

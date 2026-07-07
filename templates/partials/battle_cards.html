@@ -1,197 +1,109 @@
-{# partials/battle_cards.html — 2-way 배틀 카드 + 투표 버튼 + 프로그레스 바 #}
 {% from "partials/_icons.html" import icon %}
-
-{# JS 상태 전달용 hidden 요소 #}
 <div id="battle-state" style="display:none"
      data-item1-id="{{ item1.id }}"
      data-item2-id="{{ item2.id }}"
      data-round-token="{{ round_token }}"
      data-criteria-keys='{{ criteria_info | map(attribute="key") | list | tojson }}'
-     data-redirect-to='{{ ("/battle/focus/" ~ focus_id) if focus_mode else "" }}'
-     data-auto-skip='{{ "true" if result_auto_skip else "false" }}'
-     data-skip-seconds='{{ result_skip_seconds }}'
-     data-battle-mode="2way">
+     data-redirect-to="{{ ('/battle/focus/' ~ focus_id) if focus_mode else '' }}"
+     data-auto-skip="{{ 'true' if result_auto_skip else 'false' }}"
+     data-skip-seconds="{{ result_skip_seconds }}"
+     data-battle-mode="2way"></div>
+
+{% if focus_mode %}
+<div class="mb-6 flex items-center justify-between gap-3 rounded-2xl border border-violet-300/70 bg-violet-100/60 px-4 py-3 dark:border-violet-500/40 dark:bg-violet-500/10">
+  <div class="flex min-w-0 items-center gap-2.5 text-sm font-semibold text-violet-800 dark:text-violet-300">
+    <span class="animate-pulse text-violet-600 dark:text-violet-400">{{ icon('target', 'w-5 h-5') }}</span>
+    <span class="truncate">'{{ item1.name }}' 집중 평가 중</span>
+  </div>
+  <a href="/manage" class="shrink-0 rounded-lg px-3 py-2 text-sm font-bold text-violet-700 hover:bg-violet-200/60 dark:text-violet-300 dark:hover:bg-violet-500/20">종료</a>
+</div>
+{% endif %}
+
+<h1 class="sr-only">{{ item1.name }} 대 {{ item2.name }} — 1대1 배틀</h1>
+
+<header class="mb-6 text-center">
+  <p aria-hidden="true" class="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-4 py-1.5 text-[11px] font-bold tracking-widest text-zinc-500 uppercase dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
+    <span class="text-violet-600 dark:text-violet-400">Battle Arena</span>
+    <span class="text-zinc-300 dark:text-zinc-600">&middot;</span>
+    <span>All Criteria</span>
+  </p>
+  <h2 class="mt-3 font-display text-xl font-bold sm:text-2xl">각 항목에서 더 뛰어난 쪽을 선택하세요</h2>
+</header>
+
+<div class="mb-6 grid grid-cols-2 gap-3 sm:gap-4">
+  <div class="animate-slide-up card relative overflow-x-hidden p-4 text-center sm:p-5">
+    <span class="absolute top-0 left-0 rounded-br-xl bg-violet-600 px-2.5 py-1 font-display text-xs font-extrabold text-white" aria-hidden="true">A</span>
+    <p class="mt-3 font-display text-lg font-bold break-words sm:text-xl">{{ item1.name }}</p>
+    <div class="mt-2 flex flex-wrap items-center justify-center gap-1.5 text-xs font-semibold">
+      {% if total_items > 0 %}<span class="rounded-full bg-violet-100 px-2.5 py-1 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300">#{{ rank1 }}&thinsp;/&thinsp;{{ total_items }}</span>{% endif %}
+      <span class="rounded-full bg-zinc-100 px-2.5 py-1 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">{{ item1.matches_played }}전</span>
+    </div>
+  </div>
+  <div class="animate-slide-up card relative overflow-x-hidden p-4 text-center sm:p-5" style="animation-delay: 60ms">
+    <span class="absolute top-0 right-0 rounded-bl-xl bg-rose-500 px-2.5 py-1 font-display text-xs font-extrabold text-white" aria-hidden="true">B</span>
+    <p class="mt-3 font-display text-lg font-bold break-words sm:text-xl">{{ item2.name }}</p>
+    <div class="mt-2 flex flex-wrap items-center justify-center gap-1.5 text-xs font-semibold">
+      {% if total_items > 0 %}<span class="rounded-full bg-rose-100 px-2.5 py-1 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300">#{{ rank2 }}&thinsp;/&thinsp;{{ total_items }}</span>{% endif %}
+      <span class="rounded-full bg-zinc-100 px-2.5 py-1 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">{{ item2.matches_played }}전</span>
+    </div>
+  </div>
 </div>
 
-<div class="relative flex flex-col items-center min-h-[80vh] py-6 px-4">
-
-    {# --- Focus Mode Banner --- #}
-    {% if focus_mode %}
-    <div class="fixed top-20 left-1/2 transform -translate-x-1/2 z-40 animate-bounce-in">
-        <div
-            class="bg-gradient-to-r from-blue-600 to-blue-500 text-white px-6 py-2 rounded-full text-sm font-bold shadow-xl flex items-center gap-2 ring-4 ring-blue-500/20">
-            <span class="animate-pulse inline-flex">{{ icon("target", "w-4 h-4") }}</span>
-            <span>'{{ item1.name }}' 집중 평가 중</span>
-            <a href="/manage" class="ml-2 text-blue-200 hover:text-white underline text-xs">종료</a>
-        </div>
+<div id="criteria-list" class="flex flex-col gap-3">
+  {% for c in criteria_info %}
+  <div class="criteria-card animate-slide-up" data-key="{{ c.key }}" style="animation-delay: {{ loop.index0 * 40 }}ms">
+    <div class="mb-3 flex h-2 w-full gap-px overflow-x-hidden rounded-full bg-zinc-100 dark:bg-zinc-800" role="img"
+         aria-label="{{ c.label }} 예상 승률 — {{ item1.name }} {{ c.probs.win_a }}%, 무승부 {{ c.probs.draw }}%, {{ item2.name }} {{ c.probs.win_b }}%">
+      <div class="h-full rounded-l-full bg-violet-500" style="width: {{ c.probs.win_a }}%"></div>
+      <div class="h-full bg-zinc-300 dark:bg-zinc-600" style="width: {{ c.probs.draw }}%"></div>
+      <div class="h-full rounded-r-full bg-rose-500" style="width: {{ c.probs.win_b }}%"></div>
     </div>
-    {% endif %}
-
-    {# --- Header: VS Display --- #}
-    <div class="w-full max-w-4xl mb-8">
-        <h1 class="sr-only">{{ item1.name }} 대 {{ item2.name }} — 1대1 배틀</h1>
-        <div class="text-center mb-6">
-            <div
-                class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-gray-100 dark:bg-gray-800 text-xs font-bold uppercase tracking-widest text-gray-500 dark:text-gray-400 mb-3"
-                aria-hidden="true">
-                <span>Battle Arena</span>
-                <span class="w-1 h-1 rounded-full bg-gray-400"></span>
-                <span>All Criteria</span>
-            </div>
-            <h2 class="text-2xl md:text-4xl font-black text-gray-900 dark:text-white">
-                각 항목에서 더 뛰어난 쪽을 선택하세요
-            </h2>
-        </div>
-
-        {# --- Two Items Header --- #}
-        <div class="grid grid-cols-[1fr_auto_1fr] gap-3 items-stretch mb-2">
-            <!-- Item A -->
-            <div
-                class="flex flex-col bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-lg border-2 border-brand-500 dark:border-brand-400 text-center h-full justify-center">
-                <div class="text-xs font-bold text-brand-500 uppercase tracking-wider mb-2">A</div>
-                <h3
-                    class="text-lg md:text-2xl font-black text-gray-900 dark:text-white break-words whitespace-normal leading-snug">
-                    {{ item1.name }}
-                </h3>
-                <div class="flex items-center justify-center gap-2 mt-2 flex-wrap">
-                    {% if total_items > 0 %}
-                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-brand-50 dark:bg-brand-900/30 text-brand-600 dark:text-brand-300 border border-brand-200 dark:border-brand-800">
-                        #{{ rank1 }}&thinsp;/&thinsp;{{ total_items }}
-                    </span>
-                    {% endif %}
-                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400">
-                        {{ item1.matches_played }}전
-                    </span>
-                </div>
-            </div>
-
-            <!-- VS Badge -->
-            <div class="flex items-center justify-center">
-                <div
-                    class="w-10 h-10 md:w-12 md:h-12 rounded-full bg-white dark:bg-gray-800 flex items-center justify-center font-black text-sm italic text-gray-400 dark:text-gray-500 shadow-lg ring-4 ring-gray-50 dark:ring-gray-900 shrink-0 z-10">
-                    VS
-                </div>
-            </div>
-
-            <!-- Item B -->
-            <div
-                class="flex flex-col bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-lg border-2 border-pink-500 dark:border-pink-400 text-center h-full justify-center">
-                <div class="text-xs font-bold text-pink-500 uppercase tracking-wider mb-2">B</div>
-                <h3
-                    class="text-lg md:text-2xl font-black text-gray-900 dark:text-white break-words whitespace-normal leading-snug">
-                    {{ item2.name }}
-                </h3>
-                <div class="flex items-center justify-center gap-2 mt-2 flex-wrap">
-                    {% if total_items > 0 %}
-                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-pink-50 dark:bg-pink-900/30 text-pink-600 dark:text-pink-300 border border-pink-200 dark:border-pink-800">
-                        #{{ rank2 }}&thinsp;/&thinsp;{{ total_items }}
-                    </span>
-                    {% endif %}
-                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400">
-                        {{ item2.matches_played }}전
-                    </span>
-                </div>
-            </div>
-        </div>
+    <div class="grid grid-cols-[1fr_auto_1fr] gap-2">
+      <button type="button" id="btn-{{ c.key }}-1" class="vote-btn" onclick="selectVote('{{ c.key }}','1')"
+              aria-pressed="false" aria-label="{{ c.label }} — {{ item1.name }} 선택">
+        <span class="font-display text-[11px] font-extrabold text-violet-600 dark:text-violet-400" aria-hidden="true">A</span>
+        <span class="font-display text-base font-bold tabular-nums">{{ c.r1 | round(0) | int }}<span class="ml-0.5 text-[10px] font-medium text-zinc-400">&plusmn;{{ c.sigma1 | round(0) | int }}</span></span>
+        <span class="text-[11px] font-semibold text-zinc-500 tabular-nums dark:text-zinc-400">{{ c.probs.win_a }}%</span>
+      </button>
+      <button type="button" id="btn-{{ c.key }}-draw" class="vote-btn min-w-24 sm:min-w-32" onclick="selectVote('{{ c.key }}','draw')"
+              aria-pressed="false" aria-label="{{ c.label }} — 무승부 선택">
+        <span class="max-w-full truncate text-xs font-extrabold tracking-wide uppercase text-{{ c.color }}-600 dark:text-{{ c.color }}-400">{{ c.label }}</span>
+        <span class="text-[11px] font-semibold text-zinc-500 tabular-nums dark:text-zinc-400">Draw &middot; {{ c.probs.draw }}%</span>
+      </button>
+      <button type="button" id="btn-{{ c.key }}-2" class="vote-btn" onclick="selectVote('{{ c.key }}','2')"
+              aria-pressed="false" aria-label="{{ c.label }} — {{ item2.name }} 선택">
+        <span class="font-display text-[11px] font-extrabold text-rose-500 dark:text-rose-400" aria-hidden="true">B</span>
+        <span class="font-display text-base font-bold tabular-nums">{{ c.r2 | round(0) | int }}<span class="ml-0.5 text-[10px] font-medium text-zinc-400">&plusmn;{{ c.sigma2 | round(0) | int }}</span></span>
+        <span class="text-[11px] font-semibold text-zinc-500 tabular-nums dark:text-zinc-400">{{ c.probs.win_b }}%</span>
+      </button>
     </div>
+  </div>
+  {% endfor %}
+</div>
 
-    {# --- Criteria Vote Cards --- #}
-    <div class="w-full max-w-4xl space-y-3" id="criteria-list">
-        {% for c in criteria_info %}
-        <div class="criteria-card bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden transition-all duration-200 hover:shadow-md animate-slide-up"
-            style="animation-delay: {{ loop.index0 * 40 }}ms"
-            data-key="{{ c.key }}">
+<div class="mt-4 flex flex-wrap justify-center gap-2">
+  <button type="button" class="mode-chip" onclick="selectAllAs('1')">전부 A 선택</button>
+  <button type="button" class="mode-chip" onclick="selectAllAs('draw')">전부 무승부</button>
+  <button type="button" class="mode-chip" onclick="selectAllAs('2')">전부 B 선택</button>
+  <button type="button" class="mode-chip" onclick="clearAll()">초기화</button>
+</div>
 
-            {# === 승률 표시 바 === #}
-            <div class="h-1.5 flex w-full" role="img"
-                aria-label="{{ c.label }} 예상 승률 — {{ item1.name }} {{ c.probs.win_a }}%, 무승부 {{ c.probs.draw }}%, {{ item2.name }} {{ c.probs.win_b }}%">
-                <div class="bg-brand-500/70 h-full transition-all duration-500" style="width: {{ c.probs.win_a }}%">
-                </div>
-                <div class="bg-gray-300 dark:bg-gray-600 h-full transition-all duration-500"
-                    style="width: {{ c.probs.draw }}%"></div>
-                <div class="bg-pink-500/70 h-full transition-all duration-500" style="width: {{ c.probs.win_b }}%">
-                </div>
-            </div>
-
-            <div class="flex items-stretch">
-                {# Left: Vote A #}
-                <button type="button" onclick="selectVote('{{ c.key }}', '1')" id="btn-{{ c.key }}-1"
-                    aria-pressed="false" aria-label="{{ c.label }} — {{ item1.name }} 선택"
-                    class="vote-btn flex-1 py-4 px-3 flex flex-col items-center justify-center gap-1 transition-all duration-200 hover:bg-brand-50 dark:hover:bg-brand-900/20 border-r border-gray-200 dark:border-gray-700 group">
-                    <span class="text-xs text-gray-400 group-hover:text-brand-500 font-bold" aria-hidden="true">A</span>
-                    <span class="text-sm font-mono font-bold text-gray-600 dark:text-gray-300">{{ c.r1|round(0)|int }}<span class="text-[10px] font-normal text-gray-400 ml-0.5">±{{ c.sigma1|round(0)|int }}</span></span>
-                    <span class="text-[11px] text-brand-400 font-semibold">{{ c.probs.win_a }}%</span>
-                </button>
-
-                {# Center: Label + Draw #}
-                <button type="button" onclick="selectVote('{{ c.key }}', 'draw')" id="btn-{{ c.key }}-draw"
-                    aria-pressed="false" aria-label="{{ c.label }} — 무승부 선택"
-                    class="vote-btn w-36 md:w-44 py-4 px-2 flex flex-col items-center justify-center gap-1.5 transition-all duration-200 hover:bg-gray-50 dark:hover:bg-gray-700/50 border-r border-gray-200 dark:border-gray-700">
-                    <span
-                        class="text-base md:text-lg font-extrabold text-{{ c.color }}-600 dark:text-{{ c.color }}-400 tracking-wide">{{
-                        c.label }}</span>
-                    <span class="text-[11px] text-gray-400 uppercase tracking-wider">Draw · {{ c.probs.draw }}%</span>
-                </button>
-
-                {# Right: Vote B #}
-                <button type="button" onclick="selectVote('{{ c.key }}', '2')" id="btn-{{ c.key }}-2"
-                    aria-pressed="false" aria-label="{{ c.label }} — {{ item2.name }} 선택"
-                    class="vote-btn flex-1 py-4 px-3 flex flex-col items-center justify-center gap-1 transition-all duration-200 hover:bg-pink-50 dark:hover:bg-pink-900/20 group">
-                    <span class="text-xs text-gray-400 group-hover:text-pink-500 font-bold" aria-hidden="true">B</span>
-                    <span class="text-sm font-mono font-bold text-gray-600 dark:text-gray-300">{{ c.r2|round(0)|int }}<span class="text-[10px] font-normal text-gray-400 ml-0.5">±{{ c.sigma2|round(0)|int }}</span></span>
-                    <span class="text-[11px] text-pink-400 font-semibold">{{ c.probs.win_b }}%</span>
-                </button>
-            </div>
-        </div>
-        {% endfor %}
+<div class="sticky bottom-0 z-30 mt-6 -mx-4 sm:-mx-6" style="padding-bottom: env(safe-area-inset-bottom)">
+  <div class="border-t border-zinc-200/70 bg-zinc-50/90 px-4 py-3 backdrop-blur-md sm:px-6 dark:border-zinc-800/70 dark:bg-zinc-950/90">
+    <div class="mx-auto flex max-w-3xl items-center gap-3 sm:gap-4">
+      <div class="relative h-12 w-12 shrink-0" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="{{ criteria_info | length }}" aria-label="투표 진행률">
+        <svg viewBox="0 0 32 32" class="h-12 w-12 -rotate-90">
+          <circle cx="16" cy="16" r="14" fill="none" stroke-width="3.5" class="stroke-zinc-200 dark:stroke-zinc-800"></circle>
+          <circle id="progress-ring" cx="16" cy="16" r="14" fill="none" stroke-width="3.5" stroke-linecap="round"
+                  stroke-dasharray="87.96" stroke-dashoffset="87.96"
+                  class="stroke-violet-500 transition-[stroke-dashoffset] duration-300"></circle>
+        </svg>
+      </div>
+      <div class="min-w-0 flex-1">
+        <p id="progress-count" class="font-display text-sm font-extrabold tabular-nums">0/{{ criteria_info | length }}</p>
+        <p id="progress-label" class="truncate text-xs font-medium text-zinc-500 dark:text-zinc-400">기준을 선택해주세요</p>
+      </div>
+      <button type="button" id="submit-btn" onclick="submitAllVotes()" disabled class="btn-primary shrink-0 px-6 py-3">{{ icon('swords') }}<span>결과 확인</span></button>
     </div>
-
-    {# --- Quick Actions --- #}
-    <div class="w-full max-w-4xl mt-4 flex flex-wrap items-center justify-center gap-3">
-        <button onclick="selectAllAs('1')"
-            class="px-4 py-2 rounded-xl text-xs font-bold bg-brand-50 text-brand-600 hover:bg-brand-100 dark:bg-brand-900/30 dark:text-brand-300 dark:hover:bg-brand-900/50 transition border border-brand-200 dark:border-brand-800">
-            전부 A 선택
-        </button>
-        <button onclick="selectAllAs('draw')"
-            class="px-4 py-2 rounded-xl text-xs font-bold bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600 transition border border-gray-200 dark:border-gray-600">
-            전부 무승부
-        </button>
-        <button onclick="selectAllAs('2')"
-            class="px-4 py-2 rounded-xl text-xs font-bold bg-pink-50 text-pink-600 hover:bg-pink-100 dark:bg-pink-900/30 dark:text-pink-300 dark:hover:bg-pink-900/50 transition border border-pink-200 dark:border-pink-800">
-            전부 B 선택
-        </button>
-        <button onclick="clearAll()"
-            class="px-4 py-2 rounded-xl text-xs font-bold text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition">
-            초기화
-        </button>
-    </div>
-
-    {# --- Progress & Submit --- #}
-    <div class="w-full max-w-4xl mt-6 sticky bottom-4 z-30" style="margin-bottom: env(safe-area-inset-bottom);">
-        <div
-            class="bg-white/90 dark:bg-gray-800/90 backdrop-blur-lg rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 p-4 flex items-center justify-between gap-4">
-            <div class="flex items-center gap-3 min-w-0">
-                <div class="relative w-10 h-10 shrink-0" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="{{ criteria_info|length }}" aria-label="투표 진행률">
-                    <svg class="w-10 h-10 -rotate-90" viewBox="0 0 36 36" aria-hidden="true">
-                        <circle cx="18" cy="18" r="14" fill="none" stroke="currentColor"
-                            class="text-gray-200 dark:text-gray-700" stroke-width="3"></circle>
-                        <circle id="progress-ring" cx="18" cy="18" r="14" fill="none" stroke="currentColor"
-                            class="text-brand-500 transition-all duration-300" stroke-width="3" stroke-dasharray="87.96"
-                            stroke-dashoffset="87.96" stroke-linecap="round"></circle>
-                    </svg>
-                    <span id="progress-count"
-                        class="absolute inset-0 flex items-center justify-center text-[11px] font-black text-gray-500 dark:text-gray-400">
-                        0/{{ criteria_info|length }}
-                    </span>
-                </div>
-                <span id="progress-label" class="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">
-                    기준을 선택해주세요
-                </span>
-            </div>
-            <button id="submit-btn" onclick="submitAllVotes()" disabled class="px-8 py-3 rounded-xl font-bold text-white shadow-lg transition-all duration-300
-                       bg-gray-300 dark:bg-gray-600 cursor-not-allowed inline-flex items-center gap-2">
-                {{ icon("swords", "w-5 h-5") }} 결과 확인
-            </button>
-        </div>
-    </div>
+  </div>
 </div>
