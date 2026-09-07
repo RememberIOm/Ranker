@@ -178,3 +178,21 @@ async def test_long_name_rejected_without_breaking_existing_board(client):
     assert response.status_code == 422
     response = await client.get("/ranking")
     assert response.status_code == 200 and "보존 항목" in response.text
+
+
+async def test_focus_label_follows_item_after_position_shuffle(client, monkeypatch):
+    from routers import battle
+
+    await client.post("/manage/add-bulk", data={"names": "Alpha\nBeta"})
+    monkeypatch.setattr(
+        battle,
+        "get_match_pair",
+        lambda store, focus_id=None: (store.items[1], store.items[0]),
+    )
+    response = await client.get("/battle/focus/1")
+    assert response.status_code == 200
+    assert (
+        "&#39;Alpha&#39; 집중 평가 중" in response.text
+        or "'Alpha' 집중 평가 중" in response.text
+    )
+    assert "'Beta' 집중 평가 중" not in response.text
