@@ -12,3 +12,7 @@ static/output.css
 fly.toml
 docker-compose.yml
 Dockerfile.dev
+
+# 테스트 실행 산출물
+test-results
+playwright-report

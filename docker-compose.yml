@@ -11,6 +11,7 @@ services:
       - ranker_data:/data  # 세션 데이터 영속
     environment:
       - SESSION_DIR=/data/sessions
+      - DATABASE_PATH=/data/ranker.db
 
   tailwind:
     image: node:22-alpine

@@ -2,7 +2,7 @@
 FROM node:22-alpine AS css-builder
 WORKDIR /build
 COPY package.json package-lock.json ./
-RUN npm ci
+RUN npm ci --omit=dev
 COPY input.css .
 COPY templates/ templates/
 RUN mkdir -p static && npm run build:css

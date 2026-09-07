@@ -1,178 +1,104 @@
-# Ranker (Session-based Bayesian Bradley-Terry Rating System)
+# Ranker
 
-**Ranker**는 1:1 또는 3-way 대결 투표를 통해 실시간으로 순위를 산정하는 범용 랭킹 웹 애플리케이션입니다.
-영화, 음식, 게임, 애니메이션 등 **어떤 주제든** 사용자가 원하는 항목과 평가 기준을 자유롭게 설정하여 나만의 랭킹을 만들 수 있습니다.
+항목을 1대1 또는 3개씩 비교해 개인적인 선호 순위를 만드는 웹앱입니다. 이름 있는 여러 랭킹을 관리하고, 기준별 가중치와 평가 결과를 보관할 수 있습니다.
 
-**Online Bayesian Bradley-Terry** 모델을 채택하여 각 항목의 실력과 불확실성(신뢰 구간)을 동시에 추정하고, 계층적 축소(Hierarchical Shrinkage)로 기준 간 정보를 공유합니다.
+배포 주소: https://battle-ranker.fly.dev
 
-**단일 SQLite DB**에 세션 기반으로 데이터를 저장하여, 누구나 독립적인 환경에서 자신만의 데이터를 구축하고 백업(Export/Import)할 수 있습니다.
+## 사용 흐름
 
-![License](https://img.shields.io/badge/License-AGPL--3.0-blue?style=flat-square)
-![Python](https://img.shields.io/badge/Python-3.13+-3776AB?style=flat-square&logo=python&logoColor=white)
-![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=flat-square&logo=fastapi)
-![SQLite](https://img.shields.io/badge/SQLite-003B57?style=flat-square&logo=sqlite&logoColor=white)
-![HTMX](https://img.shields.io/badge/HTMX-2.0-36C?style=flat-square&logo=htmx&logoColor=white)
-![TailwindCSS](https://img.shields.io/badge/TailwindCSS-v4-38B2AC?style=flat-square&logo=tailwind-css)
-![Fly.io](https://img.shields.io/badge/Deployed_on-Fly.io-7b51b6?style=flat-square&logo=fly.io&logoColor=white)
+1. **내 랭킹**에서 이름을 정하고 항목·평가 기준을 추가합니다.
+2. 대결에서 승패·동률을 선택합니다. 모르는 기준은 **건너뛰기**로 남깁니다.
+3. 랭킹에서 기준별 점수를 정렬하거나 검색하고, 평가 부족·상위 5위 항목을 비교합니다.
+4. 투표 내역에서 마지막 투표를 취소하거나 현재 설정으로 다시 계산할 수 있습니다.
+5. JSON 내보내기로 백업합니다. 기존 랭킹에 가져올 때는 미리보기 후 확인해야 교체됩니다.
 
-<div align="center">
+기본은 **블라인드 평가**입니다. 투표 전 순위·점수·예상 확률을 숨기며 설정에서 해제할 수 있습니다. 3개 대결에서 ‘최고만 선택’은 꼴찌를 추측하지 않습니다. 최하 또는 나머지 동률을 별도로 선택해야 합니다.
 
-🚀 **[battle-ranker.fly.dev](https://battle-ranker.fly.dev)**
+## 저장과 복구
 
-</div>
+새 랭킹은 브라우저의 개인 목록에 등록되며 직접 삭제할 때까지 보관됩니다. **내 랭킹 → 복구 코드**를 별도로 보관하면 다른 브라우저에서도 같은 목록을 열 수 있습니다. 코드를 가진 사람은 목록에 접근할 수 있습니다. 서버에는 코드의 SHA-256 해시만 저장하며, 쿠키는 HttpOnly·SameSite=Strict를 사용합니다. HTTPS에서는 `COOKIE_SECURE=true`를 설정합니다.
 
----
+목록에 아직 등록하지 않은 기존 세션은 7일 비활성 시 정리됩니다. 기존 브라우저에서 ‘내 랭킹’을 열면 현재 세션을 목록에 등록합니다. 코드 분실과 서버 장애에 대비한 데이터 사본은 JSON 백업입니다.
 
-## ✨ 주요 기능 (Key Features)
+백업 형식 2는 현재 점수, 설정, 원시 투표, 재계산 기준점을 포함합니다. 랭킹 하나의 백업 한도는 **64MiB**이며 같은 제한을 저장·가져오기에 적용합니다. 한도에 도달하면 백업을 받은 뒤 **투표 내역 → 기록 정리**로 현재 점수를 유지하고 기록을 비울 수 있습니다. 이전 형식은 미리보기에서 변환 여부를 알려줍니다. 잘못된 현재 형식은 조용히 초기화하지 않고 거절합니다.
 
-### 1. ⚔️ Battle Arena (다차원 동시 투표 시스템)
-- **다중 기준 동시 평가**: 한 번의 대결에서 사용자가 설정한 모든 평가 기준(예: 스토리, 작화, 음악 등)을 동시에 비교하여 투표합니다. 이를 통해 점수 수렴 속도가 대폭 향상됩니다.
-- **페이지 리로드 없는 연속 배틀**: HTMX 기반 partial 응답으로 투표 결과 확인 후 다음 대결이 즉시 시작됩니다. 서버가 결과 모달과 다음 배틀 카드를 동시에 반환합니다.
-- **불확실성 기반 매치메이킹**: 가장 불확실한 항목을 우선 매칭하여 정보 획득을 극대화하고, 비슷한 복합 점수의 상대와 매칭하여 공정성을 유지합니다.
-- **Focus Mode**: 특정 항목만 고정해두고 다른 항목들과 연속으로 대결시킬 수 있습니다.
+- 항목·기준 구조 변경 전 투표는 **보관 기록**으로 남습니다. 취소·재계산은 현재 구조의 기준점 이후에만 적용합니다.
+- 이름 변경은 투표 이력을 유지합니다. 취소·재계산으로 새 이름이 되돌아가지 않습니다.
+- 모델 설정을 바꿔도 기존 점수는 자동 재계산하지 않습니다. 명시적으로 재계산하면 현재 설정을 기록된 투표에 적용합니다.
+- 과거 원시 투표가 없는 기존 점수는 시작 스냅샷입니다. 존재하지 않는 과거 투표를 복원하지 않습니다.
 
-### 2. 🏆 Ranking Board (동적 순위표)
-- **실시간 랭킹**: 투표 즉시 Bayesian BT 사후분포가 갱신되어 순위에 반영됩니다.
-- **불확실성 시각화**: 각 항목의 신뢰 구간을 표시하여 순위의 신뢰도를 직관적으로 확인할 수 있습니다. 데이터가 부족한 항목에는 "불확실" 배지가 표시됩니다.
-- **가중치 기반 종합 점수**: 각 평가 기준별로 가중치를 부여하여 보다 합리적인 종합 점수를 산출합니다.
-- **차트 시각화**: Chart.js를 활용하여 현재 점수 분포(Distribution)를 기준별로 한눈에 파악할 수 있습니다.
+## 알고리즘의 의미와 한계
 
-### 3. ⚙️ Management (데이터 및 시스템 설정)
-- **항목(Items) 관리**: 평가할 대상을 개별 또는 여러 줄 텍스트로 일괄(Bulk) 등록하고 수정/삭제할 수 있습니다. HTMX로 페이지 이동 없이 즉시 반영됩니다.
-- **평가 기준(Criteria) 편집**: 평가할 기준의 이름, 테마 색상, 가중치를 자유롭게 추가하고 편집할 수 있습니다.
-- **BT Settings**: 사전분포(Prior), 무승부 확률, 계층적 축소(Hierarchical Shrinkage), 표시 스케일 등 랭킹 알고리즘의 모든 파라미터를 UI에서 직접 튜닝할 수 있습니다.
-- **데이터 백업 및 복구 (Data I/O)**: 현재 세션의 모든 데이터(설정, 기준, 항목)를 단일 `JSON` 파일로 다운로드(Export)하거나 업로드(Import)하여 이어서 진행할 수 있습니다. 이전 Elo 형식 JSON도 자동 마이그레이션됩니다.
+내부 점수는 기준별 평균 `μ`와 분산 `σ²`를 유지하는 **대각 온라인 Bradley–Terry 근사**입니다. 표시 점수는 `μ × display_scale + display_center`입니다. 기준 간 축소는 기본 0이며 고급 설정으로 선택할 수 있습니다. 서로 반대인 평가 기준을 불필요하게 섞지 않는 기본값입니다.
 
-### 4. 🗂️ 독립적인 멀티 유저 세션 (Multi-Session)
-- 복잡한 설정이나 회원가입 없이, 사이트 접속 시 발급되는 브라우저 쿠키를 기반으로 각 유저마다 독립된 데이터 환경을 제공합니다.
+3개 순위는 세 쌍 비교로 분해하고 원래 상태에서 동시에 갱신합니다. 같은 판단에서 나온 세 비교를 독립된 세 번의 사용자 관측처럼 해석하거나 ‘수렴 속도 3배’라고 주장하지 않습니다. 건너뛴 기준은 평균·분산·비교 수·무승부 수를 갱신하지 않습니다.
 
-### 5. ♿ 접근성 & 모션 (Accessibility & Motion)
-- **통일된 Heroicons SVG 아이콘 시스템**: nav/액션 아이콘을 `templates/partials/_icons.html` 매크로로 통일하여 플랫폼 간 일관된 렌더링과 `currentColor` 기반 다크모드 색상 대응을 보장합니다.
-- **`prefers-reduced-motion` 전역 대응**: OS의 "동작 줄이기" 설정을 존중하여 모션 민감 사용자에게도 안전한 경험을 제공합니다 (`bounce-in`, `result-row-in`, `toast-in/out` 등 모든 키프레임 적용).
-- **건너뛰기 링크 (Skip to Main)**: 키보드 사용자가 매 페이지 nav 를 탭하지 않고 메인 콘텐츠로 바로 이동할 수 있습니다.
-- **iOS Safari 동적 뷰포트**: `min-h-dvh` 사용으로 주소창 토글 시 레이아웃 점프를 방지합니다.
-- **HTMX 스왑 영역의 `aria-live` / `aria-busy` 토글**: 동적 콘텐츠 변경을 스크린리더가 실시간으로 안내합니다.
+표시 승/무/패는 불확실성 적분과 무승부 이력을 반영한 **예측 근사**입니다. 무승부 부분은 학습 우도와 완전히 일치하는 모델이 아니며, 실사용 데이터에서 보정된 확률이라는 보장은 없습니다. `±`는 표시 단위의 근사 사후 표준편차이며 확정 순위나 95% 신뢰구간이 아닙니다. 평가 부족 배지는 기준 중 하나라도 비교 5회 미만이라는 뜻입니다.
 
----
+합성 취향에서 순위 정확도, Brier/log loss, 구간 포함률, 2·3way 비교 비용을 평가했습니다. 결과와 재현 명령은 [알고리즘 평가](docs/algorithm_evaluation.md)에 있습니다. 실제 사용자 소요시간이나 실제 취향 데이터의 검증을 대체하지 않습니다.
 
-## 🛠 기술 스택 (Tech Stack)
+## 개발
 
-- **Backend**: Python 3.13, FastAPI 0.136, Uvicorn 0.46, aiosqlite, Pydantic v2
-- **Data Storage**: SQLite (WAL mode, `database.py` + `store.py`, 단일 DB 파일에 세션별 데이터 저장)
-- **Frontend**: Jinja2 Templates, HTMX 2.0.10 (self-hosted), TailwindCSS v4.2 CLI build, Chart.js 4.5 (self-hosted), Heroicons SVG 매크로
-- **Tooling**: uv (Python 의존성), npm (Tailwind CLI), Ruff 0.15 (lint/format), pytest 9 + pytest-asyncio
-- **Deployment**: Fly.io (Docker container + mounted volume, 도쿄 리전)
+Python 3.13+, FastAPI, Jinja2, SQLite/aiosqlite, HTMX, Tailwind CSS를 사용합니다. 의존성은 `uv.lock`과 `package-lock.json`에 고정되어 있습니다.
 
----
-
-## 🚀 설치 및 실행 (Installation)
-
-### 1. 클론
 ```bash
-git clone https://github.com/RememberIOm/battle-ranker.git
-cd battle-ranker
+uv sync --frozen --extra dev
+npm ci
+npm run build:css
+uv run pytest
+npm run test:js
 ```
 
-### 2. 개발 서버 실행
-환경 변수나 DB 초기화 설정 없이 바로 실행 가능합니다. 데이터는 `ranker_data` Docker 볼륨에 저장됩니다.
+개발 서버와 CSS 감시:
+
 ```bash
 docker compose up --build
 ```
-브라우저에서 `http://localhost:8080`으로 접속하여 **"새로 시작"**을 클릭하면 즉시 사용할 수 있습니다.
 
-> Python 의존성 추가 시: `uv add <패키지명>`
->
-> Tailwind 의존성 변경 시: `npm install <패키지명> --save`
+http://localhost:8080 에서 실행됩니다. 개발·배포 모두 `DATABASE_PATH=/data/ranker.db`를 사용합니다. Compose의 `ranker_data` 볼륨에 DB가 저장됩니다. Docker를 사용하지 않으면 기본 경로는 `./data/ranker.db`이며 `DATABASE_PATH`로 바꿀 수 있습니다.
 
-### 3. 테스트 실행
-가장 간단한 검증 경로는 Docker 이미지 안에서 테스트를 실행하는 것입니다.
+컨테이너에서 테스트하려면 dev 이미지의 의존성을 사용합니다. 테스트는 임시 DB를 사용합니다.
+
 ```bash
-docker build -t ranker-test .
-docker run --rm ranker-test python -m pytest tests/
+docker compose exec app python -m pytest
 ```
 
----
+브라우저 테스트:
 
-## 📂 프로젝트 구조 (Project Structure)
-
-```text
-.
-├── main.py              # 앱 진입점 및 세션 쿠키 관리 라우터
-├── database.py          # SQLite 스키마 초기화, 커넥션 관리, JSON 마이그레이션
-├── deps.py              # FastAPI 의존성 (세션 ID 검증 및 Store 주입)
-├── store.py             # 세션별 SQLite 데이터 저장소 (DataStore 클래스)
-├── schemas.py           # Vote / Import / Response 검증 스키마
-├── services.py          # 순수 비즈니스 로직 (Bayesian BT, 매치메이킹, 계층적 축소)
-├── template_env.py      # 공용 Jinja2 템플릿 환경
-├── routers/             # API 라우터 모듈
-│   ├── battle.py        # 대결 페이지 및 투표 처리
-│   ├── ranking.py       # 순위 조회 및 통계 차트
-│   └── manage.py        # 데이터 CRUD 및 시스템 파라미터 설정
-├── templates/           # Jinja2 HTML 템플릿
-│   ├── base.html        # 레이아웃, 다크모드, 네비게이션, HTMX 글로벌 핸들러
-│   ├── index.html       # 메인(시작/업로드) 페이지
-│   ├── battle.html      # 2-way 배틀 UI
-│   ├── battle_3way.html # 3-way 배틀 UI
-│   ├── battle_empty.html # 배틀 불가 상태 안내
-│   ├── ranking.html     # 랭킹 테이블 및 차트
-│   ├── manage.html      # 항목/기준/설정 관리 UI
-│   └── partials/        # HTMX partial 응답 템플릿 (배틀 카드, 결과 모달, 항목 목록, _icons.html 아이콘 매크로)
-├── Dockerfile           # 프로덕션 이미지 (Fly.io 배포용)
-├── Dockerfile.dev       # 개발 이미지 (hot reload, docker compose 전용)
-├── docker-compose.yml   # 로컬 개발 환경 오케스트레이션
-├── package.json         # Tailwind CLI 스크립트 및 Node 의존성
-├── package-lock.json    # Tailwind 의존성 잠금 파일
-├── input.css            # TailwindCSS 입력 파일 (safelist 포함)
-├── pyproject.toml       # 프로젝트 메타데이터 및 의존성 (uv)
-├── uv.lock              # 의존성 잠금 파일
-├── static/vendor/       # self-hosted JS (htmx.min.js, chart.umd.min.js)
-├── tests/               # 유닛 + 통합 테스트 (pytest-asyncio)
-└── fly.toml             # Fly.io 배포 설정
+```bash
+npx playwright install chromium
+npm run build:css
+npm run test:browser
 ```
 
----
+Playwright는 임시 DB를 사용하는 로컬 서버를 자동 시작하며 데스크톱·모바일 다크모드에서 실행합니다. 이미 실행한 **별도 테스트용** Compose 서버를 검증하려면 `RANKER_E2E_BASE_URL=http://127.0.0.1:8080`을 지정합니다. 이 서버에는 테스트 랭킹이 생성됩니다. 설치된 Chrome을 사용할 때는 `RANKER_CHROME_PATH=/usr/bin/google-chrome`을 지정할 수 있습니다.
 
-## 🧠 알고리즘 상세 (Algorithm Logic)
+```bash
+uv run ruff check .
+uv run ruff format --check .
+```
 
-모든 알고리즘 동작 방식은 **[Manage] -> [Settings]** 탭에서 실시간으로 조정할 수 있습니다.
+CI는 Python 테스트·Ruff·JavaScript 테스트·CSS 빌드·브라우저 테스트가 통과한 뒤 배포합니다.
 
-1. **Online Bayesian Bradley-Terry (Laplace Approximation)**:
-   - 각 항목·기준별로 사후분포 `(μ, σ²)`를 유지합니다. μ는 실력 추정치, σ²는 불확실성입니다.
-   - 투표 시 `p = sigmoid(μ_a - μ_b)` 기반 예측 확률로 정밀도와 평균을 동시 업데이트합니다.
-   - 새 항목은 높은 σ²(높은 불확실성)로 시작하여 초반에 점수가 크게 변동하고, 대결이 누적될수록 σ²가 감소하여 자연 안정화됩니다.
-2. **Hierarchical Shrinkage (계층적 축소)**:
-   - 투표 후 기준 간 정밀도 가중 평균을 계산하고 각 기준의 μ를 그 방향으로 축소합니다.
-   - 데이터가 부족한 기준에서 다른 기준의 정보를 차용하여 보다 안정적인 추정을 제공합니다.
-3. **Draw Probability (무승부 확률 보정)**:
-   - Bayesian Beta prior로 실측 무승부 비율에 자연 수렴하는 드로우 확률 모델을 사용합니다.
-   - 점수 차이 기반 가우시안 감쇠로 점수가 비슷할수록 높은 무승부 확률을 표시합니다.
-4. **Display Conversion (표시 변환)**:
-   - 내부 logit 스케일 점수를 `μ × display_scale + display_center` (기본: 173.72 × μ + 1200)로 친숙한 스케일로 변환하여 표시합니다.
+## 구조와 운영 계약
 
----
+| 경로 | 책임 |
+|---|---|
+| `rating_engine.py` | 저장소와 독립적인 평점 갱신·예측 |
+| `services.py` | 표시 변환, 매칭, 순위 계산 |
+| `store.py` | 세션 변경, 투표 처리, 이력·백업 |
+| `database.py` | 스키마, 취소 안전 트랜잭션, 차등 저장 |
+| `boards.py`, `routers/collections.py` | 개인 랭킹 목록과 복구 |
+| `routers/` | 관리·대결·랭킹·이력 HTTP 인터페이스 |
+| `static/battle.js` | 공통 투표·결과 모달·카드 교체 수명주기 |
+| `templates/` | 서버 HTML 및 partial |
 
-## ☁️ 배포 (Deployment)
+SQLite WAL과 **단일 uvicorn 워커**를 사용합니다. 세션 변경은 락 안에서 최신 상태를 읽고, 저장은 revision을 확인합니다. 공유 커넥션 읽기도 쓰기 중간 상태와 격리하며 취소 시 rollback합니다. 항목·평점은 차등 갱신하고, 라운드 토큰만 바뀔 때 평점 전체를 다시 쓰지 않습니다.
 
-이 프로젝트는 **Fly.io** 배포에 최적화되어 있습니다. (Docker 컨테이너 환경)
+기존 JSON 마이그레이션은 같은 ID의 DB 세션을 덮어쓰지 않습니다. 성공한 파일만 `migrated/`로 이동합니다. 새 스키마 테이블·revision 열은 시작 시 추가되며 기존 평점을 재계산하지 않습니다.
 
-1. `flyctl` 설치 및 로그인.
-2. 앱 런칭: `fly launch`
-3. 배포 진행: `fly deploy`
+배포용 Dockerfile은 `/data` 영속 볼륨, 단일 워커와 권한 강하를 사용합니다. `/health`는 세션 생성 없이 상태를 확인합니다. 배틀은 JavaScript가 필요하고, 일반 관리 폼에는 HTML 제출 경로가 있습니다. 스크립트와 차트 라이브러리는 자체 호스팅합니다.
 
-주의:
+## 라이선스
 
-- `fly.toml`에 정의된 대로 `[mounts]`를 통해 Fly Volume을 `/data` 경로에 마운트해야 SQLite DB 파일(`/data/ranker.db`)이 서버 재시작 후에도 유지됩니다. 기존 JSON 세션 파일이 있으면 앱 시작 시 자동 마이그레이션됩니다.
-- 현재 저장소 계층은 프로세스 로컬 asyncio 락을 사용하므로 **단일 uvicorn 워커** 전제를 둡니다. 프로덕션 Dockerfile은 이를 위해 `--workers 1`을 명시합니다.
-- HTTPS 배포에서는 `COOKIE_SECURE=true`를 사용해야 하며, 기본 Fly 설정에는 이 값이 포함되어 있습니다.
-
-## 🎨 프런트엔드 빌드
-
-- 프로덕션 이미지는 `package.json`과 `package-lock.json`을 복사한 뒤 `npm ci`로 Tailwind CLI 의존성을 설치합니다.
-- CSS는 `npm run build:css`로 `/static/output.css`를 생성합니다.
-- 로컬 개발에서는 `docker compose`의 `tailwind` 서비스가 `npm ci` 후 `npm run build:css:watch`를 실행합니다.
-
-## ✅ 입력 검증
-
-- `/battle/vote`는 Pydantic 스키마와 서버 발급 라운드 토큰으로 검증됩니다.
-- JSON import는 `schemas.py`의 세션 스키마를 통해 settings, criteria, items 전체를 검증합니다.
-- 잘못된 투표 페이로드, 누락된 rating key, 중복 item id 같은 데이터는 저장 전에 거부됩니다.
+[AGPL-3.0](LICENSE)
