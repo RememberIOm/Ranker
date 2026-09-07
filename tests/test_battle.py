@@ -531,10 +531,15 @@ class TestVoteHistory:
         event = backup["history"][0]
         event["payload"]["item1_id"] = "1"
         event["payload"]["item2_id"] = "2"
+        event["settings"]["hierarchical_strength"] = "0"
         for field in ("before_state", "after_state"):
             for item in event[field]["items"]:
                 item["id"] = str(item["id"])
+                item["matches_played"] = str(item["matches_played"])
         await session.import_json(json.dumps(backup))
+        session = await store.DataStore.create(session._session_id)
+        assert session.history[0]["settings"]["hierarchical_strength"] == 0.0
+        assert session.history[0]["after_state"]["items"][0]["matches_played"] == 1
         assert session.history[0]["payload"]["item1_id"] == 1
         assert session.history[0]["before_state"]["items"][0]["id"] == 1
         await session.undo_last_vote()
@@ -544,3 +549,33 @@ class TestVoteHistory:
             for item in session.items
             for criterion in session.criteria
         )
+
+    @pytest.mark.parametrize("timestamp", [253_402_300_800, 1e12, 10**400])
+    async def test_import_rejects_unrenderable_event_timestamp(
+        self, store_with_items: store.DataStore, timestamp: int | float
+    ) -> None:
+        import json
+
+        session = store_with_items
+        await self._vote(session)
+        original = session.export_json()
+        backup = json.loads(original)
+        backup["history"][0]["created_at"] = timestamp
+        with pytest.raises(store.InvalidSessionDataError, match="시각"):
+            await session.import_json(json.dumps(backup))
+        reloaded = await store.DataStore.create(session._session_id)
+        assert reloaded.export_json() == original
+
+    async def test_import_timestamp_boundary_can_be_rendered(
+        self, store_with_items: store.DataStore
+    ) -> None:
+        import json
+        from datetime import datetime, timezone
+
+        session = store_with_items
+        await self._vote(session)
+        backup = json.loads(session.export_json())
+        backup["history"][0]["created_at"] = 253_402_300_799
+        await session.import_json(json.dumps(backup))
+        timestamp = session.history[0]["created_at"]
+        assert datetime.fromtimestamp(timestamp, timezone.utc).year == 9999

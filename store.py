@@ -740,7 +740,7 @@ class DataStore:
             if (
                 event.get("mode") not in ("2way", "3way")
                 or not isinstance(event.get("created_at"), (int, float))
-                or not 0 <= event["created_at"] <= 1e12
+                or not 0 <= event["created_at"] <= 253_402_300_799
             ):
                 raise InvalidSessionDataError(
                     "투표 이력의 방식·시각이 올바르지 않습니다."
