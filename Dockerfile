@@ -5,6 +5,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 COPY input.css .
 COPY templates/ templates/
+COPY static/battle.js static/battle.js
 RUN mkdir -p static && npm run build:css
 
 # ── Stage 2: Python 런타임 ─────────────────────────────────────
