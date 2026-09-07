@@ -5,7 +5,7 @@
      data-next-url="{{ next_url }}"
      class="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/60 p-4 opacity-0 backdrop-blur-sm transition-opacity duration-300">
   <div class="card w-full max-w-xl scale-95 p-5 transition-transform duration-300 sm:p-6">
-    <p class="text-center font-display text-[11px] font-extrabold tracking-widest text-violet-600 uppercase dark:text-violet-400">3-Way Battle Result</p>
+    <p class="text-center font-display text-[11px] font-extrabold tracking-widest text-violet-600 uppercase dark:text-violet-400">3개 항목 대결 결과</p>
     <div class="mt-2 grid grid-cols-3 gap-2 text-center">
       {% for name in [a1_name, a2_name, a3_name] %}
       <span class="truncate font-display text-sm font-bold sm:text-base">{{ name }}</span>
@@ -13,7 +13,11 @@
     </div>
 
     <div class="mt-4 flex max-h-[45dvh] flex-col gap-2 overflow-y-auto pr-1">
+      {% if not results %}<p class="py-4 text-center text-sm text-zinc-500">모든 기준을 건너뛰었습니다. 점수는 변경되지 않았습니다.</p>{% endif %}
       {% for r in results %}
+      {% if r.skipped | default(false) %}
+      <p class="rounded-xl bg-zinc-50 px-3 py-3 text-center text-sm text-zinc-500 dark:bg-zinc-800/60">{{ r.label }} · 건너뜀 (점수 변경 없음)</p>
+      {% else %}
       {% set all_tied = r.best_id is none and r.worst_id is none %}
       <div class="animate-result-row rounded-xl bg-zinc-50 px-3 py-2.5 dark:bg-zinc-800/60" style="animation-delay: {{ loop.index0 * 50 }}ms">
         <p class="mb-1.5 text-center text-[11px] font-extrabold tracking-wide uppercase text-{{ r.color }}-600 dark:text-{{ r.color }}-400">{{ r.label }}</p>
@@ -37,6 +41,7 @@
           {% endfor %}
         </div>
       </div>
+      {% endif %}
       {% endfor %}
     </div>
 
@@ -51,7 +56,7 @@
     </div>
     <div id="click-skip-area" class="{{ 'hidden' if result_auto_skip else '' }} mt-5 text-center">
       <button type="button" id="next-battle-btn" onclick="dismissModal()" class="btn-primary w-full py-3 sm:w-auto sm:px-10">{{ icon('swords') }}<span>다음 대결</span></button>
-      <p class="mt-2.5 text-[11px] text-zinc-400 dark:text-zinc-500">아무 곳이나 클릭하거나 스페이스바를 눌러도 넘어갑니다</p>
+      <p class="mt-2.5 text-[11px] text-zinc-400 dark:text-zinc-500">바깥 배경을 클릭하거나 Esc를 눌러도 넘어갑니다</p>
     </div>
   </div>
 </div>

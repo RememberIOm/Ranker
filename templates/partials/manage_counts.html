@@ -1,0 +1,1 @@
+<span id="manage-counts" {% if update_counts | default(false) %}hx-swap-oob="outerHTML"{% endif %} class="rounded-full border border-zinc-200 bg-white px-3.5 py-1.5 text-xs font-bold text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">항목 {{ items | length }}개 · 기준 {{ criteria | length }}개</span>

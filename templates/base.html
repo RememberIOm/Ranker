@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="htmx-config" content='{"timeout":15000}'>
   <title>{% block title %}Ranker{% endblock %}</title>
   <script>
     // FOUC guard: apply dark theme before first paint
@@ -34,24 +35,25 @@
           <span>Ranker</span>
         </a>
         <div id="desktop-nav" class="hidden items-center gap-1 md:flex">
-          <a href="/battle" data-path="/battle" class="nav-link">Battle</a>
-          <a href="/ranking" data-path="/ranking" class="nav-link">Ranking</a>
-          <a href="/manage" data-path="/manage" class="nav-link">Manage</a>
+          <a href="/battle" data-path="/battle" class="nav-link">대결</a>
+          <a href="/ranking" data-path="/ranking" class="nav-link">랭킹</a>
+          <a href="/manage" data-path="/manage" class="nav-link">관리</a>
+          <a href="/history" data-path="/history" class="nav-link">내역</a>
+          <a href="/collections" data-path="/collections" class="nav-link">내 랭킹</a>
         </div>
         <div class="flex items-center gap-1">
           <button type="button" id="theme-toggle" class="icon-btn" aria-label="테마 전환" title="테마 전환">
             <svg id="theme-toggle-light-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="hidden w-5 h-5" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
             <svg id="theme-toggle-dark-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="hidden w-5 h-5" aria-hidden="true"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
           </button>
-          <form id="end-session-form" action="/end-session" method="post">
-            <button type="submit" class="icon-btn" aria-label="세션 종료" title="세션 종료">{{ icon('logout') }}</button>
-          </form>
         </div>
       </div>
       <div id="mobile-nav" class="flex items-center gap-1 pb-2 md:hidden">
-        <a href="/battle" data-path="/battle" class="nav-link flex-1 justify-center">Battle</a>
-        <a href="/ranking" data-path="/ranking" class="nav-link flex-1 justify-center">Ranking</a>
-        <a href="/manage" data-path="/manage" class="nav-link flex-1 justify-center">Manage</a>
+        <a href="/battle" data-path="/battle" class="nav-link flex-1 justify-center">대결</a>
+        <a href="/ranking" data-path="/ranking" class="nav-link flex-1 justify-center">랭킹</a>
+        <a href="/manage" data-path="/manage" class="nav-link flex-1 justify-center">관리</a>
+        <a href="/history" data-path="/history" class="nav-link flex-1 justify-center">내역</a>
+        <a href="/collections" data-path="/collections" class="nav-link flex-1 justify-center whitespace-nowrap">내 랭킹</a>
       </div>
     </nav>
   </header>
@@ -89,7 +91,7 @@
     /* ============ active nav marking ============ */
     (function () {
       document.querySelectorAll('#desktop-nav a[data-path], #mobile-nav a[data-path]').forEach(function (a) {
-        if (location.pathname.indexOf(a.dataset.path) === 0) a.classList.add('nav-active');
+        if (location.pathname.indexOf(a.dataset.path) === 0) { a.classList.add('nav-active'); a.setAttribute('aria-current', 'page'); }
       });
     })();
 
@@ -147,21 +149,18 @@
       okBtn.addEventListener('click', function () { onConfirm(); close(); });
       document.addEventListener('keydown', onKey, true);
       document.body.appendChild(overlay);
-      okBtn.focus();
+      cancelBtn.focus();
     }
 
-    /* ============ session end confirm ============ */
-    (function () {
-      var form = document.getElementById('end-session-form');
-      form.addEventListener('submit', function (e) {
-        if (form.dataset.confirmed) return;
-        e.preventDefault();
-        showConfirm('세션을 종료하시겠습니까?\n데이터를 보존하려면 먼저 Manage → Data → Export로 저장해주세요.', function () {
-          form.dataset.confirmed = 'true';
-          form.submit();
-        });
+    document.addEventListener('submit', function (event) {
+      var form = event.target;
+      if (!form.dataset.confirmMessage || form.dataset.confirmed) return;
+      event.preventDefault();
+      showConfirm(form.dataset.confirmMessage, function () {
+        form.dataset.confirmed = 'true';
+        form.requestSubmit();
       });
-    })();
+    });
 
     /* ============ fetch with timeout ============ */
     async function fetchWithTimeout(url, options, timeoutMs) {
@@ -184,6 +183,7 @@
     /* ============ global HTMX handlers ============ */
     (function () {
       function hxTargetOf(evt) {
+        if (evt.detail && evt.detail.target) return evt.detail.target;
         var elt = evt.detail && evt.detail.elt;
         if (!elt || !elt.getAttribute) return null;
         var sel = elt.getAttribute('hx-target');
@@ -194,6 +194,20 @@
           if (sel.indexOf('find ') === 0) return elt.querySelector(sel.slice(5));
           return document.querySelector(sel);
         } catch (e) { return null; }
+      }
+      ['htmx:sendError', 'htmx:timeout'].forEach(function (name) {
+        document.body.addEventListener(name, function () {
+          showToast('서버에 연결하지 못했습니다. 연결을 확인한 뒤 다시 시도해주세요.', 'error', 5000);
+        });
+      });
+      function setFormBusy(evt, busy) {
+        var elt = evt.detail && evt.detail.elt;
+        var form = elt && (elt.tagName === 'FORM' ? elt : elt.closest('form'));
+        if (!form) return;
+        form.querySelectorAll('button[type="submit"]').forEach(function (button) {
+          button.disabled = busy;
+          button.classList.toggle('opacity-60', busy);
+        });
       }
       document.body.addEventListener('htmx:responseError', function (evt) {
         var xhr = evt.detail.xhr;
@@ -224,10 +238,24 @@
         showToast(d.message || d.value || '완료', d.type || 'success');
       });
       document.body.addEventListener('htmx:beforeRequest', function (evt) {
+        setFormBusy(evt, true);
         var t = hxTargetOf(evt);
-        if (t) t.setAttribute('aria-busy', 'true');
+        if (t) {
+          t.setAttribute('aria-busy', 'true');
+          if (t.id === 'item-list' && t.contains(evt.detail.elt)) t.dataset.restoreFocus = 'true';
+        }
+      });
+      document.body.addEventListener('htmx:afterSwap', function (evt) {
+        var target = evt.detail.target;
+        if (target && target.id === 'item-list' && target.dataset.restoreFocus) {
+          delete target.dataset.restoreFocus;
+          var next = target.querySelector('a, button');
+          if (next) next.focus();
+          else { var input = document.querySelector('input[name="name"]'); if (input) input.focus(); }
+        }
       });
       document.body.addEventListener('htmx:afterRequest', function (evt) {
+        setFormBusy(evt, false);
         var t = hxTargetOf(evt);
         if (t) t.removeAttribute('aria-busy');
       });

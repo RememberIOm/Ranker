@@ -5,73 +5,84 @@
 <div class="animate-fade-in">
   <header class="mb-6">
     <h1 class="flex items-center gap-2.5 font-display text-2xl font-extrabold tracking-tight sm:text-3xl">
-      <span class="text-amber-500">{{ icon('trophy', 'w-7 h-7') }}</span> Ranking Board
+      <span class="text-amber-500">{{ icon('trophy', 'w-7 h-7') }}</span> 랭킹
     </h1>
-    <p class="mt-1.5 text-sm text-zinc-600 dark:text-zinc-400">항목별 점수를 클릭하여 랭킹을 정렬하세요.</p>
+    <p class="mt-1.5 text-sm text-zinc-600 dark:text-zinc-400">기준을 선택해 정렬하고, 항목을 검색하거나 평가가 부족한 항목을 모아보세요.</p>
   </header>
 
+  <form action="/ranking" method="get" class="mb-5 flex flex-wrap items-end gap-3">
+    <input type="hidden" name="sort_by" value="{{ sort_by }}">
+    <label class="block min-w-0 flex-1"><span class="field-label">항목 검색</span><input type="search" name="q" value="{{ q | default('') }}" placeholder="이름으로 검색" class="field-input"></label>
+    <label class="block"><span class="field-label">표시할 항목</span><select name="filter" class="field-input">
+      {% for value, label in [('all', '전체'), ('uncertain', '평가 부족'), ('top', '상위 5위')] %}<option value="{{ value }}" {% if filter | default('all') == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select></label>
+    <button type="submit" class="btn-primary">적용</button>
+  </form>
+  <p class="mb-5 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">±는 점수 단위로 환산한 근사 사후분포의 표준편차입니다. 순위가 확정되었다는 뜻은 아닙니다. 평가 부족은 기준 중 하나라도 비교가 5회 미만인 항목이며, 종합 점수는 기준 가중치로 합산합니다. 순위는 반올림 전 점수가 같으면 공동 순위입니다.</p>
   <nav class="mb-6 flex gap-2 overflow-x-auto pb-1 scrollbar-hide" aria-label="랭킹 정렬">
-    <a href="/ranking?sort_by=total"
+    <a href="/ranking?sort_by=total&amp;q={{ q | default('') | urlencode }}&amp;filter={{ filter | default('all') }}"
        class="inline-flex min-h-11 shrink-0 items-center rounded-full px-4 text-sm font-bold transition {{ 'bg-violet-600 text-white shadow-sm' if sort_by == 'total' else 'border border-zinc-300 bg-white text-zinc-600 hover:border-violet-400 hover:text-violet-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-violet-500 dark:hover:text-violet-300' }}"
        {% if sort_by == 'total' %}aria-current="page"{% endif %}>종합</a>
     {% for c in criteria %}
-    <a href="/ranking?sort_by={{ c.key }}"
-       class="inline-flex min-h-11 shrink-0 items-center rounded-full px-4 text-sm font-bold transition {{ 'bg-' ~ c.color ~ '-600 text-white shadow-sm' if sort_by == c.key else 'border border-zinc-300 bg-white text-zinc-600 hover:border-violet-400 hover:text-violet-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-violet-500 dark:hover:text-violet-300' }}"
-       {% if sort_by == c.key %}aria-current="page"{% endif %}>{{ c.label }}</a>
+    <a href="/ranking?sort_by={{ ('criterion:' ~ c.key) | urlencode }}&amp;q={{ q | default('') | urlencode }}&amp;filter={{ filter | default('all') }}"
+       class="inline-flex min-h-11 shrink-0 items-center rounded-full px-4 text-sm font-bold transition {{ 'bg-' ~ c.color ~ '-600 text-white shadow-sm' if sort_by == 'criterion:' ~ c.key else 'border border-zinc-300 bg-white text-zinc-600 hover:border-violet-400 hover:text-violet-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-violet-500 dark:hover:text-violet-300' }}"
+       {% if sort_by == 'criterion:' ~ c.key %}aria-current="page"{% endif %}>{{ c.label }}</a>
     {% endfor %}
   </nav>
 
+  {% if items %}
   <section class="card mb-6 p-4 sm:p-5">
-    <h2 class="font-display text-sm font-bold tracking-wide text-zinc-700 uppercase dark:text-zinc-300">Distribution: {{ chart_data.category }}</h2>
+    <h2 class="font-display text-sm font-bold tracking-wide text-zinc-700 uppercase dark:text-zinc-300">점수 분포 · {{ chart_data.category }}</h2>
     <div class="mt-3 h-52 sm:h-64">
       <canvas id="distributionChart" role="img" aria-label="{{ chart_data.category }} 점수 분포 — 항목 {{ items | length }}개. 자세한 점수는 아래 표를 참고하세요."></canvas>
     </div>
   </section>
+  {% endif %}
 
   <div class="card overflow-x-auto">
     <table class="w-full min-w-max text-left text-sm">
       <thead class="border-b border-zinc-200 text-xs font-bold tracking-wide text-zinc-500 uppercase dark:border-zinc-800 dark:text-zinc-400">
         <tr>
           <th scope="col" class="px-4 py-3.5">#</th>
-          <th scope="col" class="px-4 py-3.5">Title</th>
+          <th scope="col" class="px-4 py-3.5">항목</th>
           <th scope="col" class="px-4 py-3.5 text-right">
-            <a href="/ranking?sort_by=total" aria-current="{{ 'page' if sort_by == 'total' else 'false' }}"
-               class="inline-flex min-h-9 items-center rounded-md px-1.5 hover:text-violet-600 dark:hover:text-violet-400 {{ 'text-violet-600 dark:text-violet-400' if sort_by == 'total' }}">Total</a>
+            <a href="/ranking?sort_by=total&amp;q={{ q | default('') | urlencode }}&amp;filter={{ filter | default('all') }}" aria-current="{{ 'page' if sort_by == 'total' else 'false' }}"
+               class="inline-flex min-h-9 items-center rounded-md px-1.5 hover:text-violet-600 dark:hover:text-violet-400 {{ 'text-violet-600 dark:text-violet-400' if sort_by == 'total' }}">종합</a>
           </th>
           {% for c in criteria %}
           <th scope="col" class="px-4 py-3.5 text-right">
-            <a href="/ranking?sort_by={{ c.key }}" aria-current="{{ 'page' if sort_by == c.key else 'false' }}"
-               class="inline-flex min-h-9 items-center rounded-md px-1.5 hover:text-violet-600 dark:hover:text-violet-400 {{ 'text-' ~ c.color ~ '-600 dark:text-' ~ c.color ~ '-400' if sort_by == c.key }}">{{ c.label }}</a>
+            <a href="/ranking?sort_by={{ ('criterion:' ~ c.key) | urlencode }}&amp;q={{ q | default('') | urlencode }}&amp;filter={{ filter | default('all') }}" aria-current="{{ 'page' if sort_by == 'criterion:' ~ c.key else 'false' }}"
+               class="inline-flex min-h-9 items-center rounded-md px-1.5 hover:text-violet-600 dark:hover:text-violet-400 {{ 'text-' ~ c.color ~ '-600 dark:text-' ~ c.color ~ '-400' if sort_by == 'criterion:' ~ c.key }}">{{ c.label }}</a>
           </th>
           {% endfor %}
-          <th scope="col" class="px-4 py-3.5 text-right">Matches</th>
-          <th scope="col" class="px-4 py-3.5"><span class="sr-only">Actions</span></th>
+          <th scope="col" class="px-4 py-3.5 text-right">비교 수</th>
+          <th scope="col" class="px-4 py-3.5"><span class="sr-only">항목 메뉴</span></th>
         </tr>
       </thead>
       <tbody class="divide-y divide-zinc-100 dark:divide-zinc-800/70">
         {% for item in items %}
         <tr class="group transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/40">
-          <td class="px-4 py-3 font-display font-extrabold tabular-nums {{ 'text-amber-500' if loop.index == 1 else ('text-zinc-400 dark:text-zinc-500' if loop.index > 3 else 'text-violet-500 dark:text-violet-400') }}">{{ loop.index }}</td>
+          <td class="px-4 py-3 font-display font-extrabold tabular-nums {{ 'text-amber-500' if item.rank == 1 else ('text-zinc-400 dark:text-zinc-500' if item.rank > 3 else 'text-violet-500 dark:text-violet-400') }}">{{ item.rank }}</td>
           <td class="max-w-56 px-4 py-3">
             <span id="rank-view-{{ item.id }}" class="font-semibold break-words">{{ item.name }}</span>
             <form id="rank-edit-{{ item.id }}" action="/manage/edit" method="post" class="hidden items-center gap-2">
               <input type="hidden" name="item_id" value="{{ item.id }}">
               <input type="hidden" name="redirect_url" value="/ranking?sort_by={{ sort_by }}">
               <input type="text" name="new_name" value="{{ item.name }}" required autocomplete="off" class="field-input min-h-9 w-36 px-2.5 text-xs" aria-label="새 이름">
-              <button type="submit" class="btn-primary min-h-9 px-3 text-xs">Save</button>
-              <button type="button" class="btn-ghost min-h-9 px-3 text-xs" onclick="toggleRankEdit('{{ item.id }}')">Cancel</button>
+              <button type="submit" class="btn-primary min-h-9 px-3 text-xs">저장</button>
+              <button type="button" class="btn-ghost min-h-9 px-3 text-xs" onclick="toggleRankEdit('{{ item.id }}')">취소</button>
             </form>
           </td>
           <td class="px-4 py-3 text-right">
-            <span class="font-display font-bold tabular-nums {{ 'text-violet-600 dark:text-violet-400' if sort_by == 'total' }}">{{ item.total }}</span>
-            {% if item.avg_sigma > 150 %}
-            <span class="ml-1 inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700 dark:bg-amber-500/15 dark:text-amber-400">불확실</span>
+            <span class="font-display font-bold tabular-nums {{ 'text-violet-600 dark:text-violet-400' if sort_by == 'total' }}">{{ item.total | round(1) }}</span>
+            {% if item.under_evaluated %}
+            <span class="ml-1 inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700 dark:bg-amber-500/15 dark:text-amber-400">평가 부족</span>
             {% endif %}
           </td>
           {% for c in criteria %}
           <td class="px-4 py-3 text-right tabular-nums">
-            <span class="{{ 'font-bold text-' ~ c.color ~ '-600 dark:text-' ~ c.color ~ '-400' if sort_by == c.key else 'font-medium' }}">{{ item[c.key] }}</span>
-            <span class="text-[10px] text-zinc-400 dark:text-zinc-500">&plusmn;{{ item[c.key ~ '_sigma'] | round(0) | int }}</span>
+            <span class="{{ 'font-bold text-' ~ c.color ~ '-600 dark:text-' ~ c.color ~ '-400' if sort_by == 'criterion:' ~ c.key else 'font-medium' }}">{{ item.scores[c.key].rating | round(1) }}</span>
+            <span title="근사 사후 표준편차" class="text-[10px] text-zinc-400 dark:text-zinc-500">&plusmn;{{ item.scores[c.key].sigma | round(0) | int }}</span>
           </td>
           {% endfor %}
           <td class="px-4 py-3 text-right font-medium tabular-nums text-zinc-500 dark:text-zinc-400">{{ item.matches }}</td>
@@ -81,16 +92,21 @@
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="h-5 w-5" aria-hidden="true"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></svg>
             </button>
             <div class="dropdown-menu hidden text-left" role="menu">
-              <a href="/battle/focus/{{ item.id }}" role="menuitem" class="menu-item">{{ icon('target', 'w-4 h-4') }} Focus</a>
-              <button type="button" role="menuitem" class="menu-item" onclick="closeAllDropdowns(); toggleRankEdit('{{ item.id }}')">{{ icon('pencil', 'w-4 h-4') }} Edit</button>
+              <a href="/battle/focus/{{ item.id }}" role="menuitem" class="menu-item">{{ icon('target', 'w-4 h-4') }} 집중 평가</a>
+              <button type="button" role="menuitem" class="menu-item" onclick="closeAllDropdowns(); toggleRankEdit('{{ item.id }}')">{{ icon('pencil', 'w-4 h-4') }} 수정</button>
               <form class="delete-form" data-name="{{ item.name | e }}" action="/manage/delete" method="post">
                 <input type="hidden" name="item_id" value="{{ item.id }}">
                 <input type="hidden" name="redirect_url" value="/ranking?sort_by={{ sort_by }}">
-                <button type="submit" role="menuitem" class="menu-item text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-500/10">{{ icon('trash', 'w-4 h-4') }} Delete</button>
+                <button type="submit" role="menuitem" class="menu-item text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-500/10">{{ icon('trash', 'w-4 h-4') }} 삭제</button>
               </form>
             </div>
           </td>
         </tr>
+        {% else %}
+        <tr><td colspan="{{ (criteria | length) + 5 }}" class="px-5 py-12 text-center">
+          <p class="mb-4 text-zinc-500">{% if total_items | default(0) %}조건에 맞는 항목이 없습니다.{% else %}아직 등록한 항목이 없습니다.{% endif %}</p>
+          <a href="{{ '/ranking' if total_items | default(0) else '/manage?tab=items' }}" class="btn-primary">{{ '필터 초기화' if total_items | default(0) else '항목 추가하기' }}</a>
+        </td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -117,40 +133,58 @@
   }
 
   /* ================= kebab dropdowns ================= */
-  function closeAllDropdowns() {
-    document.querySelectorAll('[role="menu"]').forEach(function (m) { m.classList.add('hidden'); });
-    document.querySelectorAll('[aria-haspopup]').forEach(function (b) { b.setAttribute('aria-expanded', 'false'); });
+  // 메뉴를 body로 옮겨 스크롤 표에 잘리지 않도록 합니다.
+  function closeAllDropdowns(restoreFocus) {
+    document.querySelectorAll('[role="menu"]').forEach(function (menu) {
+      if (menu.classList.contains('hidden')) return;
+      menu.classList.add('hidden');
+      var anchor = menu._anchor;
+      if (anchor) {
+        anchor.setAttribute('aria-expanded', 'false');
+        anchor.insertAdjacentElement('afterend', menu);
+        if (restoreFocus) anchor.focus();
+      }
+    });
   }
-
   function toggleDropdown(btn) {
-    var menu = btn.nextElementSibling;
+    var menu = btn._menu || btn.nextElementSibling;
     var wasOpen = menu && !menu.classList.contains('hidden');
     closeAllDropdowns();
     if (!menu || wasOpen) return;
+    btn._menu = menu;
+    menu._anchor = btn;
+    document.body.appendChild(menu);
     menu.classList.remove('hidden');
     btn.setAttribute('aria-expanded', 'true');
-    // flip upward if the menu would overflow the viewport bottom
-    // (inline styles reliably override the .dropdown-menu component defaults)
-    menu.style.top = '';
-    menu.style.bottom = '';
-    menu.style.marginTop = '';
-    menu.style.marginBottom = '';
-    var rect = menu.getBoundingClientRect();
-    if (rect.bottom > window.innerHeight) {
-      menu.style.top = 'auto';
-      menu.style.bottom = '100%';
-      menu.style.marginTop = '0';
-      menu.style.marginBottom = '0.25rem';
-    }
+    var anchor = btn.getBoundingClientRect();
+    menu.style.position = 'fixed';
+    menu.style.right = 'auto';
+    menu.style.bottom = 'auto';
+    menu.style.margin = '0';
+    menu.style.left = Math.max(8, Math.min(anchor.right - menu.offsetWidth, window.innerWidth - menu.offsetWidth - 8)) + 'px';
+    menu.style.top = Math.max(8, Math.min(anchor.bottom + 4, window.innerHeight - menu.offsetHeight - 8)) + 'px';
+    menu.querySelector('[role="menuitem"]').focus();
   }
-
   document.addEventListener('click', function (e) {
     if (e.target.closest('[aria-haspopup]') || e.target.closest('[role="menu"]')) return;
     closeAllDropdowns();
   });
   document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape') closeAllDropdowns();
+    if (e.key === 'Escape') { closeAllDropdowns(true); return; }
+    var trigger = e.target.closest('[aria-haspopup]');
+    if (trigger && e.key === 'ArrowDown') { e.preventDefault(); toggleDropdown(trigger); return; }
+    var menu = e.target.closest('[role="menu"]');
+    if (!menu || !['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
+    e.preventDefault();
+    var choices = Array.from(menu.querySelectorAll('[role="menuitem"]'));
+    var index = choices.indexOf(document.activeElement);
+    if (e.key === 'Home') index = 0;
+    else if (e.key === 'End') index = choices.length - 1;
+    else index = (index + (e.key === 'ArrowDown' ? 1 : -1) + choices.length) % choices.length;
+    choices[index].focus();
   });
+  window.addEventListener('resize', function () { closeAllDropdowns(); });
+  document.addEventListener('scroll', function () { closeAllDropdowns(); }, true);
 
   /* ================= delete confirmation ================= */
   document.querySelectorAll('.delete-form').forEach(function (form) {
@@ -178,7 +212,7 @@
     function categoryColor(category) {
       if (category && category !== '종합 점수') {
         for (var i = 0; i < criteriaList.length; i++) {
-          if (criteriaList[i].label.toUpperCase() === category) {
+          if (criteriaList[i].label === category) {
             return PALETTE[criteriaList[i].color] || '#7c3aed';
           }
         }
@@ -195,18 +229,13 @@
       var tickColor = isDark ? '#a1a1aa' : '#71717a';
       var color = categoryColor(chartData.category);
       chartInstance = new Chart(canvas.getContext('2d'), {
-        type: 'line',
+        type: 'bar',
         data: {
           labels: chartData.labels,
           datasets: [{
             data: chartData.counts,
             borderColor: color,
             backgroundColor: color + '22',
-            fill: true,
-            tension: 0.35,
-            pointRadius: 3,
-            pointHoverRadius: 5,
-            pointBackgroundColor: color,
             borderWidth: 2
           }]
         },
@@ -215,6 +244,7 @@
           maintainAspectRatio: false,
           plugins: { legend: { display: false } },
           interaction: { mode: 'nearest', axis: 'x', intersect: false },
+          animation: !window.matchMedia('(prefers-reduced-motion: reduce)').matches,
           scales: {
             x: { grid: { color: gridColor }, ticks: { color: tickColor } },
             y: { beginAtZero: true, grid: { color: gridColor }, ticks: { color: tickColor, precision: 0 } }

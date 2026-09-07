@@ -7,3 +7,4 @@
   <p class="text-sm font-medium">항목이 없습니다. 위에서 추가해주세요.</p>
 </li>
 {% endfor %}
+{% if update_counts | default(false) %}{% include "partials/manage_counts.html" %}{% endif %}

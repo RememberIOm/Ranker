@@ -5,7 +5,7 @@
      data-next-url="{{ next_url }}"
      class="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/60 p-4 opacity-0 backdrop-blur-sm transition-opacity duration-300">
   <div class="card w-full max-w-lg scale-95 p-5 transition-transform duration-300 sm:p-6">
-    <p class="text-center font-display text-[11px] font-extrabold tracking-widest text-violet-600 uppercase dark:text-violet-400">Battle Result</p>
+    <p class="text-center font-display text-[11px] font-extrabold tracking-widest text-violet-600 uppercase dark:text-violet-400">대결 결과</p>
     <div class="mt-2 flex items-center justify-center gap-3 text-center">
       <span class="min-w-0 flex-1 truncate text-right font-display text-base font-bold sm:text-lg">{{ a1_name }}</span>
       <span class="shrink-0 rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-bold text-zinc-500 uppercase dark:bg-zinc-800 dark:text-zinc-400">vs</span>
@@ -13,7 +13,11 @@
     </div>
 
     <div class="mt-4 flex max-h-[45dvh] flex-col gap-1.5 overflow-y-auto pr-1">
+      {% if not results %}<p class="py-4 text-center text-sm text-zinc-500">모든 기준을 건너뛰었습니다. 점수는 변경되지 않았습니다.</p>{% endif %}
       {% for r in results %}
+      {% if r.skipped | default(false) %}
+      <p class="rounded-xl bg-zinc-50 px-3 py-3 text-center text-sm text-zinc-500 dark:bg-zinc-800/60">{{ r.label }} · 건너뜀 (점수 변경 없음)</p>
+      {% else %}
       <div class="animate-result-row grid grid-cols-[1fr_auto_1fr] items-center gap-2 rounded-xl bg-zinc-50 px-3 py-2.5 dark:bg-zinc-800/60" style="animation-delay: {{ loop.index0 * 50 }}ms">
         <div class="flex items-baseline justify-end gap-1.5 text-right">
           <span class="font-display text-sm font-bold tabular-nums">{{ r.new_r1 | round(0) | int }}<span class="text-[10px] font-medium text-zinc-400">&plusmn;{{ r.sigma1 | round(0) | int }}</span></span>
@@ -28,6 +32,7 @@
           <span class="font-display text-sm font-bold tabular-nums">{{ r.new_r2 | round(0) | int }}<span class="text-[10px] font-medium text-zinc-400">&plusmn;{{ r.sigma2 | round(0) | int }}</span></span>
         </div>
       </div>
+      {% endif %}
       {% endfor %}
     </div>
 
@@ -42,7 +47,7 @@
     </div>
     <div id="click-skip-area" class="{{ 'hidden' if result_auto_skip else '' }} mt-5 text-center">
       <button type="button" id="next-battle-btn" onclick="dismissModal()" class="btn-primary w-full py-3 sm:w-auto sm:px-10">{{ icon('swords') }}<span>다음 대결</span></button>
-      <p class="mt-2.5 text-[11px] text-zinc-400 dark:text-zinc-500">아무 곳이나 클릭하거나 스페이스바를 눌러도 넘어갑니다</p>
+      <p class="mt-2.5 text-[11px] text-zinc-400 dark:text-zinc-500">바깥 배경을 클릭하거나 Esc를 눌러도 넘어갑니다</p>
     </div>
   </div>
 </div>

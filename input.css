@@ -3,6 +3,7 @@
 
 /* Class scanning */
 @source "./templates/**/*.html";
+@source "./static/battle.js";
 
 /* Safelist: templates compose color classes at runtime from stored criterion
    colors (text-{color}-600, bg-{color}-500, ring-{color}-300, …) for the
@@ -159,13 +160,13 @@
   .mode-chip.active-mode {
     @apply border-amber-500 bg-amber-100 text-amber-800 dark:border-amber-400 dark:bg-amber-500/20 dark:text-amber-300;
   }
-  /* corner badge overlay: absolute so appearing/disappearing never resizes the button */
+  /* 선택 역할은 좁은 화면에서도 텍스트로 읽을 수 있습니다. */
   .role-icon {
-    @apply absolute top-1 right-1.5 inline-flex animate-fade-in items-center gap-1 text-[11px] font-bold uppercase tracking-wide empty:hidden;
+    @apply inline-flex items-center gap-1 text-[11px] font-bold empty:hidden;
   }
-  /* icon only on narrow screens — the text label would overlap the centered A/B/C letter */
+  /* 선택 상태를 색상뿐 아니라 글자로 전달합니다. */
   .role-icon > span {
-    @apply hidden sm:inline;
+    @apply inline;
   }
 
   /* --- color swatches --- */
