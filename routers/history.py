@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 from deps import require_store
-from store import DataStore
+from store import DataStore, SessionSaveError
 from template_env import templates
 
 router = APIRouter(prefix="/history", tags=["history"])
@@ -77,6 +77,8 @@ async def undo_vote(
 ) -> Response:
     try:
         await store.undo_last_vote(expected_event_id=event_id)
+    except SessionSaveError:
+        raise
     except (ValueError, RuntimeError):
         return HTMLResponse(
             "투표 기록이 변경되었거나 처리할 기록이 없습니다. 새로고침해주세요.",
@@ -91,6 +93,8 @@ async def recalculate(
 ) -> Response:
     try:
         await store.replay_history(settings_patch={})
+    except SessionSaveError:
+        raise
     except (ValueError, RuntimeError):
         return HTMLResponse(
             "투표 기록이 변경되었거나 처리할 기록이 없습니다. 새로고침해주세요.",

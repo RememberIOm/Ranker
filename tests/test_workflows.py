@@ -127,3 +127,54 @@ async def test_criteria_response_contains_persistent_id(client):
     key = json.loads((await client.get("/manage/export")).text)["criteria"][0]["key"]
     assert f'value="{key}"' in response.text
     assert 'id="criteria-form"' in response.text
+
+
+async def test_native_backup_over_one_megabyte_can_be_restored(client):
+    # 기존 업로드 한도보다 큰, 앱이 직접 생성한 백업을 왕복합니다.
+    names = "\n".join(f"{index} " + "긴이름" * 100 for index in range(1200))
+    response = await client.post("/manage/add-bulk", data={"names": names})
+    assert response.status_code == 303
+    raw = (await client.get("/manage/export")).text
+    assert len(raw.encode()) > 1_000_000
+    digest = hashlib.sha256((raw + raw).encode()).hexdigest()
+    response = await client.post(
+        "/manage/import", data={"raw_json": raw, "confirmed_digest": digest}
+    )
+    assert response.status_code == 303
+    assert len(json.loads((await client.get("/manage/export")).text)["items"]) == 1200
+
+
+async def test_import_race_returns_conflict(client, monkeypatch):
+    from store import DataStore, InvalidSessionDataError
+
+    raw = (await client.get("/manage/export")).text
+    digest = hashlib.sha256((raw + raw).encode()).hexdigest()
+
+    async def conflict(self, raw, expected_export_digest=None):
+        raise InvalidSessionDataError("changed")
+
+    monkeypatch.setattr(DataStore, "import_json", conflict)
+    response = await client.post(
+        "/manage/import", data={"raw_json": raw, "confirmed_digest": digest}
+    )
+    assert response.status_code == 409
+
+
+async def test_capacity_error_explains_recovery_and_preserves_data(client, monkeypatch):
+    import store
+
+    await client.post("/manage/add", data={"name": "보존 항목"})
+    monkeypatch.setattr(store, "MAX_BACKUP_BYTES", 1)
+    response = await client.post("/manage/add", data={"name": "저장 불가"})
+    assert response.status_code == 500
+    assert "투표 이력을 정리" in response.text
+    export = (await client.get("/manage/export")).text
+    assert "보존 항목" in export and "저장 불가" not in export
+
+
+async def test_long_name_rejected_without_breaking_existing_board(client):
+    await client.post("/manage/add", data={"name": "보존 항목"})
+    response = await client.post("/manage/add", data={"name": "x" * 501})
+    assert response.status_code == 422
+    response = await client.get("/ranking")
+    assert response.status_code == 200 and "보존 항목" in response.text

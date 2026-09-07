@@ -113,9 +113,12 @@ async def session_exception_handler(request: Request, exc: RequiresSessionExcept
 @app.exception_handler(SessionSaveError)
 async def session_save_error_handler(request: Request, exc: SessionSaveError):
     logger.error("session_save_failed — path=%s: %s", request.url.path, exc)
-    return HTMLResponse(
-        "세션 저장에 실패했습니다. 잠시 후 다시 시도해주세요.", status_code=500
+    message = (
+        "랭킹의 백업 한도(64MB)에 도달했습니다. 백업 후 투표 이력을 정리해주세요."
+        if "백업 한도" in str(exc)
+        else "세션 저장에 실패했습니다. 잠시 후 다시 시도해주세요."
     )
+    return JSONResponse({"detail": message}, status_code=500)
 
 
 @app.exception_handler(StaleSessionError)

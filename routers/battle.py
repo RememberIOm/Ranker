@@ -376,7 +376,9 @@ async def vote(
     """모든 criteria에 대한 투표를 한번에 수신하여 일괄 업데이트합니다."""
     store = await get_session_store(request, session_id)
     if not store:
-        raise HTTPException(status_code=401, detail="No active session")
+        raise HTTPException(
+            status_code=401, detail="현재 랭킹이 없습니다. 내 랭킹에서 다시 열어주세요."
+        )
 
     response_data = await _apply_vote(store.apply_battle_vote(payload), session_id)
     if not is_htmx(request):
@@ -395,7 +397,9 @@ async def vote_3way(
     """3-way 배틀: 기준별 best/worst 투표를 수신하여 일괄 업데이트합니다."""
     store = await get_session_store(request, session_id)
     if not store:
-        raise HTTPException(status_code=401, detail="No active session")
+        raise HTTPException(
+            status_code=401, detail="현재 랭킹이 없습니다. 내 랭킹에서 다시 열어주세요."
+        )
 
     response_data = await _apply_vote(store.apply_three_way_vote(payload), session_id)
     if not is_htmx(request):

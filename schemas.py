@@ -38,10 +38,10 @@ SafeRedirect = Annotated[str | None, AfterValidator(_safe_relative_path)]
 class SettingsModel(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
-    initial_sigma: float = Field(default=2.0, gt=0.0, le=10.0)
+    initial_sigma: float = Field(default=2.0, ge=0.1, le=10.0)
     draw_prior_max: float = Field(default=0.33, ge=0.0, le=1.0)
     draw_prior_strength: int = Field(default=10, ge=1, le=1000)
-    draw_bandwidth: float = Field(default=1.5, gt=0.0, le=10.0)
+    draw_bandwidth: float = Field(default=1.5, ge=0.1, le=10.0)
     hierarchical_strength: float = Field(default=0.0, ge=0.0, le=100.0)
     display_center: float = Field(default=1200.0, ge=0.0, le=100_000.0)
     display_scale: float = Field(default=173.72, gt=0.0, le=10_000.0)
@@ -107,7 +107,7 @@ class ItemModel(BaseModel):
     mu: dict[str, Annotated[float, Field(ge=-1_000_000, le=1_000_000)]] = Field(
         default_factory=dict
     )
-    sigma_sq: dict[str, Annotated[float, Field(gt=0, le=1_000_000)]] = Field(
+    sigma_sq: dict[str, Annotated[float, Field(ge=0.01, le=1_000_000)]] = Field(
         default_factory=dict
     )
     matches_played: int = Field(default=0, ge=0, le=2**63 - 1)

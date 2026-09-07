@@ -13,7 +13,7 @@ from pydantic import ValidationError
 
 from deps import MAX_UPLOAD_BYTES, is_htmx, require_store
 from schemas import CriterionModel, SettingsModel
-from store import DataStore
+from store import DataStore, InvalidSessionDataError
 from template_env import templates
 
 router = APIRouter(prefix="/manage", tags=["manage"])
@@ -341,12 +341,18 @@ async def import_data(
                 "미리보기 이후 데이터가 바뀌었습니다. 파일을 다시 선택해 확인해주세요.",
                 status_code=409,
             )
-        await store.import_json(
-            raw_json,
-            expected_export_digest=hashlib.sha256(
-                store.export_json().encode()
-            ).hexdigest(),
-        )
+        try:
+            await store.import_json(
+                raw_json,
+                expected_export_digest=hashlib.sha256(
+                    store.export_json().encode()
+                ).hexdigest(),
+            )
+        except InvalidSessionDataError:
+            return HTMLResponse(
+                "미리보기 이후 데이터가 바뀌었습니다. 다시 확인해주세요.",
+                status_code=409,
+            )
         return RedirectResponse(url="/manage?tab=data", status_code=303)
     return templates.TemplateResponse(
         request,

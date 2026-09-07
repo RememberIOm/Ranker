@@ -53,3 +53,9 @@ async def test_missing_htmx_session_redirects_whole_page(_temp_db) -> None:
         response = await client.get("/manage", headers={"HX-Request": "true"})
         assert response.status_code == 200
         assert response.headers["HX-Redirect"] == "/"
+
+
+@pytest.mark.parametrize("field", ["initial_sigma", "draw_bandwidth"])
+def test_reject_underflowing_scale(field: str) -> None:
+    with pytest.raises(ValidationError):
+        SettingsModel(**{field: 1e-200})
