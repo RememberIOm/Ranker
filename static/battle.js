@@ -1,7 +1,8 @@
 // 배틀의 선택 상태, 요청, 결과 모달 수명주기를 두 모드에서 공유합니다.
 var item1Id, item2Id, item3Id, roundToken, redirectTo, criteriaKeys, battleMode;
-var votes = {};
+var votes = Object.create(null);
 var isSubmitting = false;
+var nextArenaLoaded = true;
 var SUBMIT_BTN_LABEL = document.getElementById('submit-btn').innerHTML;
 var SPINNER_HTML = '<span>저장 중...</span>';
 var RING_CIRCUMFERENCE = 87.96;
@@ -138,7 +139,7 @@ function setBattleBusy(busy) {
 
   function clearAll() {
     if (isSubmitting) return;
-    votes = {};
+    votes = Object.create(null);
     if (battleMode === '3way') criteriaKeys.forEach(updateCardUI);
     else {
       document.querySelectorAll('#criteria-list .vote-btn, #criteria-list [data-skip]').forEach(function (btn) {
@@ -239,7 +240,7 @@ function setBattleBusy(busy) {
 
   function serializeVotes() {
     if (battleMode === '2way') return votes;
-    var out = {};
+    var out = Object.create(null);
     var ids = itemIds();
     criteriaKeys.forEach(function (key) {
       var v = votes[key] || {};
@@ -305,11 +306,16 @@ async function submitAllVotes() {
   }
 }
 function applyVoteResponse(html) {
+  nextArenaLoaded = false;
   var tmp = document.createElement('div');
   tmp.innerHTML = html;
   tmp.querySelectorAll('[hx-swap-oob]').forEach(function (oob) {
     var target = document.getElementById(oob.id);
-    if (target) { target.innerHTML = oob.innerHTML; if (window.htmx) htmx.process(target); }
+    if (target) {
+      target.innerHTML = oob.innerHTML;
+      if (oob.id === 'battle-arena') nextArenaLoaded = true;
+      if (window.htmx) htmx.process(target);
+    }
     oob.remove();
   });
   document.getElementById('result-modal-container').innerHTML = tmp.innerHTML;
@@ -418,12 +424,12 @@ function applyVoteResponse(html) {
 
   function reinitBattleState() {
     var st = document.getElementById('battle-state');
-    if (!st || st.dataset.battleMode !== battleMode) {
+    if (!nextArenaLoaded || !st || st.dataset.battleMode !== battleMode) {
       window.location.href = redirectTo || '/battle';
       return;
     }
     readBattleState();
-    votes = {};
+    votes = Object.create(null);
     isSubmitting = false;
     updateProgress();
     setBattleBusy(false);

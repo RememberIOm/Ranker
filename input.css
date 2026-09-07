@@ -7,11 +7,11 @@
 
 /* Safelist: templates compose color classes at runtime from stored criterion
    colors (text-{color}-600, bg-{color}-500, ring-{color}-300, …) for the
-   10-color palette. Guarantee they exist in the build. */
-@source inline("{dark:,}text-{red,orange,yellow,green,teal,blue,indigo,purple,pink,gray}-{300,400,500,600,700}");
-@source inline("{hover:,dark:,dark:hover:,}bg-{red,orange,yellow,green,teal,blue,indigo,purple,pink,gray}-{300,400,500,600,700}");
-@source inline("{dark:,}ring-{red,orange,yellow,green,teal,blue,indigo,purple,pink,gray}-{300,400,500,600,700}");
-@source inline("{dark:,}border-{red,orange,yellow,green,teal,blue,indigo,purple,pink,gray}-{300,400,500,600,700}");
+   11-color palette. Guarantee they exist in the build. */
+@source inline("{dark:,}text-{red,orange,yellow,green,teal,cyan,blue,indigo,purple,pink,gray}-{300,400,500,600,700}");
+@source inline("{hover:,dark:,dark:hover:,}bg-{red,orange,yellow,green,teal,cyan,blue,indigo,purple,pink,gray}-{300,400,500,600,700}");
+@source inline("{dark:,}ring-{red,orange,yellow,green,teal,cyan,blue,indigo,purple,pink,gray}-{300,400,500,600,700}");
+@source inline("{dark:,}border-{red,orange,yellow,green,teal,cyan,blue,indigo,purple,pink,gray}-{300,400,500,600,700}");
 
 /* Accent classes composed via Jinja loops for the 3-way item letters (A/B/C) */
 @source inline("{dark:,}{bg,text}-{violet,rose,sky}-{100,300,400,500,600,700}");

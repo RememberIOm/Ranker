@@ -109,7 +109,7 @@
         <div class="mt-5">
           <label class="block">
             <span class="field-label">대기 시간 (초)</span>
-            <input type="number" name="result_skip_seconds" value="{{ settings.get('result_skip_seconds', 3.0) }}" step="0.5" min="0.5" max="30" inputmode="decimal" class="field-input max-w-48">
+            <input type="number" name="result_skip_seconds" value="{{ settings.get('result_skip_seconds', 3.0) }}" step="0.5" min="0.5" max="60" inputmode="decimal" class="field-input max-w-48">
           </label>
           <p class="field-hint">추천: 2.0~5.0</p>
         </div>

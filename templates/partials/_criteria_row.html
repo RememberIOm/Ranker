@@ -10,7 +10,7 @@
     <span class="field-label">색상</span>
     <input type="hidden" name="color" value="{{ c.color }}">
     <div class="flex flex-wrap gap-1.5">
-      {% for clr in ['red', 'orange', 'yellow', 'green', 'teal', 'blue', 'indigo', 'purple', 'pink', 'gray'] %}
+      {% for clr in ['red', 'orange', 'yellow', 'green', 'teal', 'cyan', 'blue', 'indigo', 'purple', 'pink', 'gray'] %}
       <button type="button" class="color-swatch bg-{{ clr }}-500 {{ 'swatch-selected' if c.color == clr }}"
               onclick="pickColor(this, '{{ clr }}')" title="{{ clr }}" aria-label="색상: {{ clr }}"
               aria-pressed="{{ 'true' if c.color == clr else 'false' }}"></button>

@@ -10,6 +10,7 @@ function loadBattle(mode = '3way') {
   const state = { dataset: { item1Id: '1', item2Id: '2', item3Id: '3',
     roundToken: 'round', criteriaKeys: '["quality","taste"]', battleMode: mode } };
   const context = {
+    clearTimeout,
     document: {
       getElementById: (id) => id === 'submit-btn' ? submit : id === 'battle-state' ? state : null,
       querySelector: () => null,
@@ -94,4 +95,41 @@ test('요청 중에는 3개 비교 선택 상태를 바꾸지 않는다', () => 
   assert.equal(ctx.votes.quality.best, 1);
   assert.equal(ctx.votes.quality.worst, undefined);
   assert.equal(ctx.votes.quality.skip, undefined);
+});
+
+test('기준 키가 JS 내장 속성 이름이어도 독립적으로 저장한다', () => {
+  const { context: ctx } = loadBattle();
+  ctx.criteriaKeys = ['__proto__', 'constructor', 'name', 'total'];
+  ctx.quickBest(1);
+  for (const key of ctx.criteriaKeys) ctx.toggleTied(key);
+  const output = JSON.parse(JSON.stringify(ctx.serializeVotes()));
+  for (const key of ctx.criteriaKeys) {
+    assert.equal(Object.hasOwn(output, key), true);
+    assert.equal(output[key]['1'], 'best');
+    assert.equal(output[key]['2'], 'tied');
+  }
+  ctx.clearAll();
+  ctx.skipCriterion('__proto__');
+  assert.equal(ctx.serializeVotes().__proto__.skip, 'skip');
+});
+
+test('다음 카드가 없는 응답은 결과를 닫을 때 새 대결로 이동한다', () => {
+  const { context: ctx } = loadBattle();
+  const originalGet = ctx.document.getElementById;
+  const arena = { inert: false };
+  const container = { innerHTML: '' };
+  ctx.window = { location: { href: '' } };
+  ctx.document.createElement = () => ({ innerHTML: '', querySelectorAll: () => [] });
+  ctx.document.getElementById = (id) => {
+    if (id === 'battle-arena') return arena;
+    if (id === 'result-modal-container') return container;
+    if (id === 'result-modal') return {};
+    return originalGet(id);
+  };
+  ctx.initResultModal = () => {};
+  ctx.applyVoteResponse('<div>결과만 포함된 응답</div>');
+  ctx.redirectTo = '/battle/focus/1';
+  ctx.dismissModal();
+  assert.equal(ctx.window.location.href, '/battle/focus/1');
+  assert.equal(arena.inert, false);
 });

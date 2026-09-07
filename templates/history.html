@@ -13,8 +13,8 @@
   {% endif %}
   <ol class="flex flex-col gap-3">
     {% for event in events %}
-    <li class="card p-5 {{ 'opacity-60' if event.undone }}">
-      <div class="mb-2 flex flex-wrap justify-between gap-2"><h2 class="font-bold">{{ event.item_names | join(' · ') }}</h2><span class="text-xs text-zinc-500">{{ '실행 취소됨' if event.undone else ('3개 항목 비교' if event.mode == '3way' else '1대1') }}</span></div>
+    <li class="card p-5 {{ 'opacity-60' if event.undone or event.archived | default(false) }}">
+      <div class="mb-2 flex flex-wrap justify-between gap-2"><h2 class="font-bold">{{ event.item_names | join(' · ') }}</h2><span class="text-xs text-zinc-500">{% if event.archived | default(false) %}이전 기준점 기록 · 재계산·취소 제외{% elif event.undone %}실행 취소됨{% else %}{{ '3개 항목 비교' if event.mode == '3way' else '1대1' }}{% endif %}</span></div>
       <p class="mb-3 text-xs text-zinc-500">{{ event.created_at }}</p>
       <ul class="flex flex-col gap-1 text-sm text-zinc-600 dark:text-zinc-300">{% for line in event.vote_summary %}<li>{{ line }}</li>{% endfor %}</ul>
     </li>
@@ -23,7 +23,8 @@
   {% if events %}
   <details class="card mt-6 p-5">
     <summary class="cursor-pointer font-semibold">고급 · 현재 설정으로 다시 계산</summary>
-    <p class="my-4 text-sm leading-relaxed text-zinc-500">기록된 투표를 현재 알고리즘 설정으로 다시 계산합니다. 기록이 시작되기 전의 점수는 출발점으로 유지되며, 기록이 없는 과거 투표까지 복원되지는 않습니다. 이전 상태는 서버에 보존됩니다.</p>
+    <p class="my-4 text-sm leading-relaxed text-zinc-500">현재 기준점 이후의 유효한 투표만 현재 설정으로 다시 계산합니다. 기준점 이전의 투표는 보관만 하며 재계산하지 않습니다. 현재 결과를 보존하려면 JSON을 내보내세요.</p>
+    <a href="/manage/export" class="mb-4 inline-flex text-sm font-semibold text-violet-600 underline dark:text-violet-400">현재 결과 JSON 내보내기</a>
     <form action="/history/recalculate" method="post" data-confirm-message="기록된 투표를 현재 설정으로 다시 계산하시겠습니까? 현재 점수가 변경됩니다."><button type="submit" class="btn-secondary">기록된 투표 다시 계산</button></form>
   </details>
   <details class="card mt-5 p-5">
