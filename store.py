@@ -10,7 +10,6 @@ import secrets
 import time
 import sqlite3
 import hashlib
-import math
 import database
 from copy import deepcopy
 from contextlib import asynccontextmanager
@@ -446,8 +445,9 @@ class DataStore:
         return data
 
     def _reset_history(self) -> None:
-        """구조·설정 변경을 새 재계산 기준점으로 삼습니다."""
-        self._history = []
+        """원시 이력을 보존하고 구조 변경 이후를 새 재계산 기준점으로 삼습니다."""
+        for event in self._history:
+            event["archived"] = True
         self._baseline = self._snapshot()
 
     @property
@@ -629,7 +629,8 @@ class DataStore:
             if not item:
                 return False
             item.update(fields)
-            self._reset_history()
+            if set(fields) - {"name"}:
+                self._reset_history()
             await self._save_to_db()
             return True
 
@@ -731,7 +732,7 @@ class DataStore:
             if (
                 not isinstance(event, dict)
                 or type(event.get("id")) is not int
-                or event["id"] <= 0
+                or not 0 < event["id"] <= 2**63 - 1
                 or event["id"] in seen
             ):
                 raise InvalidSessionDataError("중복되거나 잘못된 투표 이력 ID입니다.")
@@ -739,12 +740,13 @@ class DataStore:
             if (
                 event.get("mode") not in ("2way", "3way")
                 or not isinstance(event.get("created_at"), (int, float))
-                or not math.isfinite(event["created_at"])
-                or event["created_at"] < 0
+                or not 0 <= event["created_at"] <= 1e12
             ):
                 raise InvalidSessionDataError(
                     "투표 이력의 방식·시각이 올바르지 않습니다."
                 )
+            if type(event.get("archived", False)) is not bool:
+                raise InvalidSessionDataError("이력 보관 상태가 올바르지 않습니다.")
             if type(event.get("undone")) is not bool or not isinstance(
                 event.get("algorithm_version"), str
             ):
@@ -759,35 +761,41 @@ class DataStore:
             payload = request_type.model_validate(event.get("payload")).model_dump(
                 mode="python"
             )
-            if set(payload["votes"]) != {c["key"] for c in data["criteria"]}:
-                raise InvalidSessionDataError(
-                    "투표 이력의 기준이 현재 기준과 다릅니다."
-                )
+            event["payload"] = payload
+            event["archived"] = event.get("archived", False)
             ids = {payload["item1_id"], payload["item2_id"]}
             if payload.get("item3_id") is not None:
                 ids.add(payload["item3_id"])
-            if not ids <= allowed_ids:
+            if not event.get("archived", False) and not ids <= allowed_ids:
                 raise InvalidSessionDataError("투표 이력에 없는 항목이 포함되었습니다.")
             for field in ("before_state", "after_state"):
                 state = event.get(field)
                 if not isinstance(state, dict) or set(state) != {"items", "criteria"}:
                     raise InvalidSessionDataError("투표 복구 상태가 없습니다.")
                 validated = SessionDataModel.model_validate(
-                    {"settings": data["settings"], **state}
+                    {"settings": event.get("settings", baseline["settings"]), **state}
                 )
-                if {item.id for item in validated.items} != ids or {
-                    c.key for c in validated.criteria
-                } != {c["key"] for c in data["criteria"]}:
+                event[field] = {
+                    "items": [
+                        item.model_dump(mode="python") for item in validated.items
+                    ],
+                    "criteria": [
+                        criterion.model_dump(mode="python")
+                        for criterion in validated.criteria
+                    ],
+                }
+                event["settings"] = validated.settings.model_dump(mode="python")
+                criterion_keys = {criterion.key for criterion in validated.criteria}
+                if {
+                    item.id for item in validated.items
+                } != ids or criterion_keys != set(payload["votes"]):
                     raise InvalidSessionDataError(
                         "투표 복구 상태가 해당 대결과 다릅니다."
                     )
-            SessionDataModel.model_validate(
-                {
-                    "settings": event.get("settings", baseline["settings"]),
-                    "criteria": data["criteria"],
-                    "items": [],
-                }
-            )
+                if not event.get("archived", False) and criterion_keys != {
+                    c["key"] for c in data["criteria"]
+                }:
+                    raise InvalidSessionDataError("현재 투표 이력의 기준이 다릅니다.")
         return {
             "data": data,
             "history": sorted(history, key=lambda e: e["id"]),
@@ -899,6 +907,7 @@ class DataStore:
             "before_state": before,
             "after_state": self._vote_state(ids),
             "undone": False,
+            "archived": False,
             "created_at": time.time(),
         }
         if mode == "3way":
@@ -910,6 +919,7 @@ class DataStore:
         """현재 평점을 보존하고 이후 투표의 재계산 기준점으로 삼습니다."""
         async with _get_lock(self._session_id):
             await self._load_from_db()
+            self._history = []
             self._reset_history()
             await self._save_to_db()
 
@@ -920,7 +930,11 @@ class DataStore:
         async with _get_lock(self._session_id):
             await self._load_from_db()
             event = next(
-                (event for event in reversed(self._history) if not event["undone"]),
+                (
+                    event
+                    for event in reversed(self._history)
+                    if not event["undone"] and not event.get("archived", False)
+                ),
                 None,
             )
             if event is None:
@@ -933,7 +947,8 @@ class DataStore:
                 )
             replacements = {item["id"]: item for item in event["before_state"]["items"]}
             self._data["items"] = [
-                deepcopy(replacements.get(item["id"], item)) for item in self.items
+                {**deepcopy(replacements.get(item["id"], item)), "name": item["name"]}
+                for item in self.items
             ]
             self._data["criteria"] = deepcopy(event["before_state"]["criteria"])
             event["undone"] = True
@@ -953,8 +968,9 @@ class DataStore:
             events = deepcopy(self._history)
             applied = 0
             current_settings = deepcopy(self.settings)
+            current_names = {item["id"]: item["name"] for item in self.items}
             for event in events:
-                if event["undone"]:
+                if event["undone"] or event.get("archived", False):
                     continue
                 replay._data["settings"] = deepcopy(
                     event.get("settings", replay.settings)
@@ -986,8 +1002,12 @@ class DataStore:
                         BattleVoteRequest.model_validate(payload)
                     )
                 event["after_state"] = replay._vote_state(ids)
+                event.setdefault("source_algorithm_version", event["algorithm_version"])
+                event["algorithm_version"] = ALGORITHM_VERSION
                 applied += 1
             replay._data["settings"] = {**current_settings, **(settings_patch or {})}
+            for item in replay.items:
+                item["name"] = current_names[item["id"]]
             self._data = SessionDataModel.model_validate(replay._data).model_dump(
                 mode="python"
             )

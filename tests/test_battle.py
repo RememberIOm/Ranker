@@ -481,3 +481,66 @@ class TestVoteHistory:
         assert session.items == expected
         await session.replay_history()
         assert session.items == expected
+
+    async def test_archived_votes_survive_structure_change_and_export(
+        self, store_with_items: store.DataStore
+    ) -> None:
+        session = store_with_items
+        await self._vote(session)
+        await session.delete_item(2)
+        assert len(session.history) == 1
+        assert session.history[0]["archived"] is True
+        raw = session.export_json()
+        await session.import_json(raw)
+        assert session.history[0]["payload"]["item2_id"] == 2
+        assert (await session.replay_history())["replayed"] == 0
+        assert [item["id"] for item in session.items] == [1]
+
+    async def test_rename_preserves_history_and_current_name_on_undo_replay(
+        self, store_with_items: store.DataStore
+    ) -> None:
+        session = store_with_items
+        await self._vote(session)
+        await session.update_item(1, name="Renamed")
+        assert len(session.history) == 1
+        assert not session.history[0]["archived"]
+        assert (await session.replay_history())["replayed"] == 1
+        assert session.get_item(1)["name"] == "Renamed"
+        await session.undo_last_vote()
+        assert session.get_item(1)["name"] == "Renamed"
+
+    async def test_archived_votes_with_removed_criterion_can_be_restored(
+        self, store_with_items: store.DataStore
+    ) -> None:
+        session = store_with_items
+        await self._vote(session)
+        await session.set_criteria(session.criteria[:1])
+        assert session.history[0]["archived"]
+        await session.import_json(session.export_json())
+        assert len(session.criteria) == 1
+        assert len(session.history[0]["payload"]["votes"]) == 6
+
+    async def test_import_persists_validated_history_values(
+        self, store_with_items: store.DataStore
+    ) -> None:
+        import json
+
+        session = store_with_items
+        await self._vote(session)
+        backup = json.loads(session.export_json())
+        event = backup["history"][0]
+        event["payload"]["item1_id"] = "1"
+        event["payload"]["item2_id"] = "2"
+        for field in ("before_state", "after_state"):
+            for item in event[field]["items"]:
+                item["id"] = str(item["id"])
+        await session.import_json(json.dumps(backup))
+        assert session.history[0]["payload"]["item1_id"] == 1
+        assert session.history[0]["before_state"]["items"][0]["id"] == 1
+        await session.undo_last_vote()
+        assert all(item["matches_played"] == 0 for item in session.items)
+        assert all(
+            item["mu"][criterion["key"]] == 0
+            for item in session.items
+            for criterion in session.criteria
+        )
