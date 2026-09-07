@@ -228,7 +228,11 @@ def get_match_triple(
 def _recent_matches(store: DataStore) -> set[frozenset[int]]:
     """취소하지 않은 최근 다섯 투표와 진행 중 대결의 항목 조합을 읽는다."""
     events = sorted(
-        (event for event in getattr(store, "history", []) if not event.get("undone")),
+        (
+            event
+            for event in getattr(store, "history", [])
+            if not event.get("undone") and not event.get("archived")
+        ),
         key=lambda event: event.get("created_at", 0),
         reverse=True,
     )[:5]

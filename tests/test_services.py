@@ -550,6 +550,19 @@ def _matching_store(count: int) -> SimpleNamespace:
 
 
 class TestMatchVariety:
+    @pytest.mark.parametrize("flag", ["archived", "undone"])
+    def test_archived_or_undone_votes_do_not_exclude_best_pair(self, flag: str) -> None:
+        s = _matching_store(3)
+        s.items[2]["sigma_sq"]["a"] = 0.01
+        s.history = [
+            {
+                "payload": {"item1_id": 0, "item2_id": 1},
+                "created_at": 1,
+                flag: True,
+            }
+        ]
+        assert {item["id"] for item in get_match_pair(s)} == {0, 1}
+
     def test_equal_candidates_and_card_positions_vary(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
