@@ -11,15 +11,20 @@ from pydantic import (
 )
 
 
-VoteChoice = Literal["1", "2", "draw"]
-ThreeWayRole = Literal["best", "worst", "tied"]
+VoteChoice = Literal["1", "2", "draw", "skip"]
+ThreeWayRole = Literal["best", "worst", "tied", "skip"]
 
 
 def _safe_relative_path(value: str | None) -> str | None:
     """오픈 리다이렉트 방지 — 상대 경로만 허용합니다."""
     if value in (None, ""):
         return None
-    if value.startswith("/") and not value.startswith("//"):
+    if (
+        value.startswith("/")
+        and not value.startswith("//")
+        and "\\" not in value
+        and not any(ord(c) < 32 for c in value)
+    ):
         return value
     raise ValueError("redirect_to는 안전한 상대 경로여야 합니다.")
 
@@ -28,29 +33,48 @@ SafeRedirect = Annotated[str | None, AfterValidator(_safe_relative_path)]
 
 
 class SettingsModel(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     initial_sigma: float = Field(default=2.0, gt=0.0, le=10.0)
     draw_prior_max: float = Field(default=0.33, ge=0.0, le=1.0)
     draw_prior_strength: int = Field(default=10, ge=1, le=1000)
     draw_bandwidth: float = Field(default=1.5, gt=0.0, le=10.0)
-    hierarchical_strength: float = Field(default=5.0, ge=0.0, le=100.0)
+    hierarchical_strength: float = Field(default=0.0, ge=0.0, le=100.0)
     display_center: float = Field(default=1200.0, ge=0.0, le=100_000.0)
     display_scale: float = Field(default=173.72, gt=0.0, le=10_000.0)
     battle_mode: Literal["2way", "3way"] = "2way"
+    blind_mode: bool = True
     result_auto_skip: bool = False
     result_skip_seconds: float = Field(default=3.0, ge=0.5, le=60.0)
 
 
 class CriterionModel(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
-    key: str = Field(min_length=1, pattern=r"^[a-z0-9_]+$")
-    label: str = Field(min_length=1)
-    color: str = Field(min_length=1)
-    weight: float = Field(default=1.0, gt=0.0)
-    battles: int = Field(default=0, ge=0)
-    draws: int = Field(default=0, ge=0)
+    key: str = Field(min_length=1, max_length=100, pattern=r"^[a-z0-9_]+$")
+    label: str = Field(min_length=1, max_length=200)
+    color: Literal[
+        "blue",
+        "purple",
+        "pink",
+        "green",
+        "indigo",
+        "red",
+        "yellow",
+        "orange",
+        "teal",
+        "cyan",
+        "gray",
+    ] = "gray"
+    weight: float = Field(default=1.0, gt=0.0, le=1_000_000)
+    battles: int = Field(default=0, ge=0, le=2**63 - 1)
+    draws: int = Field(default=0, ge=0, le=2**63 - 1)
+
+    @model_validator(mode="after")
+    def validate_counters(self) -> "CriterionModel":
+        if self.draws > self.battles:
+            raise ValueError("무승부 수는 비교 수를 넘을 수 없습니다.")
+        return self
 
     @field_validator("key", "label", "color")
     @classmethod
@@ -73,14 +97,20 @@ def _default_criteria() -> list[CriterionModel]:
 
 
 class ItemModel(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
-    id: int = Field(ge=1)
-    name: str = Field(min_length=1)
-    mu: dict[str, float] = Field(default_factory=dict)
-    sigma_sq: dict[str, float] = Field(default_factory=dict)
-    matches_played: int = Field(default=0, ge=0)
-    criterion_matches: dict[str, int] = Field(default_factory=dict)
+    id: int = Field(ge=1, le=2**63 - 1)
+    name: str = Field(min_length=1, max_length=500)
+    mu: dict[str, Annotated[float, Field(ge=-1_000_000, le=1_000_000)]] = Field(
+        default_factory=dict
+    )
+    sigma_sq: dict[str, Annotated[float, Field(gt=0, le=1_000_000)]] = Field(
+        default_factory=dict
+    )
+    matches_played: int = Field(default=0, ge=0, le=2**63 - 1)
+    criterion_matches: dict[str, Annotated[int, Field(ge=0, le=2**63 - 1)]] = Field(
+        default_factory=dict
+    )
 
     @field_validator("name")
     @classmethod
@@ -94,11 +124,11 @@ class ItemModel(BaseModel):
 class ActiveRoundModel(BaseModel):
     """진행 중인 배틀 라운드 — 파일에 영속화하여 VM 재시작 후에도 투표 가능."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     token: str = Field(min_length=16, max_length=255)
-    item1_id: int = Field(ge=1)
-    item2_id: int = Field(ge=1)
+    item1_id: int = Field(ge=1, le=2**63 - 1)
+    item2_id: int = Field(ge=1, le=2**63 - 1)
     item3_id: int | None = Field(default=None, ge=1)
     issued_at: float = Field(ge=0.0)
 
@@ -113,10 +143,12 @@ class ActiveRoundModel(BaseModel):
 
 
 class SessionDataModel(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     settings: SettingsModel = Field(default_factory=SettingsModel)
-    criteria: list[CriterionModel] = Field(default_factory=_default_criteria)
+    criteria: list[CriterionModel] = Field(
+        default_factory=_default_criteria, max_length=64
+    )
     items: list[ItemModel] = Field(default_factory=list, max_length=10_000)
     active_round: ActiveRoundModel | None = None
 
@@ -151,10 +183,10 @@ class SessionDataModel(BaseModel):
 
 
 class BattleVoteRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
-    item1_id: int = Field(ge=1)
-    item2_id: int = Field(ge=1)
+    item1_id: int = Field(ge=1, le=2**63 - 1)
+    item2_id: int = Field(ge=1, le=2**63 - 1)
     round_token: str = Field(min_length=16, max_length=255)
     votes: dict[str, VoteChoice] = Field(min_length=1)
     redirect_to: SafeRedirect = None
@@ -201,11 +233,11 @@ class BattleVoteResponse(BaseModel):
 class ThreeWayBattleVoteRequest(BaseModel):
     """3-way 배틀 투표 요청 — 기준별 best/worst 선택."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
-    item1_id: int = Field(ge=1)
-    item2_id: int = Field(ge=1)
-    item3_id: int = Field(ge=1)
+    item1_id: int = Field(ge=1, le=2**63 - 1)
+    item2_id: int = Field(ge=1, le=2**63 - 1)
+    item3_id: int = Field(ge=1, le=2**63 - 1)
     round_token: str = Field(min_length=16, max_length=255)
     votes: dict[str, dict[str, ThreeWayRole]] = Field(min_length=1)
     redirect_to: SafeRedirect = None
@@ -227,9 +259,9 @@ class ThreeWayCriteriaResult(BaseModel):
     best_id: int | None = None
     worst_id: int | None = None
     middle_id: int | None = None
-    ratings: dict[str, float]   # {item_id_str: new_display_rating}
-    diffs: dict[str, float]     # {item_id_str: rating_change}
-    sigmas: dict[str, float]    # {item_id_str: display_uncertainty}
+    ratings: dict[str, float]  # {item_id_str: new_display_rating}
+    diffs: dict[str, float]  # {item_id_str: rating_change}
+    sigmas: dict[str, float]  # {item_id_str: display_uncertainty}
 
 
 class ThreeWayBattleVoteResponse(BaseModel):

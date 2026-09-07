@@ -19,6 +19,7 @@ from deps import (
     create_session_id,
     get_session_store,
     import_json_upload,
+    is_htmx,
 )
 from store import (
     SESSION_TTL_SECONDS,
@@ -43,11 +44,14 @@ COOKIE_SECURE = _env_flag("COOKIE_SECURE", False)
 
 def _set_session_cookie(response: Response, session_id: str) -> None:
     response.set_cookie(
-        key="session_id", value=session_id,
+        key="session_id",
+        value=session_id,
         max_age=SESSION_TTL_SECONDS,
-        httponly=True, samesite="strict",
+        httponly=True,
+        samesite="strict",
         secure=COOKIE_SECURE,
     )
+
 
 logging.basicConfig(
     level=logging.INFO,
@@ -100,13 +104,17 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.exception_handler(RequiresSessionException)
 async def session_exception_handler(request: Request, exc: RequiresSessionException):
+    if is_htmx(request):
+        return Response(status_code=200, headers={"HX-Redirect": "/"})
     return RedirectResponse(url="/", status_code=303)
 
 
 @app.exception_handler(SessionSaveError)
 async def session_save_error_handler(request: Request, exc: SessionSaveError):
     logger.error("session_save_failed — path=%s: %s", request.url.path, exc)
-    return HTMLResponse("세션 저장에 실패했습니다. 잠시 후 다시 시도해주세요.", status_code=500)
+    return HTMLResponse(
+        "세션 저장에 실패했습니다. 잠시 후 다시 시도해주세요.", status_code=500
+    )
 
 
 class SessionCookieRefreshMiddleware(BaseHTTPMiddleware):
@@ -121,7 +129,12 @@ class SessionCookieRefreshMiddleware(BaseHTTPMiddleware):
         if request.url.path.startswith("/static/"):
             return response
         session_id = request.cookies.get("session_id")
-        if session_id and await session_exists(session_id):
+        replaces_cookie = any(
+            value.decode("latin-1").startswith("session_id=")
+            for key, value in response.raw_headers
+            if key.lower() == b"set-cookie"
+        )
+        if session_id and not replaces_cookie and await session_exists(session_id):
             _set_session_cookie(response, session_id)
         return response
 
@@ -140,6 +153,8 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "font-src 'self' data: https://fonts.gstatic.com; "
             "connect-src 'self';"
         )
+        if not request.url.path.startswith("/static/"):
+            response.headers["Cache-Control"] = "no-store"
         return response
 
 
@@ -152,6 +167,11 @@ app.include_router(ranking.router)
 app.include_router(manage.router)
 
 
+@app.get("/health")
+async def health() -> dict[str, str]:
+    return {"status": "ok"}
+
+
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
     """
@@ -159,9 +179,13 @@ async def read_root(request: Request):
     """
     session_id = request.cookies.get("session_id")
     has_session = bool(session_id and await get_session_store(request, session_id))
-    return templates.TemplateResponse(request, "index.html", {
-        "has_session": has_session,
-    })
+    return templates.TemplateResponse(
+        request,
+        "index.html",
+        {
+            "has_session": has_session,
+        },
+    )
 
 
 @app.post("/start")
@@ -201,5 +225,7 @@ async def end_session(request: Request):
             await store.delete_session()
 
     response = RedirectResponse(url="/", status_code=303)
-    response.delete_cookie("session_id", httponly=True, samesite="strict", secure=COOKIE_SECURE)
+    response.delete_cookie(
+        "session_id", httponly=True, samesite="strict", secure=COOKIE_SECURE
+    )
     return response

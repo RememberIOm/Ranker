@@ -11,7 +11,7 @@ from pydantic import ValidationError
 
 from store import DataStore, InvalidSessionDataError, get_store, session_exists
 
-_SESSION_ID_RE = re.compile(r'^[0-9a-f]{32}$')
+_SESSION_ID_RE = re.compile(r"^[0-9a-f]{32}$")
 
 
 def is_htmx(request: Request) -> bool:
@@ -42,7 +42,11 @@ async def get_session_store(
     JSON 응답이 필요한 엔드포인트(예: /battle/vote)에서 사용합니다.
     파일 로드 오류는 절대 파일을 삭제하지 않습니다 — 사용자 데이터 보호.
     """
-    if not session_id or not _is_valid_session_id(session_id) or not await session_exists(session_id):
+    if (
+        not session_id
+        or not _is_valid_session_id(session_id)
+        or not await session_exists(session_id)
+    ):
         return None
     try:
         return await get_store(session_id)
@@ -64,16 +68,16 @@ async def require_store(
     return store
 
 
-_MAX_UPLOAD_BYTES = 1_000_000  # 1 MB
+MAX_UPLOAD_BYTES = 64 * 1024 * 1024  # 백업과 이력을 포함한 업로드 한도
 
 
 async def import_json_upload(file: UploadFile, store: DataStore) -> HTMLResponse | None:
     """업로드된 JSON 파일을 store로 import합니다. 실패 시 에러 응답, 성공 시 None."""
-    raw = await file.read(_MAX_UPLOAD_BYTES + 1)
-    if len(raw) > _MAX_UPLOAD_BYTES:
-        return HTMLResponse("파일 크기는 1MB를 초과할 수 없습니다.", status_code=413)
+    raw = await file.read(MAX_UPLOAD_BYTES + 1)
+    if len(raw) > MAX_UPLOAD_BYTES:
+        return HTMLResponse("파일 크기는 64MB를 초과할 수 없습니다.", status_code=413)
     try:
         await store.import_json(raw.decode("utf-8"))
-    except (UnicodeDecodeError, ValidationError, ValueError):
+    except (UnicodeDecodeError, ValidationError, ValueError, OverflowError):
         return HTMLResponse("유효하지 않은 JSON 파일입니다.", status_code=400)
     return None
