@@ -1,9 +1,12 @@
 # services.py
-# Bayesian Bradley-Terry 레이팅 계산 및 매칭 로직 — 순수 함수 기반
-# Online Laplace Approximation으로 항목별·기준별 (μ, σ²) 사후분포를 유지합니다.
+# Bayesian BT 대각 근사 엔진의 저장소 어댑터와 매칭·표시 계산.
+# σ²와 정보량은 근사치이며 실제 포함률·효율은 별도 평가가 필요합니다.
 
+import heapq
 import math
 import random
+from itertools import combinations
+from collections.abc import Iterable
 from typing import Any
 
 from store import DataStore
@@ -11,14 +14,11 @@ from store import DataStore
 
 # --- Bayesian BT Core ---
 
-_SIGMOID_CLAMP = 500.0
-_SIGMA_SQ_FLOOR = 0.01
-
-
-def sigmoid(x: float) -> float:
-    """수치 안정 sigmoid: 1 / (1 + exp(-x))"""
-    x = max(-_SIGMOID_CLAMP, min(_SIGMOID_CLAMP, x))
-    return 1.0 / (1.0 + math.exp(-x))
+from rating_engine import (
+    predict_outcomes,
+    sigmoid as sigmoid,
+    update_ratings,
+)
 
 
 def bt_update(
@@ -28,31 +28,16 @@ def bt_update(
     sigma_sq_b: float,
     outcome: float,
 ) -> tuple[float, float, float, float]:
-    """Online Bayesian Bradley-Terry 업데이트 (Laplace Approximation).
-
-    Args:
-        outcome: 1.0=a승, 0.0=b승, 0.5=무승부
-
-    Returns:
-        (mu_a', sigma_sq_a', mu_b', sigma_sq_b')
-    """
-    p = sigmoid(mu_a - mu_b)
-    w = p * (1.0 - p)  # Fisher information
-    g = outcome - p  # gradient
-
-    prec_a_new = 1.0 / sigma_sq_a + w
-    prec_b_new = 1.0 / sigma_sq_b + w
-
-    mu_a_new = mu_a + g / prec_a_new
-    mu_b_new = mu_b - g / prec_b_new
-
-    sigma_sq_a_new = max(_SIGMA_SQ_FLOOR, 1.0 / prec_a_new)
-    sigma_sq_b_new = max(_SIGMA_SQ_FLOOR, 1.0 / prec_b_new)
-
-    return mu_a_new, sigma_sq_a_new, mu_b_new, sigma_sq_b_new
+    """기존 호출부를 위한 순수 BT 대각 근사 엔진 어댑터."""
+    updated = update_ratings(
+        {0: (mu_a, sigma_sq_a), 1: (mu_b, sigma_sq_b)}, [(0, 1, outcome)]
+    )
+    return *updated[0], *updated[1]
 
 
-def hierarchical_shrinkage(store: DataStore, item: dict[str, Any]) -> None:
+def hierarchical_shrinkage(
+    store: DataStore, item: dict[str, Any], keys: set[str] | None = None
+) -> None:
     """계층적 축소: 기준 간 정보를 공유하여 데이터 부족 기준을 보강합니다.
 
     각 기준 k의 μ를 나머지 기준들의 정밀도 가중 평균(Leave-One-Out cross_mean)
@@ -64,7 +49,7 @@ def hierarchical_shrinkage(store: DataStore, item: dict[str, Any]) -> None:
     if base_strength <= 0:
         return
 
-    criteria = store.criteria
+    criteria = [c for c in store.criteria if keys is None or c["key"] in keys]
     if len(criteria) < 2:
         return
 
@@ -123,37 +108,28 @@ def get_match_probabilities(
     battles: int = 0,
     draws: int = 0,
 ) -> dict[str, float]:
-    """UI 표시용 승/무/패 확률 계산.
+    """독립 정규·무승부 감쇠 근사의 승/무/패 추정치를 표시한다.
 
-    Bayesian Beta prior로 실측 무승부 비율에 자연 수렴합니다.
+    경험적 무승부율의 Beta 추정치는 감쇠 전 상한으로 쓰며,
+    전체 실측 비율로의 수렴이나 보정된 예측확률을 보장하지 않는다.
     """
     s = store.settings
-
-    # Bayesian Beta prior
-    alpha = s["draw_prior_max"] * s["draw_prior_strength"] + draws
-    beta_param = (1.0 - s["draw_prior_max"]) * s["draw_prior_strength"] + (
-        battles - draws
+    draw_rate = (s["draw_prior_max"] * s["draw_prior_strength"] + draws) / (
+        s["draw_prior_strength"] + battles
     )
-    draw_max = max(0.05, min(0.5, alpha / (alpha + beta_param)))
-
-    # BT 승률 (logit 스케일 직접 사용)
-    p_a = sigmoid(mu_a - mu_b)
-    delta = abs(mu_a - mu_b)
-
-    # 무승부 확률 — logit 스케일 차이 기반 가우시안 감쇠
-    p_draw = draw_max * math.exp(-((delta / s["draw_bandwidth"]) ** 2))
-
-    p_win_a = max(0.0, p_a - 0.5 * p_draw)
-    p_win_b = max(0.0, (1.0 - p_a) - 0.5 * p_draw)
-
-    total = p_win_a + p_draw + p_win_b
-    if total == 0:
-        return {"win_a": 0.0, "draw": 100.0, "win_b": 0.0}
-
+    win_a, draw, _ = predict_outcomes(
+        mu_a,
+        sigma_sq_a,
+        mu_b,
+        sigma_sq_b,
+        max(0.0, min(1.0, draw_rate)),
+        s["draw_bandwidth"],
+    )
+    shown_a, shown_draw = round(win_a * 100, 1), round(draw * 100, 1)
     return {
-        "win_a": round((p_win_a / total) * 100, 1),
-        "draw": round((p_draw / total) * 100, 1),
-        "win_b": round((p_win_b / total) * 100, 1),
+        "win_a": shown_a,
+        "draw": shown_draw,
+        "win_b": round(100 - shown_a - shown_draw, 1),
     }
 
 
@@ -195,7 +171,7 @@ def _pair_eig(
     criteria_keys: list[str],
     initial_sq: float,
 ) -> float:
-    """두 항목 간 기대 정보 이득(Expected Information Gain)을 합산합니다.
+    """두 항목 간 대각 근사의 정보량 점수를 합산합니다.
 
     EIG(i,j) = Σ_k 0.5·log(1 + w·σ²_a) + 0.5·log(1 + w·σ²_b)
     여기서 w = p(1-p), p = sigmoid(μ_a - μ_b).
@@ -216,43 +192,11 @@ def get_match_pair(
     store: DataStore,
     focus_id: int | None = None,
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-    """대결 상대를 선정합니다 (Expected Information Gain 최대화).
-
-    모든 가능한 쌍의 EIG를 계산하여 정보 획득이 최대인 쌍을 반환합니다.
-    n > _EIG_SAMPLE_THRESHOLD일 때는 랜덤 샘플링으로 후보를 축소합니다.
-    """
-    items = store.items
-    if len(items) < 2:
+    """정보량 근사로 대결을 고르고 동점 후보와 표시 위치를 무작위화한다."""
+    selected = _select_match(store, size=2, focus_id=focus_id)
+    if selected is None:
         return (store.get_item(focus_id) if focus_id else None), None
-
-    criteria_keys = [c["key"] for c in store.criteria]
-    initial_sq = store.settings["initial_sigma"] ** 2
-
-    if focus_id:
-        item1 = store.get_item(focus_id)
-        if not item1:
-            return None, None
-        candidates = [i for i in items if i["id"] != item1["id"]]
-        item2 = max(
-            candidates, key=lambda x: _pair_eig(item1, x, criteria_keys, initial_sq)
-        )
-        return item1, item2
-
-    # n이 클 때는 샘플링으로 후보 축소
-    pool = items
-    if len(items) > _EIG_SAMPLE_THRESHOLD:
-        pool = random.sample(items, _EIG_SAMPLE_THRESHOLD)
-
-    best_eig = -1.0
-    best_pair: tuple[dict[str, Any] | None, dict[str, Any] | None] = (None, None)
-    for i in range(len(pool)):
-        for j in range(i + 1, len(pool)):
-            eig = _pair_eig(pool[i], pool[j], criteria_keys, initial_sq)
-            if eig > best_eig:
-                best_eig = eig
-                best_pair = (pool[i], pool[j])
-
-    return best_pair
+    return selected[0], selected[1]
 
 
 def _triple_eig(
@@ -274,89 +218,111 @@ def get_match_triple(
     store: DataStore,
     focus_id: int | None = None,
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None, dict[str, Any] | None]:
-    """3-way 비교를 위한 3개 항목을 선정합니다 (EIG 기반).
-
-    소규모 풀(n ≤ _TRIPLE_EXHAUSTIVE_THRESHOLD): O(n³) 완전 탐색으로 전역 최적 삼중항 선택.
-    대규모 풀: top-K 쌍 기반 탐욕적 선택으로 근사.
-    """
-    items = store.items
-    if len(items) < 3:
+    """3-way 후보를 고른다. 쌍 점수를 한 번 계산해 삼중 탐색에 재사용한다."""
+    selected = _select_match(store, size=3, focus_id=focus_id)
+    if selected is None:
         return None, None, None
+    return selected[0], selected[1], selected[2]
 
-    criteria_keys = [c["key"] for c in store.criteria]
-    initial_sq = store.settings["initial_sigma"] ** 2
 
-    # focus 모드: focus 항목 고정 + 나머지에서 최적 쌍 탐색
-    if focus_id:
-        item1 = store.get_item(focus_id)
-        if not item1:
-            return None, None, None
-        others = [i for i in items if i["id"] != item1["id"]]
-        if len(others) < 2:
-            return None, None, None
-        if len(others) > _EIG_SAMPLE_THRESHOLD:
-            others = random.sample(others, _EIG_SAMPLE_THRESHOLD)
-        best_eig = -1.0
-        best_pair = (others[0], others[1])
-        for i in range(len(others)):
-            for j in range(i + 1, len(others)):
-                eig = _triple_eig(
-                    item1, others[i], others[j], criteria_keys, initial_sq
-                )
-                if eig > best_eig:
-                    best_eig = eig
-                    best_pair = (others[i], others[j])
-        return item1, best_pair[0], best_pair[1]
-
-    # 소규모 풀: O(n³) 완전 탐색
-    pool = items
-    if len(items) > _EIG_SAMPLE_THRESHOLD:
-        pool = random.sample(items, _EIG_SAMPLE_THRESHOLD)
-
-    if len(pool) <= _TRIPLE_EXHAUSTIVE_THRESHOLD:
-        best_eig = -1.0
-        best_triple: tuple[dict[str, Any], ...] = (pool[0], pool[1], pool[2])
-        for i in range(len(pool)):
-            for j in range(i + 1, len(pool)):
-                for k in range(j + 1, len(pool)):
-                    eig = _triple_eig(
-                        pool[i], pool[j], pool[k], criteria_keys, initial_sq
-                    )
-                    if eig > best_eig:
-                        best_eig = eig
-                        best_triple = (pool[i], pool[j], pool[k])
-        return best_triple[0], best_triple[1], best_triple[2]
-
-    # 대규모 풀: top-K 쌍 기반 탐욕적 선택
-    _TOP_K = 10
-    top_pairs: list[tuple[float, dict[str, Any], dict[str, Any]]] = []
-    for i in range(len(pool)):
-        for j in range(i + 1, len(pool)):
-            eig = _pair_eig(pool[i], pool[j], criteria_keys, initial_sq)
-            if len(top_pairs) < _TOP_K:
-                top_pairs.append((eig, pool[i], pool[j]))
-                top_pairs.sort(key=lambda x: x[0])
-            elif eig > top_pairs[0][0]:
-                top_pairs[0] = (eig, pool[i], pool[j])
-                top_pairs.sort(key=lambda x: x[0])
-
-    best_eig = -1.0
-    best_result: tuple[
-        dict[str, Any] | None, dict[str, Any] | None, dict[str, Any] | None
-    ] = (None, None, None)
-    for _, p1, p2 in top_pairs:
-        others = [i for i in pool if i["id"] not in (p1["id"], p2["id"])]
-        if not others:
-            continue
-        p3 = max(
-            others, key=lambda x: _triple_eig(p1, p2, x, criteria_keys, initial_sq)
+def _recent_matches(store: DataStore) -> set[frozenset[int]]:
+    """취소하지 않은 최근 다섯 투표와 진행 중 대결의 항목 조합을 읽는다."""
+    events = sorted(
+        (event for event in getattr(store, "history", []) if not event.get("undone")),
+        key=lambda event: event.get("created_at", 0),
+        reverse=True,
+    )[:5]
+    payloads = [event["payload"] for event in events]
+    active = getattr(store, "active_round", None)
+    if active:
+        payloads.append(active)
+    return {
+        frozenset(
+            payload[key]
+            for key in ("item1_id", "item2_id", "item3_id")
+            if payload.get(key) is not None
         )
-        eig = _triple_eig(p1, p2, p3, criteria_keys, initial_sq)
-        if eig > best_eig:
-            best_eig = eig
-            best_result = (p1, p2, p3)
+        for payload in payloads
+    }
 
-    return best_result
+
+def _select_match(
+    store: DataStore, size: int, focus_id: int | None
+) -> tuple[dict[str, Any], ...] | None:
+    """최고 정보량 후보를 선택하되 최근 조합을 가능한 경우 제외한다.
+
+    후보가 모두 최근 조합이면 반복을 허용한다. 집중 항목도 표시 위치는
+    무작위이며, 500개 초과 시 집중 항목을 보존한 채 후보를 샘플링한다.
+    """
+    if len(store.items) < size:
+        return None
+    focus = store.get_item(focus_id) if focus_id is not None else None
+    if focus_id is not None and focus is None:
+        return None
+    pool = [item for item in store.items if item is not focus]
+    limit = _EIG_SAMPLE_THRESHOLD - (1 if focus else 0)
+    if len(pool) > limit:
+        pool = random.sample(pool, limit)
+    else:
+        random.shuffle(pool)
+    if focus:
+        pool.insert(0, focus)
+    count = len(pool)
+    keys = [c["key"] for c in store.criteria]
+    initial_sq = store.settings["initial_sigma"] ** 2
+    edge_pairs = (
+        ((0, i) for i in range(1, count))
+        if focus and size == 2
+        else combinations(range(count), 2)
+    )
+    edges = {
+        (i, j): _pair_eig(pool[i], pool[j], keys, initial_sq) for i, j in edge_pairs
+    }
+    candidates: Iterable[tuple[int, ...]]
+    if focus:
+        candidates = (
+            (0, *others) for others in combinations(range(1, count), size - 1)
+        )
+    elif size == 2 or count <= _TRIPLE_EXHAUSTIVE_THRESHOLD:
+        candidates = combinations(range(count), size)
+    else:
+        # 큰 풀에서는 상위 쌍 열 개에 세 번째 항목을 더하는 근사를 사용한다.
+        top_pairs = heapq.nlargest(10, edges, key=edges.__getitem__)
+        candidates = sorted(
+            {
+                tuple(sorted((i, j, k)))
+                for i, j in top_pairs
+                for k in range(count)
+                if k not in (i, j)
+            }
+        )
+    recent = _recent_matches(store)
+    best_any: tuple[int, ...] | None = None
+    best_new: tuple[int, ...] | None = None
+    score_any = score_new = -math.inf
+    ties_any = ties_new = 0
+    for candidate in candidates:
+        score = math.fsum(edges[pair] for pair in combinations(candidate, 2))
+        if score > score_any:
+            best_any, score_any, ties_any = candidate, score, 1
+        elif score == score_any:
+            ties_any += 1
+            if random.randrange(ties_any) == 0:
+                best_any = candidate
+        if frozenset(pool[i]["id"] for i in candidate) in recent:
+            continue
+        if score > score_new:
+            best_new, score_new, ties_new = candidate, score, 1
+        elif score == score_new:
+            ties_new += 1
+            if random.randrange(ties_new) == 0:
+                best_new = candidate
+    chosen = best_new if best_new is not None else best_any
+    if chosen is None:
+        return None
+    selected = [pool[i] for i in chosen]
+    random.shuffle(selected)
+    return tuple(selected)
 
 
 # --- Ranking ---
@@ -372,7 +338,15 @@ def get_item_ranks(store: DataStore) -> tuple[dict[int, int], int]:
         key=lambda x: x[0],
         reverse=True,
     )
-    return {iid: i + 1 for i, (_, iid) in enumerate(scores)}, len(scores)
+    ranks: dict[int, int] = {}
+    previous_score: float | None = None
+    rank = 0
+    for position, (score, iid) in enumerate(scores, start=1):
+        if previous_score is None or score != previous_score:
+            rank = position
+        ranks[iid] = rank
+        previous_score = score
+    return ranks, len(scores)
 
 
 def get_item_rank(store: DataStore, item_id: int) -> tuple[int, int]:

@@ -1,0 +1,371 @@
+{
+  "algorithm_version": "bt-diagonal-v1",
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19
+  ],
+  "items": 12,
+  "criteria": 6,
+  "matching": "uniform random, not production EIG",
+  "outcomes": "Gumbel/Plackett-Luce, no draws or missing criteria",
+  "evaluation": "all true pair probabilities; expected proper scores, no sampled test labels",
+  "decision_cost_assumption": "one choice per criterion in 2way, best+worst two choices in 3way; not measured time",
+  "limitations": [
+    "Synthetic diagnostics do not establish real-user accuracy or confidence calibration.",
+    "95 percent intervals use independent diagonal variance; no covariance correction.",
+    "Coverage targets pair differences, avoiding the unidentifiable absolute skill location.",
+    "Draw heuristics, production matching, missing judgments and preference drift are not evaluated.",
+    "One 3way ballot creates correlated pair outcomes; pair-count equality is not information equality.",
+    "Uncertainty-aware and point predictions share fitted ratings; comparison only evaluates readout."
+  ],
+  "results": [
+    {
+      "scenario": "aligned_criteria",
+      "arm": "independent_2way",
+      "ballots": 300,
+      "pair_outcomes_per_criterion": 300,
+      "assumed_choices_all_criteria": 1800,
+      "metrics": {
+        "pair_order_accuracy": {
+          "mean": 0.9095959595959596,
+          "seed_sd": 0.023908968388575754
+        },
+        "expected_brier": {
+          "mean": 0.18425311588294416,
+          "seed_sd": 0.015381000073007661
+        },
+        "expected_log_loss": {
+          "mean": 0.5464342983760859,
+          "seed_sd": 0.038248900883348376
+        },
+        "point_expected_brier": {
+          "mean": 0.18449450863353653,
+          "seed_sd": 0.015475715418161912
+        },
+        "point_expected_log_loss": {
+          "mean": 0.5473873992080013,
+          "seed_sd": 0.03864065485467515
+        },
+        "nominal_95_pair_difference_coverage": {
+          "mean": 0.9590909090909091,
+          "seed_sd": 0.022846576815910666
+        }
+      }
+    },
+    {
+      "scenario": "aligned_criteria",
+      "arm": "legacy_shrinkage_2way",
+      "ballots": 300,
+      "pair_outcomes_per_criterion": 300,
+      "assumed_choices_all_criteria": 1800,
+      "metrics": {
+        "pair_order_accuracy": {
+          "mean": 0.9141414141414141,
+          "seed_sd": 0.021380436496446168
+        },
+        "expected_brier": {
+          "mean": 0.18351495513940835,
+          "seed_sd": 0.015188958855348319
+        },
+        "expected_log_loss": {
+          "mean": 0.5444006604745536,
+          "seed_sd": 0.03744394447960038
+        },
+        "point_expected_brier": {
+          "mean": 0.1833733657141375,
+          "seed_sd": 0.015243082913139286
+        },
+        "point_expected_log_loss": {
+          "mean": 0.5438944047001119,
+          "seed_sd": 0.03773222716944081
+        },
+        "nominal_95_pair_difference_coverage": {
+          "mean": 0.9613636363636364,
+          "seed_sd": 0.024566710626117313
+        }
+      }
+    },
+    {
+      "scenario": "aligned_criteria",
+      "arm": "3way_same_pair_count",
+      "ballots": 100,
+      "pair_outcomes_per_criterion": 300,
+      "assumed_choices_all_criteria": 1200,
+      "metrics": {
+        "pair_order_accuracy": {
+          "mean": 0.8936868686868686,
+          "seed_sd": 0.019177573753839685
+        },
+        "expected_brier": {
+          "mean": 0.18649382002757786,
+          "seed_sd": 0.014695828605567117
+        },
+        "expected_log_loss": {
+          "mean": 0.5522023431034176,
+          "seed_sd": 0.03654135319908383
+        },
+        "point_expected_brier": {
+          "mean": 0.18685104471857375,
+          "seed_sd": 0.014910574541217353
+        },
+        "point_expected_log_loss": {
+          "mean": 0.553567142833568,
+          "seed_sd": 0.03734906329543737
+        },
+        "nominal_95_pair_difference_coverage": {
+          "mean": 0.9226010101010101,
+          "seed_sd": 0.03300950877507645
+        }
+      }
+    },
+    {
+      "scenario": "aligned_criteria",
+      "arm": "3way_same_assumed_decision_cost",
+      "ballots": 150,
+      "pair_outcomes_per_criterion": 450,
+      "assumed_choices_all_criteria": 1800,
+      "metrics": {
+        "pair_order_accuracy": {
+          "mean": 0.9170454545454545,
+          "seed_sd": 0.023904405708777422
+        },
+        "expected_brier": {
+          "mean": 0.18368340850539797,
+          "seed_sd": 0.01508255779604324
+        },
+        "expected_log_loss": {
+          "mean": 0.5450280467480786,
+          "seed_sd": 0.037568109008027394
+        },
+        "point_expected_brier": {
+          "mean": 0.1838427045226298,
+          "seed_sd": 0.015196966820555505
+        },
+        "point_expected_log_loss": {
+          "mean": 0.5456214148960447,
+          "seed_sd": 0.03801272866287528
+        },
+        "nominal_95_pair_difference_coverage": {
+          "mean": 0.9190656565656565,
+          "seed_sd": 0.031894617607027845
+        }
+      }
+    },
+    {
+      "scenario": "aligned_criteria",
+      "arm": "3way_same_ballots",
+      "ballots": 300,
+      "pair_outcomes_per_criterion": 900,
+      "assumed_choices_all_criteria": 3600,
+      "metrics": {
+        "pair_order_accuracy": {
+          "mean": 0.9380050505050506,
+          "seed_sd": 0.013794323077806175
+        },
+        "expected_brier": {
+          "mean": 0.1804897312405138,
+          "seed_sd": 0.014640009282808591
+        },
+        "expected_log_loss": {
+          "mean": 0.5368392835473236,
+          "seed_sd": 0.0366848295329645
+        },
+        "point_expected_brier": {
+          "mean": 0.18052278949076078,
+          "seed_sd": 0.014671317795084978
+        },
+        "point_expected_log_loss": {
+          "mean": 0.5369578138357761,
+          "seed_sd": 0.03682063831982541
+        },
+        "nominal_95_pair_difference_coverage": {
+          "mean": 0.918939393939394,
+          "seed_sd": 0.03097019426540853
+        }
+      }
+    },
+    {
+      "scenario": "opposed_criteria",
+      "arm": "independent_2way",
+      "ballots": 300,
+      "pair_outcomes_per_criterion": 300,
+      "assumed_choices_all_criteria": 1800,
+      "metrics": {
+        "pair_order_accuracy": {
+          "mean": 0.913510101010101,
+          "seed_sd": 0.022835923761110998
+        },
+        "expected_brier": {
+          "mean": 0.1831400959640941,
+          "seed_sd": 0.014735271953486184
+        },
+        "expected_log_loss": {
+          "mean": 0.5439293848316762,
+          "seed_sd": 0.03626317908459061
+        },
+        "point_expected_brier": {
+          "mean": 0.18335464594587333,
+          "seed_sd": 0.014820449446779686
+        },
+        "point_expected_log_loss": {
+          "mean": 0.5448262444034366,
+          "seed_sd": 0.03655073562855521
+        },
+        "nominal_95_pair_difference_coverage": {
+          "mean": 0.9616161616161616,
+          "seed_sd": 0.017177970528505573
+        }
+      }
+    },
+    {
+      "scenario": "opposed_criteria",
+      "arm": "legacy_shrinkage_2way",
+      "ballots": 300,
+      "pair_outcomes_per_criterion": 300,
+      "assumed_choices_all_criteria": 1800,
+      "metrics": {
+        "pair_order_accuracy": {
+          "mean": 0.8848484848484849,
+          "seed_sd": 0.0247341803738334
+        },
+        "expected_brier": {
+          "mean": 0.19635839152369153,
+          "seed_sd": 0.011038020875672475
+        },
+        "expected_log_loss": {
+          "mean": 0.5793443111307007,
+          "seed_sd": 0.024114895938311263
+        },
+        "point_expected_brier": {
+          "mean": 0.1953934032585895,
+          "seed_sd": 0.011289177023713598
+        },
+        "point_expected_log_loss": {
+          "mean": 0.5769365861411679,
+          "seed_sd": 0.02478196188192301
+        },
+        "nominal_95_pair_difference_coverage": {
+          "mean": 0.6608585858585858,
+          "seed_sd": 0.09879991587977598
+        }
+      }
+    },
+    {
+      "scenario": "opposed_criteria",
+      "arm": "3way_same_pair_count",
+      "ballots": 100,
+      "pair_outcomes_per_criterion": 300,
+      "assumed_choices_all_criteria": 1200,
+      "metrics": {
+        "pair_order_accuracy": {
+          "mean": 0.9012626262626263,
+          "seed_sd": 0.01844608293985918
+        },
+        "expected_brier": {
+          "mean": 0.18516244192330378,
+          "seed_sd": 0.014444969236403567
+        },
+        "expected_log_loss": {
+          "mean": 0.5491561396792991,
+          "seed_sd": 0.03573357039952797
+        },
+        "point_expected_brier": {
+          "mean": 0.18552401871170712,
+          "seed_sd": 0.01463185437847832
+        },
+        "point_expected_log_loss": {
+          "mean": 0.5505737463403328,
+          "seed_sd": 0.03644874333955746
+        },
+        "nominal_95_pair_difference_coverage": {
+          "mean": 0.9301767676767677,
+          "seed_sd": 0.029027688314754847
+        }
+      }
+    },
+    {
+      "scenario": "opposed_criteria",
+      "arm": "3way_same_assumed_decision_cost",
+      "ballots": 150,
+      "pair_outcomes_per_criterion": 450,
+      "assumed_choices_all_criteria": 1800,
+      "metrics": {
+        "pair_order_accuracy": {
+          "mean": 0.9160353535353536,
+          "seed_sd": 0.01792891853657369
+        },
+        "expected_brier": {
+          "mean": 0.1828208747756573,
+          "seed_sd": 0.014570196040974738
+        },
+        "expected_log_loss": {
+          "mean": 0.5430487191592299,
+          "seed_sd": 0.03610433774471301
+        },
+        "point_expected_brier": {
+          "mean": 0.1829689300586991,
+          "seed_sd": 0.01467047692816398
+        },
+        "point_expected_log_loss": {
+          "mean": 0.5436196681965745,
+          "seed_sd": 0.036498863068348965
+        },
+        "nominal_95_pair_difference_coverage": {
+          "mean": 0.922979797979798,
+          "seed_sd": 0.03242710748006488
+        }
+      }
+    },
+    {
+      "scenario": "opposed_criteria",
+      "arm": "3way_same_ballots",
+      "ballots": 300,
+      "pair_outcomes_per_criterion": 900,
+      "assumed_choices_all_criteria": 3600,
+      "metrics": {
+        "pair_order_accuracy": {
+          "mean": 0.9419191919191919,
+          "seed_sd": 0.010363417697829834
+        },
+        "expected_brier": {
+          "mean": 0.17966872863845917,
+          "seed_sd": 0.014194763505045236
+        },
+        "expected_log_loss": {
+          "mean": 0.535101542025925,
+          "seed_sd": 0.035321632644132676
+        },
+        "point_expected_brier": {
+          "mean": 0.17970210881213755,
+          "seed_sd": 0.014229218904577878
+        },
+        "point_expected_log_loss": {
+          "mean": 0.5352271542653276,
+          "seed_sd": 0.03546144375803761
+        },
+        "nominal_95_pair_difference_coverage": {
+          "mean": 0.9196969696969697,
+          "seed_sd": 0.03491987386873608
+        }
+      }
+    }
+  ]
+}
