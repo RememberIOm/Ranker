@@ -1,7 +1,9 @@
-# routers/ranking.py
-# 세션별 DataStore를 사용하여 랭킹 페이지를 렌더링합니다.
+"""원점수 정렬과 필터를 제공하는 랭킹 화면."""
 
-from fastapi import APIRouter, Request, Depends
+import math
+from typing import Any
+
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
 
 from deps import require_store
@@ -12,75 +14,110 @@ from template_env import templates
 router = APIRouter(prefix="/ranking", tags=["ranking"])
 
 
+def ranking_rows(store: DataStore, sort_by: str) -> list[dict[str, Any]]:
+    """기준 키를 표시용 메타데이터와 분리하고 반올림 전 공동 순위를 계산합니다."""
+    rows = []
+    for item in store.items:
+        scores = {
+            c["key"]: {
+                "rating": display_rating(store, item["mu"][c["key"]]),
+                "sigma": display_uncertainty(store, item["sigma_sq"][c["key"]]),
+                "matches": item["criterion_matches"].get(c["key"], 0),
+            }
+            for c in store.criteria
+        }
+        rows.append(
+            {
+                "id": item["id"],
+                "name": item["name"],
+                "matches": item["matches_played"],
+                "scores": scores,
+                "total": composite_rating(store, item),
+                "avg_sigma": sum(s["sigma"] for s in scores.values()) / len(scores)
+                if scores
+                else 0,
+                "under_evaluated": any(s["matches"] < 5 for s in scores.values()),
+            }
+        )
+    criterion_key = sort_by.removeprefix("criterion:")
+    for row in rows:
+        row["sort_score"] = (
+            row["total"]
+            if sort_by == "total"
+            else row["scores"][criterion_key]["rating"]
+        )
+    rows.sort(key=lambda row: (-row["sort_score"], row["name"], row["id"]))
+    previous = None
+    rank = 0
+    for index, row in enumerate(rows, 1):
+        if row["sort_score"] != previous:
+            rank = index
+        row["rank"] = rank
+        previous = row["sort_score"]
+    return rows
+
+
+def histogram(scores: list[float]) -> dict[str, list]:
+    """최대 20개 구간으로 표시해 점수 범위에 비례한 메모리 증가를 막습니다."""
+    if not scores:
+        return {"labels": [], "counts": []}
+    low, high = min(scores), max(scores)
+    width = max(1.0, math.ceil((high - low + 1) / 20))
+    count = min(20, int((high - low) // width) + 1)
+    counts = [0] * count
+    for score in scores:
+        counts[min(count - 1, int((score - low) // width))] += 1
+    return {
+        "labels": [
+            f"{low + i * width:,.1f}–{low + (i + 1) * width:,.1f}" for i in range(count)
+        ],
+        "counts": counts,
+    }
+
+
 @router.get("", response_class=HTMLResponse)
 async def get_ranking(
     request: Request,
     sort_by: str = "total",
+    q: str = "",
+    filter: str = "all",
     store: DataStore = Depends(require_store),
 ) -> HTMLResponse:
-    criteria = store.criteria
-    items = store.items
-
-    valid_sort_keys = {"total"} | {c["key"] for c in criteria}
-    if sort_by not in valid_sort_keys:
+    keys = {c["key"] for c in store.criteria}
+    if sort_by != "total" and sort_by.removeprefix("criterion:") not in keys:
         sort_by = "total"
-
-    if not items:
-        return templates.TemplateResponse(request, "ranking.html", {
-            "items": [],
-            "criteria": criteria,
+    if filter not in {"all", "uncertain", "top"}:
+        filter = "all"
+    ranked = ranking_rows(store, sort_by)
+    total_items = len(ranked)
+    q = q.strip()[:500]
+    ranked = [r for r in ranked if q.casefold() in r["name"].casefold()]
+    if filter == "uncertain":
+        ranked = [r for r in ranked if r["under_evaluated"]]
+    elif filter == "top":
+        ranked = [r for r in ranked if r["rank"] <= 5]
+    category = next(
+        (
+            c["label"]
+            for c in store.criteria
+            if sort_by == "criterion:" + c["key"]
+            or (sort_by != "total" and sort_by == c["key"])
+        ),
+        "종합 점수",
+    )
+    return templates.TemplateResponse(
+        request,
+        "ranking.html",
+        {
+            "items": ranked,
+            "criteria": store.criteria,
             "sort_by": sort_by,
-            "chart_data": {"labels": [], "counts": [], "category": ""},
-        })
-
-    # 가중 합산 방식으로 total 계산 — services.composite_rating과 동일 로직
-    initial_sq = store.settings["initial_sigma"] ** 2
-    ranked = []
-    for item in items:
-        row: dict = {"name": item["name"], "matches": item["matches_played"], "id": item["id"]}
-        for c in criteria:
-            mu_val = item["mu"].get(c["key"], 0.0)
-            sq_val = item["sigma_sq"].get(c["key"], initial_sq)
-            row[c["key"]] = round(display_rating(store, mu_val), 1)
-            row[c["key"] + "_sigma"] = round(display_uncertainty(store, sq_val), 1)
-        row["total"] = round(composite_rating(store, item), 1)
-        avg_sigma = sum(
-            display_uncertainty(store, item["sigma_sq"].get(c["key"], initial_sq))
-            for c in criteria
-        ) / len(criteria) if criteria else 0
-        row["avg_sigma"] = round(avg_sigma, 1)
-        ranked.append(row)
-
-    ranked.sort(key=lambda x: x.get(sort_by, 0), reverse=True)
-
-    # 차트 데이터 (히스토그램)
-    scores = [x.get(sort_by, 0) for x in ranked]
-    if scores:
-        min_s = int(min(scores))
-        max_s = int(max(scores)) + 1
-        min_bucket = (min_s // 50) * 50
-        max_bucket = ((max_s // 50) + 1) * 50
-    else:
-        min_bucket, max_bucket = 800, 1800
-
-    labels = []
-    counts = []
-    for i in range(min_bucket, max_bucket, 50):
-        labels.append(str(i))
-        counts.append(sum(1 for s in scores if i <= s < i + 50))
-
-    cat_label = "종합 점수"
-    if sort_by != "total":
-        for c in criteria:
-            if c["key"] == sort_by:
-                cat_label = c["label"].upper()
-                break
-
-    chart_data = {"labels": labels, "counts": counts, "category": cat_label}
-
-    return templates.TemplateResponse(request, "ranking.html", {
-        "items": ranked,
-        "criteria": criteria,
-        "sort_by": sort_by,
-        "chart_data": chart_data,
-    })
+            "q": q,
+            "filter": filter,
+            "total_items": total_items,
+            "chart_data": {
+                **histogram([r["sort_score"] for r in ranked]),
+                "category": category,
+            },
+        },
+    )

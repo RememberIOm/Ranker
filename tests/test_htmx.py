@@ -220,10 +220,10 @@ class TestManageHTMX:
         )
         assert resp.status_code == 303
 
-    async def test_delete_item_htmx_returns_empty(
+    async def test_delete_item_htmx_returns_updated_empty_list(
         self, client: httpx.AsyncClient
     ) -> None:
-        """POST /manage/delete + HX-Request → 빈 응답"""
+        """POST /manage/delete는 빈 상태와 항목 수를 함께 갱신합니다."""
         # 항목 추가
         await client.post("/manage/add", data={"name": "ToDelete"})
         # 항목 ID 얻기
@@ -241,7 +241,9 @@ class TestManageHTMX:
             follow_redirects=False,
         )
         assert del_resp.status_code == 200
-        assert del_resp.text == ""
+        assert "항목이 없습니다" in del_resp.text
+        assert "항목 0개" in del_resp.text
+        assert "ToDelete" not in del_resp.text
 
     async def test_edit_item_htmx_returns_row(self, client: httpx.AsyncClient) -> None:
         """POST /manage/edit + HX-Request → 수정된 항목 행 HTML"""

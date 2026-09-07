@@ -11,6 +11,9 @@ from pydantic import (
 )
 
 
+MAX_BACKUP_BYTES = 64 * 1024 * 1024
+
+
 VoteChoice = Literal["1", "2", "draw", "skip"]
 ThreeWayRole = Literal["best", "worst", "tied", "skip"]
 
@@ -215,6 +218,16 @@ class CriteriaResult(BaseModel):
     sigma2: float
 
 
+class SkippedCriteriaResult(BaseModel):
+    """건너뛴 기준에는 점수 변화가 없습니다."""
+
+    key: str
+    label: str
+    color: str
+    skipped: Literal[True] = True
+    winner: Literal["skip"] | None = None
+
+
 class BattleVoteResponse(BaseModel):
     """전체 배틀 투표 응답 — 모든 criteria 결과를 한번에 반환"""
 
@@ -222,7 +235,7 @@ class BattleVoteResponse(BaseModel):
     a2_id: int
     a1_name: str
     a2_name: str
-    results: list[CriteriaResult]
+    results: list[CriteriaResult | SkippedCriteriaResult]
     total_items: int
     next_url: str
 
@@ -239,7 +252,7 @@ class ThreeWayBattleVoteRequest(BaseModel):
     item2_id: int = Field(ge=1, le=2**63 - 1)
     item3_id: int = Field(ge=1, le=2**63 - 1)
     round_token: str = Field(min_length=16, max_length=255)
-    votes: dict[str, dict[str, ThreeWayRole]] = Field(min_length=1)
+    votes: dict[str, dict[str, ThreeWayRole] | Literal["skip"]] = Field(min_length=1)
     redirect_to: SafeRedirect = None
 
     @model_validator(mode="after")
@@ -273,6 +286,6 @@ class ThreeWayBattleVoteResponse(BaseModel):
     a1_name: str
     a2_name: str
     a3_name: str
-    results: list[ThreeWayCriteriaResult]
+    results: list[ThreeWayCriteriaResult | SkippedCriteriaResult]
     total_items: int
     next_url: str

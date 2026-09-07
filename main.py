@@ -9,11 +9,12 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request, UploadFile, File
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, RedirectResponse, Response, JSONResponse
+from pydantic import ValidationError
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from database import init_db, close_db, migrate_json_sessions
+from database import init_db, close_db, migrate_json_sessions, StaleSessionError
 from deps import (
     RequiresSessionException,
     create_session_id,
@@ -28,7 +29,7 @@ from store import (
     get_store,
     session_exists,
 )
-from routers import battle, ranking, manage
+from routers import battle, ranking, manage, collections, history
 from template_env import templates
 
 
@@ -117,6 +118,25 @@ async def session_save_error_handler(request: Request, exc: SessionSaveError):
     )
 
 
+@app.exception_handler(StaleSessionError)
+async def stale_session_handler(
+    request: Request, exc: StaleSessionError
+) -> JSONResponse:
+    return JSONResponse(
+        {"detail": "랭킹이 변경되거나 삭제되었습니다. 새로고침해주세요."},
+        status_code=409,
+    )
+
+
+@app.exception_handler(ValidationError)
+async def data_validation_handler(
+    request: Request, exc: ValidationError
+) -> JSONResponse:
+    return JSONResponse(
+        {"detail": "입력값의 길이, 개수 또는 범위를 확인해주세요."}, status_code=422
+    )
+
+
 class SessionCookieRefreshMiddleware(BaseHTTPMiddleware):
     """유효한 세션 쿠키를 모든 응답에서 갱신하여 활성 사용자의 세션이 만료되지 않도록 합니다.
 
@@ -165,6 +185,8 @@ app.add_middleware(SessionCookieRefreshMiddleware)
 app.include_router(battle.router)
 app.include_router(ranking.router)
 app.include_router(manage.router)
+app.include_router(collections.router)
+app.include_router(history.router)
 
 
 @app.get("/health")
@@ -188,8 +210,19 @@ async def read_root(request: Request):
     )
 
 
+async def _register_board(request: Request, response: Response, sid: str) -> None:
+    from boards import attach_board, get_library, set_library_cookie
+
+    code = await get_library(request, create=True)
+    previous = request.cookies.get("session_id")
+    if previous and previous != sid and await session_exists(previous):
+        await attach_board(code, previous, "기존 랭킹")
+    await attach_board(code, sid, "새 랭킹")
+    set_library_cookie(response, code, COOKIE_SECURE)
+
+
 @app.post("/start")
-async def start_new_session():
+async def start_new_session(request: Request):
     """새 세션(빈 데이터)을 생성하고 쿠키를 설정합니다."""
     sid = create_session_id()
     store = await get_store(sid)  # 기본 데이터로 초기화
@@ -197,11 +230,12 @@ async def start_new_session():
 
     response = RedirectResponse(url="/manage", status_code=303)
     _set_session_cookie(response, sid)
+    await _register_board(request, response, sid)
     return response
 
 
 @app.post("/upload")
-async def upload_session(file: UploadFile = File(...)):
+async def upload_session(request: Request, file: UploadFile = File(...)):
     """JSON 파일을 업로드하여 새 세션을 생성합니다."""
     sid = create_session_id()
     store = await get_store(sid)
@@ -212,6 +246,7 @@ async def upload_session(file: UploadFile = File(...)):
 
     response = RedirectResponse(url="/battle", status_code=303)
     _set_session_cookie(response, sid)
+    await _register_board(request, response, sid)
     return response
 
 

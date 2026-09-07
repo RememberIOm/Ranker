@@ -8,6 +8,7 @@ import uuid
 from fastapi import Cookie, Request, UploadFile
 from fastapi.responses import HTMLResponse
 from pydantic import ValidationError
+from schemas import MAX_BACKUP_BYTES
 
 from store import DataStore, InvalidSessionDataError, get_store, session_exists
 
@@ -68,7 +69,7 @@ async def require_store(
     return store
 
 
-MAX_UPLOAD_BYTES = 64 * 1024 * 1024  # 백업과 이력을 포함한 업로드 한도
+MAX_UPLOAD_BYTES = MAX_BACKUP_BYTES  # 백업과 이력을 포함한 업로드 한도
 
 
 async def import_json_upload(file: UploadFile, store: DataStore) -> HTMLResponse | None:
