@@ -609,3 +609,75 @@ class TestStorageRecovery:
             await store_with_items.add_item("Over capacity")
         loaded = await store.DataStore.create(store_with_items._session_id)
         assert [item["name"] for item in loaded.items] == ["Alpha", "Beta"]
+
+    async def test_long_name_add_is_rejected_before_database_write(
+        self, store_with_items: store.DataStore
+    ) -> None:
+        from pydantic import ValidationError
+
+        session = store_with_items
+        with pytest.raises(ValidationError):
+            await session.add_item("x" * 501)
+        reloaded = await store.DataStore.create(session._session_id)
+        assert [item["name"] for item in reloaded.items] == ["Alpha", "Beta"]
+
+    async def test_bulk_over_item_limit_is_rejected_before_database_write(
+        self, store_with_items: store.DataStore
+    ) -> None:
+        from pydantic import ValidationError
+
+        session = store_with_items
+        with pytest.raises(ValidationError):
+            await session.add_items_bulk([f"Item {index}" for index in range(10_001)])
+        reloaded = await store.DataStore.create(session._session_id)
+        assert len(reloaded.items) == 2
+
+    async def test_too_many_criteria_are_rejected_before_database_write(
+        self, store_with_items: store.DataStore
+    ) -> None:
+        from pydantic import ValidationError
+
+        session = store_with_items
+        with pytest.raises(ValidationError):
+            await session.set_criteria(
+                [
+                    {
+                        "key": f"criterion_{index}",
+                        "label": "기준",
+                        "color": "blue",
+                        "weight": 1.0,
+                    }
+                    for index in range(65)
+                ]
+            )
+        reloaded = await store.DataStore.create(session._session_id)
+        assert len(reloaded.criteria) == 6
+
+    async def test_invalid_direct_save_preserves_existing_database(
+        self, store_with_items: store.DataStore
+    ) -> None:
+        from pydantic import ValidationError
+
+        session = store_with_items
+        original = session.export_json()
+        session.items[0]["mu"][session.criteria[0]["key"]] = float("inf")
+        with pytest.raises(ValidationError):
+            await session.save()
+        reloaded = await store.DataStore.create(session._session_id)
+        assert reloaded.export_json() == original
+
+    async def test_http_long_name_returns_validation_error_and_session_survives(
+        self, store_with_items: store.DataStore
+    ) -> None:
+        import httpx
+        from main import app
+
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://test",
+            cookies={"session_id": store_with_items._session_id},
+        ) as client:
+            assert (
+                await client.post("/manage/add", data={"name": "x" * 501})
+            ).status_code == 422
+            assert (await client.get("/manage")).status_code == 200

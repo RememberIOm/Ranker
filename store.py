@@ -459,7 +459,14 @@ class DataStore:
         return deepcopy(self._history)
 
     async def _save_to_db(self) -> None:
-        """메모리 상태를 SQLite에 기록합니다 (단일 트랜잭션)."""
+        """모든 저장 경로에서 읽기 가능한 상태를 검증한 뒤 단일 트랜잭션으로 기록합니다."""
+        self._data = SessionDataModel.model_validate(self._data).model_dump(
+            mode="python"
+        )
+        if self._baseline is not None:
+            self._baseline = SessionDataModel.model_validate(self._baseline).model_dump(
+                mode="python"
+            )
         if len(self.export_json().encode("utf-8")) > MAX_BACKUP_BYTES:
             raise SessionSaveError(
                 "랭킹의 백업 한도(64MB)에 도달했습니다. 백업 후 투표 이력을 정리해주세요."
@@ -662,7 +669,11 @@ class DataStore:
             "history_baseline": self._baseline or self._snapshot(),
         }
         return json.dumps(
-            envelope, ensure_ascii=False, allow_nan=False, separators=(",", ":")
+            envelope,
+            ensure_ascii=False,
+            allow_nan=False,
+            sort_keys=True,
+            separators=(",", ":"),
         )
 
     @staticmethod
