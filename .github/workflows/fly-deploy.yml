@@ -12,8 +12,19 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
       - uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081  # v5
-      - run: uv sync --frozen --extra dev
+      - run: uv sync --frozen --extra dev --python 3.13
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
       - run: uv run pytest
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run test:js
+      - run: npm run build:css
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:browser
 
   deploy:
     name: Deploy app

@@ -3,10 +3,15 @@
   "private": true,
   "scripts": {
     "build:css": "tailwindcss -i input.css -o static/output.css --minify",
-    "build:css:watch": "tailwindcss -i input.css -o static/output.css --watch=always"
+    "build:css:watch": "tailwindcss -i input.css -o static/output.css --watch=always",
+    "test:browser": "playwright test",
+    "test:js": "node --test tests/test_battle_js.cjs"
   },
   "dependencies": {
     "@tailwindcss/cli": "4.2.4",
     "tailwindcss": "4.2.4"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0"
   }
 }

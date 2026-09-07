@@ -15,3 +15,7 @@ opencode.json
 # Tailwind 빌드 아티팩트 (docker compose tailwind 서비스가 생성)
 static/output.css
 node_modules/
+
+# 브라우저 테스트 결과
+/test-results/
+/playwright-report/
