@@ -7,6 +7,8 @@ import logging
 import os
 import shutil
 import time
+from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
@@ -75,6 +77,28 @@ CREATE TABLE IF NOT EXISTS active_rounds (
     issued_at REAL NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS libraries (
+    id TEXT PRIMARY KEY,
+    created_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS boards (
+    session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+    library_id TEXT NOT NULL REFERENCES libraries(id),
+    name TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_boards_library ON boards(library_id);
+
+CREATE TABLE IF NOT EXISTS vote_events (
+    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    id INTEGER NOT NULL,
+    event TEXT NOT NULL,
+    PRIMARY KEY (session_id, id)
+);
+CREATE TABLE IF NOT EXISTS history_baselines (
+    session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+    state TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_items_session ON items(session_id);
 CREATE INDEX IF NOT EXISTS idx_item_ratings_session_item ON item_ratings(session_id, item_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_last_accessed ON sessions(last_accessed);
@@ -83,11 +107,18 @@ CREATE INDEX IF NOT EXISTS idx_sessions_last_accessed ON sessions(last_accessed)
 
 async def init_db() -> None:
     """DB 커넥션을 열고 스키마를 초기화합니다."""
-    global _connection
+    global _connection, db_write_lock
+    db_write_lock = asyncio.Lock()
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     _connection = await aiosqlite.connect(DB_PATH)
     _connection.row_factory = aiosqlite.Row
     await _connection.executescript(_SCHEMA_SQL)
+    async with _connection.execute("PRAGMA table_info(sessions)") as cursor:
+        columns = {row["name"] for row in await cursor.fetchall()}
+    if "revision" not in columns:
+        await _connection.execute(
+            "ALTER TABLE sessions ADD COLUMN revision INTEGER NOT NULL DEFAULT 0"
+        )
     await _connection.commit()
 
 
@@ -147,7 +178,17 @@ async def migrate_json_sessions(session_dir: Path) -> int:
             file_mtime = now
 
         try:
-            await _insert_session_data(db, session_id, data, created_at=file_mtime, last_accessed=now)
+            async with db.execute(
+                "SELECT 1 FROM sessions WHERE id = ?", (session_id,)
+            ) as cursor:
+                if await cursor.fetchone() is not None:
+                    logger.warning(
+                        "migration_existing_session_skipped — session_id=%s", session_id
+                    )
+                    continue
+            await _insert_session_data(
+                db, session_id, data, created_at=file_mtime, last_accessed=now
+            )
             shutil.move(str(json_path), str(migrated_dir / json_path.name))
             migrated_count += 1
             logger.info("migrated_session — session_id=%s", session_id)
@@ -157,6 +198,25 @@ async def migrate_json_sessions(session_dir: Path) -> int:
     return migrated_count
 
 
+@asynccontextmanager
+async def transaction() -> AsyncIterator[aiosqlite.Connection]:
+    """공유 커넥션의 쓰기를 직렬화하고 취소 시에도 롤백합니다."""
+    async with db_write_lock:
+        db = get_db()
+        try:
+            await db.execute("BEGIN IMMEDIATE")
+            yield db
+            await db.commit()
+        except BaseException:
+            # 취소된 요청이 다음 요청에 열린 트랜잭션을 넘기지 않습니다.
+            await asyncio.shield(db.rollback())
+            raise
+
+
+class StaleSessionError(RuntimeError):
+    """로드 이후 변경되거나 삭제된 세션에 대한 저장입니다."""
+
+
 async def _insert_session_data(
     db: aiosqlite.Connection,
     session_id: str,
@@ -164,62 +224,148 @@ async def _insert_session_data(
     *,
     created_at: float,
     last_accessed: float,
-) -> None:
-    """세션 데이터를 DB에 삽입합니다 (단일 트랜잭션)."""
-    settings_json = json.dumps(data["settings"], ensure_ascii=False)
-
-    async with db_write_lock:
-        await db.execute("BEGIN IMMEDIATE")
-        try:
-            await db.execute(
-                "INSERT OR REPLACE INTO sessions (id, settings, created_at, last_accessed) VALUES (?, ?, ?, ?)",
-                (session_id, settings_json, created_at, last_accessed),
+    expected_revision: int | None = None,
+    history: list[dict[str, Any]] | None = None,
+    baseline: dict[str, Any] | None = None,
+) -> int:
+    """변경 행만 갱신하고 데이터와 투표 이력을 함께 확정합니다."""
+    async with transaction():
+        async with db.execute(
+            "SELECT revision FROM sessions WHERE id = ?", (session_id,)
+        ) as cursor:
+            existing = await cursor.fetchone()
+        revision = existing["revision"] if existing else None
+        if revision != expected_revision:
+            raise StaleSessionError(
+                "세션이 변경되거나 삭제되었습니다. 새로고침해주세요."
             )
-
-            await db.execute("DELETE FROM criteria WHERE session_id = ?", (session_id,))
-            await db.executemany(
-                "INSERT INTO criteria (session_id, key, label, color, weight, battles, draws, sort_order) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        new_revision = (revision or 0) + 1
+        await db.execute(
+            "INSERT INTO sessions (id, settings, created_at, last_accessed, revision) VALUES (?, ?, ?, ?, ?) "
+            "ON CONFLICT(id) DO UPDATE SET settings=excluded.settings, last_accessed=excluded.last_accessed, revision=excluded.revision",
+            (
+                session_id,
+                json.dumps(data["settings"], ensure_ascii=False),
+                created_at,
+                last_accessed,
+                new_revision,
+            ),
+        )
+        tables = {
+            "criteria": (
+                ["key", "label", "color", "weight", "battles", "draws", "sort_order"],
                 [
-                    (session_id, c["key"], c["label"], c["color"], c["weight"], c.get("battles", 0), c.get("draws", 0), i)
+                    (
+                        c["key"],
+                        c["label"],
+                        c["color"],
+                        c["weight"],
+                        c.get("battles", 0),
+                        c.get("draws", 0),
+                        i,
+                    )
                     for i, c in enumerate(data["criteria"])
                 ],
-            )
-
-            await db.execute("DELETE FROM items WHERE session_id = ?", (session_id,))
-            await db.executemany(
-                "INSERT INTO items (session_id, id, name, matches_played) VALUES (?, ?, ?, ?)",
-                [(session_id, item["id"], item["name"], item["matches_played"]) for item in data["items"]],
-            )
-
-            ratings_rows: list[tuple[str, int, str, float, float, int]] = []
-            for item in data["items"]:
-                for key in item["mu"]:
-                    ratings_rows.append((
-                        session_id,
+                1,
+            ),
+            "items": (
+                ["id", "name", "matches_played"],
+                [
+                    (item["id"], item["name"], item["matches_played"])
+                    for item in data["items"]
+                ],
+                1,
+            ),
+            "item_ratings": (
+                ["item_id", "criterion_key", "mu", "sigma_sq", "criterion_matches"],
+                [
+                    (
                         item["id"],
                         key,
-                        item["mu"][key],
+                        value,
                         item["sigma_sq"][key],
-                        item.get("criterion_matches", {}).get(key, 0),
-                    ))
-            if ratings_rows:
+                        item["criterion_matches"].get(key, 0),
+                    )
+                    for item in data["items"]
+                    for key, value in item["mu"].items()
+                ],
+                2,
+            ),
+        }
+        for table, (columns, rows, key_count) in tables.items():
+            async with db.execute(
+                f"SELECT {', '.join(columns)} FROM {table} WHERE session_id = ?",
+                (session_id,),
+            ) as cursor:
+                previous = {
+                    tuple(row[:key_count]): tuple(row)
+                    for row in await cursor.fetchall()
+                }
+            current = {tuple(row[:key_count]): tuple(row) for row in rows}
+            removed = previous.keys() - current.keys()
+            if removed:
+                predicate = " AND ".join(f"{key} = ?" for key in columns[:key_count])
                 await db.executemany(
-                    "INSERT INTO item_ratings (session_id, item_id, criterion_key, mu, sigma_sq, criterion_matches) "
-                    "VALUES (?, ?, ?, ?, ?, ?)",
-                    ratings_rows,
+                    f"DELETE FROM {table} WHERE session_id = ? AND {predicate}",
+                    [(session_id, *key) for key in removed],
                 )
-
-            await db.execute("DELETE FROM active_rounds WHERE session_id = ?", (session_id,))
-            ar = data.get("active_round")
-            if ar:
-                await db.execute(
-                    "INSERT INTO active_rounds (session_id, token, item1_id, item2_id, item3_id, issued_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?)",
-                    (session_id, ar["token"], ar["item1_id"], ar["item2_id"], ar.get("item3_id"), ar["issued_at"]),
+            changed = [
+                (session_id, *row)
+                for key, row in current.items()
+                if previous.get(key) != row
+            ]
+            if changed:
+                names = ["session_id", *columns]
+                conflict = ", ".join(["session_id", *columns[:key_count]])
+                updates = ", ".join(f"{c}=excluded.{c}" for c in columns[key_count:])
+                await db.executemany(
+                    f"INSERT INTO {table} ({', '.join(names)}) VALUES ({', '.join('?' for _ in names)}) ON CONFLICT({conflict}) DO UPDATE SET {updates}",
+                    changed,
                 )
-
-            await db.commit()
-        except Exception:
-            await db.rollback()
-            raise
+        ar = data.get("active_round")
+        if ar:
+            await db.execute(
+                "INSERT INTO active_rounds (session_id, token, item1_id, item2_id, item3_id, issued_at) VALUES (?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(session_id) DO UPDATE SET token=excluded.token, item1_id=excluded.item1_id, item2_id=excluded.item2_id, item3_id=excluded.item3_id, issued_at=excluded.issued_at",
+                (
+                    session_id,
+                    ar["token"],
+                    ar["item1_id"],
+                    ar["item2_id"],
+                    ar.get("item3_id"),
+                    ar["issued_at"],
+                ),
+            )
+        else:
+            await db.execute(
+                "DELETE FROM active_rounds WHERE session_id = ?", (session_id,)
+            )
+        if history is not None:
+            encoded = {
+                event["id"]: json.dumps(event, ensure_ascii=False, allow_nan=False)
+                for event in history
+            }
+            async with db.execute(
+                "SELECT id, event FROM vote_events WHERE session_id = ?", (session_id,)
+            ) as cursor:
+                previous_events = {
+                    row["id"]: row["event"] for row in await cursor.fetchall()
+                }
+            await db.executemany(
+                "DELETE FROM vote_events WHERE session_id = ? AND id = ?",
+                [(session_id, key) for key in previous_events.keys() - encoded.keys()],
+            )
+            await db.executemany(
+                "INSERT INTO vote_events (session_id, id, event) VALUES (?, ?, ?) ON CONFLICT(session_id,id) DO UPDATE SET event=excluded.event",
+                [
+                    (session_id, key, value)
+                    for key, value in encoded.items()
+                    if previous_events.get(key) != value
+                ],
+            )
+        if baseline is not None:
+            await db.execute(
+                "INSERT INTO history_baselines (session_id, state) VALUES (?, ?) ON CONFLICT(session_id) DO UPDATE SET state=excluded.state WHERE state != excluded.state",
+                (session_id, json.dumps(baseline, ensure_ascii=False, allow_nan=False)),
+            )
+        return new_revision

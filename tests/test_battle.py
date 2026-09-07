@@ -1,3 +1,4 @@
+from typing import Any
 import pytest
 from pydantic import ValidationError
 
@@ -58,7 +59,7 @@ class TestBattleVoteValidation:
         item1 = s.items[0]
         item2 = s.items[1]
         token = await s.issue_battle_round(item1["id"], item2["id"])
-        votes = {c["key"]: "skip" for c in s.criteria}  # 알 수 없는 vote 값
+        votes = {c["key"]: "unknown" for c in s.criteria}  # 알 수 없는 vote 값
         # Literal 검증을 우회하기 위해 SimpleNamespace로 페이로드 모사
         payload = SimpleNamespace(
             item1_id=item1["id"],
@@ -339,3 +340,144 @@ class TestThreeWayModeBVote:
         for c in s.criteria:
             assert c.get("draws", 0) == 0
             assert c["battles"] == 3
+
+
+class TestVoteHistory:
+    async def _vote(
+        self,
+        session: store.DataStore,
+        *,
+        three_way: bool = False,
+        skip_key: str | None = None,
+    ) -> dict[str, Any]:
+        token = await session.issue_battle_round(1, 2, 3 if three_way else None)
+        votes = {
+            c["key"]: ({"1": "best", "3": "worst"} if three_way else "1")
+            for c in session.criteria
+        }
+        if skip_key is not None:
+            votes[skip_key] = "skip"
+        if three_way:
+            return await session.apply_three_way_vote(
+                ThreeWayBattleVoteRequest(
+                    item1_id=1, item2_id=2, item3_id=3, round_token=token, votes=votes
+                )
+            )
+        return await session.apply_battle_vote(
+            BattleVoteRequest(item1_id=1, item2_id=2, round_token=token, votes=votes)
+        )
+
+    @pytest.mark.parametrize("three_way", [False, True])
+    async def test_skip_does_not_change_rating_or_counter(
+        self, store_with_three_items: store.DataStore, three_way: bool
+    ) -> None:
+        from copy import deepcopy
+
+        session = store_with_three_items
+        await session.update_settings({"hierarchical_strength": 5})
+        key = session.criteria[0]["key"]
+        before = deepcopy(session.items)
+        result = await self._vote(session, three_way=three_way, skip_key=key)
+        for item, original in zip(session.items, before):
+            assert item["mu"][key] == original["mu"][key]
+            assert item["sigma_sq"][key] == original["sigma_sq"][key]
+            assert item["criterion_matches"][key] == 0
+        assert session.criteria[0]["battles"] == 0
+        assert result["results"][0]["skipped"] is True
+
+    @pytest.mark.parametrize("three_way", [False, True])
+    async def test_undo_and_replay_from_saved_baseline(
+        self, store_with_three_items: store.DataStore, three_way: bool
+    ) -> None:
+        from copy import deepcopy
+
+        session = store_with_three_items
+        baseline = deepcopy(session.items)
+        await self._vote(session, three_way=three_way)
+        first = deepcopy(session.items)
+        await self._vote(session, three_way=three_way)
+        await session.undo_last_vote(expected_event_id=2)
+        assert session.items == first
+        replay = await session.replay_history()
+        assert replay["replayed"] == 1
+        assert session.items == first
+        await session.undo_last_vote(expected_event_id=1)
+        assert session.items == baseline
+        with pytest.raises(store.InvalidBattleVoteError):
+            await session.undo_last_vote()
+
+    async def test_double_undo_is_rejected(
+        self, store_with_items: store.DataStore
+    ) -> None:
+        session = store_with_items
+        await self._vote(session)
+        await self._vote(session)
+        await session.undo_last_vote(expected_event_id=2)
+        with pytest.raises(store.StaleBattleRoundError):
+            await session.undo_last_vote(expected_event_id=2)
+        assert not session.history[0]["undone"]
+
+    async def test_structure_edit_resets_undo_baseline(
+        self, store_with_items: store.DataStore
+    ) -> None:
+        session = store_with_items
+        await self._vote(session)
+        await session.delete_item(2)
+        with pytest.raises(store.InvalidBattleVoteError):
+            await session.undo_last_vote()
+        await session.replay_history()
+        assert [item["id"] for item in session.items] == [1]
+
+    async def test_history_export_import_and_current_settings_replay(
+        self, store_with_items: store.DataStore
+    ) -> None:
+        from copy import deepcopy
+
+        session = store_with_items
+        await self._vote(session)
+        expected = deepcopy(session.items)
+        raw = session.export_json()
+        preview = session.preview_import(raw)
+        assert preview["history"] == 1
+        await session.import_json(raw)
+        assert len(session.history) == 1
+        result = await session.replay_history({"display_center": 1500})
+        assert result["settings_mode"] == "current"
+        assert session.settings["display_center"] == 1500
+        assert session.items == expected
+
+    @pytest.mark.parametrize("three_way", [False, True])
+    async def test_result_matches_final_shrunk_rating(
+        self, store_with_three_items: store.DataStore, three_way: bool
+    ) -> None:
+        from services import display_rating
+
+        session = store_with_three_items
+        session.items[0]["mu"][session.criteria[0]["key"]] = 2.0
+        await session.save()
+        await session.update_settings({"hierarchical_strength": 5})
+        response = await self._vote(session, three_way=three_way)
+        for result in response["results"]:
+            for item in session.items[: 3 if three_way else 2]:
+                displayed = (
+                    result["ratings"][str(item["id"])]
+                    if three_way
+                    else result[f"new_r{item['id']}"]
+                )
+                assert displayed == round(
+                    display_rating(session, item["mu"][result["key"]]), 1
+                )
+
+    async def test_clear_history_preserves_ratings_as_new_baseline(
+        self, store_with_items: store.DataStore
+    ) -> None:
+        from copy import deepcopy
+
+        session = store_with_items
+        await self._vote(session)
+        expected = deepcopy(session.items)
+        await session.clear_history()
+        assert session.history == []
+        assert session.items == expected
+        await session.replay_history()
+        assert session.items == expected

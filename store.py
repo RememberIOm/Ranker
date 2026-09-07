@@ -8,14 +8,29 @@ import logging
 import os
 import secrets
 import time
+import sqlite3
+import hashlib
+import math
+import database
+from copy import deepcopy
+from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator
+from weakref import WeakValueDictionary
 from itertools import groupby
 from typing import Any
 
 from pydantic import ValidationError
+from rating_engine import update_ratings, ALGORITHM_VERSION
 
-from database import get_db, _insert_session_data, db_write_lock
+from database import (
+    get_db,
+    _insert_session_data,
+    transaction,
+    StaleSessionError,
+)
 from schemas import (
     ActiveRoundModel,
+    MAX_BACKUP_BYTES,
     BattleVoteRequest,
     SessionDataModel,
     ThreeWayBattleVoteRequest,
@@ -30,7 +45,7 @@ SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_SECONDS", str(7 * 24 * 60 * 60)
 # cooperative scheduling 덕분에 await 없는 구간은 원자적 — dict 가드 불필요
 # ⚠️ 단일 uvicorn 워커 전제 — 멀티 워커(Gunicorn) 환경에서는 프로세스 간 Lock을
 #    공유할 수 없으므로 filelock 패키지로 교체 필요. fly.toml 참고.
-_locks: dict[str, asyncio.Lock] = {}
+_locks: WeakValueDictionary[str, asyncio.Lock] = WeakValueDictionary()
 
 
 class InvalidBattleVoteError(ValueError):
@@ -55,9 +70,11 @@ class InvalidSessionDataError(ValueError):
 
 def _get_lock(session_id: str) -> asyncio.Lock:
     """세션별 asyncio.Lock을 반환합니다 (lazy init)."""
-    if session_id not in _locks:
-        _locks[session_id] = asyncio.Lock()
-    return _locks[session_id]
+    lock = _locks.get(session_id)
+    if lock is None:
+        lock = asyncio.Lock()
+        _locks[session_id] = lock
+    return lock
 
 
 def _default_data() -> dict[str, Any]:
@@ -72,7 +89,7 @@ def _coerce(value: Any, cast: type, default: Any) -> Any:
     """형변환 실패 시 default를 반환하는 관대 변환 — 과거 포맷 보정용."""
     try:
         return cast(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return default
 
 
@@ -90,10 +107,14 @@ def _normalize_loaded_data(data: Any) -> dict[str, Any]:
             settings["draw_prior_max"] = settings_raw.get("elo_draw_max", 0.33)
             settings["draw_prior_strength"] = 10
             draw_scale = _coerce(settings_raw.get("elo_draw_scale", 300.0), float, None)
-            settings["draw_bandwidth"] = draw_scale / 173.72 if draw_scale is not None else 1.5
+            settings["draw_bandwidth"] = (
+                draw_scale / 173.72 if draw_scale is not None else 1.5
+            )
             settings["initial_sigma"] = 2.0
             settings["hierarchical_strength"] = 5.0
-            settings["display_center"] = _coerce(settings_raw.get("initial_rating", 1200.0), float, 1200.0)
+            settings["display_center"] = _coerce(
+                settings_raw.get("initial_rating", 1200.0), float, 1200.0
+            )
             settings["display_scale"] = 173.72
             if "result_auto_skip" in settings_raw:
                 settings["result_auto_skip"] = settings_raw["result_auto_skip"]
@@ -132,7 +153,9 @@ def _normalize_loaded_data(data: Any) -> dict[str, Any]:
             if normalized_weight <= 0:
                 normalized_weight = 1.0
 
-            normalized_battles = max(0, _coerce(raw_criterion.get("battles", 0), int, 0))
+            normalized_battles = max(
+                0, _coerce(raw_criterion.get("battles", 0), int, 0)
+            )
             normalized_draws = max(0, _coerce(raw_criterion.get("draws", 0), int, 0))
             # 손상된 import 방어: draws > battles면 Beta prior beta_param이 음수가 될 수 있음.
             # 무승부는 전체 배틀의 부분집합이라는 invariant를 강제 보정.
@@ -153,7 +176,9 @@ def _normalize_loaded_data(data: Any) -> dict[str, Any]:
         criteria = defaults["criteria"]
 
     default_sigma = float(defaults["settings"]["initial_sigma"])
-    initial_sigma = _coerce(settings.get("initial_sigma", default_sigma), float, default_sigma)
+    initial_sigma = _coerce(
+        settings.get("initial_sigma", default_sigma), float, default_sigma
+    )
     initial_sigma_sq = initial_sigma**2
 
     display_center = _coerce(settings.get("display_center", 1200.0), float, 1200.0)
@@ -203,7 +228,9 @@ def _normalize_loaded_data(data: Any) -> dict[str, Any]:
                 mu: dict[str, float] = {}
                 sigma_sq: dict[str, float] = {}
                 for key in allowed_keys:
-                    old_r = _coerce(ratings_raw.get(key, display_center), float, display_center)
+                    old_r = _coerce(
+                        ratings_raw.get(key, display_center), float, display_center
+                    )
                     mu[key] = (old_r - display_center) / display_scale
                     cm = criterion_matches.get(key, 0)
                     sigma_sq[key] = max(0.1, initial_sigma_sq / (1.0 + cm * 0.25))
@@ -214,10 +241,18 @@ def _normalize_loaded_data(data: Any) -> dict[str, Any]:
                 if not isinstance(sigma_sq_raw, dict):
                     sigma_sq_raw = {}
                 mu = {
-                    key: _coerce(mu_raw.get(key, 0.0), float, 0.0) for key in allowed_keys
+                    key: _coerce(mu_raw.get(key, 0.0), float, 0.0)
+                    for key in allowed_keys
                 }
                 sigma_sq = {
-                    key: max(0.01, _coerce(sigma_sq_raw.get(key, initial_sigma_sq), float, initial_sigma_sq))
+                    key: max(
+                        0.01,
+                        _coerce(
+                            sigma_sq_raw.get(key, initial_sigma_sq),
+                            float,
+                            initial_sigma_sq,
+                        ),
+                    )
                     for key in allowed_keys
                 }
 
@@ -262,6 +297,10 @@ class DataStore:
         self._session_id = session_id
         self._data: dict[str, Any] = {}  # create()에서 채워짐 (active_round 포함)
         self._created_at: float = 0.0
+        self._revision: int | None = None
+        self._history: list[dict[str, Any]] = []
+        self._baseline: dict[str, Any] | None = None
+        self._replaying = False
 
     @classmethod
     async def create(cls, session_id: str) -> "DataStore":
@@ -271,21 +310,37 @@ class DataStore:
         return instance
 
     async def _load_from_db(self) -> None:
+        """같은 커넥션의 쓰기 중간 상태를 읽지 않습니다."""
+        async with database.db_write_lock:
+            try:
+                await self._read_snapshot()
+                self._data = SessionDataModel.model_validate(self._data).model_dump(
+                    mode="python"
+                )
+            except (ValidationError, json.JSONDecodeError) as exc:
+                raise InvalidSessionDataError(
+                    "저장된 데이터를 읽을 수 없습니다. 백업으로 복구해주세요."
+                ) from exc
+
+    async def _read_snapshot(self) -> None:
         """SQLite에서 전체 세션 데이터를 메모리 dict로 조립합니다."""
         db = get_db()
 
         # 세션 메타
         async with db.execute(
-            "SELECT settings, created_at FROM sessions WHERE id = ?",
+            "SELECT settings, created_at, revision FROM sessions WHERE id = ?",
             (self._session_id,),
         ) as cursor:
             row = await cursor.fetchone()
 
         if row is None:
+            if self._revision is not None:
+                raise StaleSessionError("세션이 삭제되었습니다. 새로 시작해주세요.")
             self._data = _default_data()
             self._created_at = time.time()
             return
 
+        self._revision = row["revision"]
         self._created_at = row["created_at"]
         self._data = {
             "settings": json.loads(row["settings"]),
@@ -369,17 +424,58 @@ class DataStore:
                 ar["item3_id"] = ar_row["item3_id"]
             self._data["active_round"] = ar
 
+        async with db.execute(
+            "SELECT event FROM vote_events WHERE session_id = ? ORDER BY id",
+            (self._session_id,),
+        ) as cursor:
+            self._history = [
+                json.loads(row["event"]) for row in await cursor.fetchall()
+            ]
+        async with db.execute(
+            "SELECT state FROM history_baselines WHERE session_id = ?",
+            (self._session_id,),
+        ) as cursor:
+            baseline = await cursor.fetchone()
+            self._baseline = (
+                json.loads(baseline["state"]) if baseline else self._snapshot()
+            )
+
+    def _snapshot(self) -> dict[str, Any]:
+        data = deepcopy(self._data)
+        data["active_round"] = None
+        return data
+
+    def _reset_history(self) -> None:
+        """구조·설정 변경을 새 재계산 기준점으로 삼습니다."""
+        self._history = []
+        self._baseline = self._snapshot()
+
+    @property
+    def active_round(self) -> dict[str, Any] | None:
+        return deepcopy(self._data.get("active_round"))
+
+    @property
+    def history(self) -> list[dict[str, Any]]:
+        return deepcopy(self._history)
+
     async def _save_to_db(self) -> None:
         """메모리 상태를 SQLite에 기록합니다 (단일 트랜잭션)."""
+        if len(self.export_json().encode("utf-8")) > MAX_BACKUP_BYTES:
+            raise SessionSaveError(
+                "랭킹의 백업 한도(64MB)에 도달했습니다. 백업 후 투표 이력을 정리해주세요."
+            )
         try:
-            await _insert_session_data(
+            self._revision = await _insert_session_data(
                 get_db(),
                 self._session_id,
                 self._data,
                 created_at=self._created_at,
                 last_accessed=time.time(),
+                expected_revision=self._revision,
+                history=self._history,
+                baseline=self._baseline or self._snapshot(),
             )
-        except OSError as exc:
+        except (OSError, sqlite3.Error) as exc:
             logger.error(
                 "session_save_failed — session_id=%s: %s", self._session_id, exc
             )
@@ -420,7 +516,9 @@ class DataStore:
                 f"알 수 없는 투표 기준이 포함되어 있습니다: {sorted(unknown)}"
             )
         if missing := allowed - submitted:
-            raise InvalidBattleVoteError(f"투표가 누락된 기준이 있습니다: {sorted(missing)}")
+            raise InvalidBattleVoteError(
+                f"투표가 누락된 기준이 있습니다: {sorted(missing)}"
+            )
 
     # --- Settings ---
 
@@ -430,6 +528,7 @@ class DataStore:
 
     async def update_settings(self, patch: dict[str, Any]) -> None:
         async with _get_lock(self._session_id):
+            await self._load_from_db()
             self._data["settings"].update(patch)
             await self._save_to_db()
 
@@ -442,6 +541,7 @@ class DataStore:
     async def set_criteria(self, criteria: list[dict[str, Any]]) -> None:
         """평가 기준 전체 교체 — 기존 아이템의 mu/sigma_sq도 동기화합니다."""
         async with _get_lock(self._session_id):
+            await self._load_from_db()
             old_keys = {c["key"] for c in self._data["criteria"]}
             new_keys = {c["key"] for c in criteria}
             added = new_keys - old_keys
@@ -472,6 +572,7 @@ class DataStore:
 
             self._data["criteria"] = criteria
             self._invalidate_active_round()
+            self._reset_history()
             await self._save_to_db()
 
     # --- Items ---
@@ -499,39 +600,47 @@ class DataStore:
 
     async def add_item(self, name: str) -> dict[str, Any]:
         async with _get_lock(self._session_id):
+            await self._load_from_db()
             item = self._new_item(self._next_id(), name.strip())
             self._data["items"].append(item)
             self._invalidate_active_round()
+            self._reset_history()
             await self._save_to_db()
             return item
 
     async def add_items_bulk(self, names: list[str]) -> int:
         """여러 항목을 한번에 추가합니다. 추가된 개수를 반환합니다."""
         async with _get_lock(self._session_id):
+            await self._load_from_db()
             stripped = [n.strip() for n in names if n.strip()]
             next_id = self._next_id()
             for offset, name in enumerate(stripped):
                 self._data["items"].append(self._new_item(next_id + offset, name))
             if stripped:
                 self._invalidate_active_round()
+                self._reset_history()
                 await self._save_to_db()
             return len(stripped)
 
     async def update_item(self, item_id: int, **fields: Any) -> bool:
         async with _get_lock(self._session_id):
+            await self._load_from_db()
             item = self.get_item(item_id)
             if not item:
                 return False
             item.update(fields)
+            self._reset_history()
             await self._save_to_db()
             return True
 
     async def delete_item(self, item_id: int) -> bool:
         async with _get_lock(self._session_id):
+            await self._load_from_db()
             before = len(self._data["items"])
             self._data["items"] = [i for i in self._data["items"] if i["id"] != item_id]
             if len(self._data["items"]) < before:
                 self._invalidate_active_round()
+                self._reset_history()
                 await self._save_to_db()
                 return True
             return False
@@ -539,23 +648,185 @@ class DataStore:
     async def save(self) -> None:
         """외부에서 메모리 데이터 변경 후 명시적으로 저장할 때 사용합니다."""
         async with _get_lock(self._session_id):
+            self._reset_history()
             await self._save_to_db()
 
     # --- Import / Export ---
 
     def export_json(self) -> str:
-        return json.dumps(self._data, ensure_ascii=False, indent=2)
+        envelope = {
+            "schema_version": 2,
+            **self._snapshot(),
+            "history": self.history,
+            "history_baseline": self._baseline or self._snapshot(),
+        }
+        return json.dumps(
+            envelope, ensure_ascii=False, allow_nan=False, separators=(",", ":")
+        )
 
-    async def import_json(self, raw: str) -> None:
+    @staticmethod
+    def parse_import(raw: str) -> dict[str, Any]:
+        """현행 백업은 엄격히 검증하고 버전 없는 과거 파일만 보정합니다."""
+        parsed = json.loads(
+            raw,
+            parse_constant=lambda value: (_ for _ in ()).throw(
+                ValueError(f"유한하지 않은 수치: {value}")
+            ),
+        )
+        if (
+            not isinstance(parsed, dict)
+            or not isinstance(parsed.get("items"), list)
+            or not isinstance(parsed.get("criteria"), list)
+        ):
+            raise InvalidSessionDataError(
+                "항목과 기준이 포함된 백업 파일이 필요합니다."
+            )
+        version = parsed.get("schema_version")
+        if version not in (None, 1, 2):
+            raise InvalidSessionDataError("지원하지 않는 백업 버전입니다.")
+        if version == 2:
+            if "settings" not in parsed or (
+                parsed.get("history") and "history_baseline" not in parsed
+            ):
+                raise InvalidSessionDataError(
+                    "백업에 설정 또는 이력 기준점이 없습니다."
+                )
+            unknown = set(parsed) - {
+                "schema_version",
+                "settings",
+                "criteria",
+                "items",
+                "active_round",
+                "history",
+                "history_baseline",
+            }
+            if unknown:
+                raise InvalidSessionDataError("백업에 알 수 없는 필드가 있습니다.")
+            core = {
+                key: parsed[key]
+                for key in ("settings", "criteria", "items", "active_round")
+                if key in parsed
+            }
+        else:
+            core = _normalize_loaded_data(parsed)
+        data = SessionDataModel.model_validate(core).model_dump(mode="python")
+        data["active_round"] = None
+        history = parsed.get("history", []) if version == 2 else []
+        baseline = (
+            SessionDataModel.model_validate(
+                parsed.get("history_baseline", data)
+            ).model_dump(mode="python")
+            if version == 2
+            else deepcopy(data)
+        )
+        if not isinstance(history, list) or len(history) > 100_000:
+            raise InvalidSessionDataError("투표 이력 형식이 올바르지 않습니다.")
+        seen: set[int] = set()
+        allowed_ids = {item["id"] for item in data["items"]}
+        if {item["id"] for item in baseline["items"]} != allowed_ids or [
+            c["key"] for c in baseline["criteria"]
+        ] != [c["key"] for c in data["criteria"]]:
+            raise InvalidSessionDataError("이력 기준점과 현재 항목·기준이 다릅니다.")
+        for event in history:
+            if (
+                not isinstance(event, dict)
+                or type(event.get("id")) is not int
+                or event["id"] <= 0
+                or event["id"] in seen
+            ):
+                raise InvalidSessionDataError("중복되거나 잘못된 투표 이력 ID입니다.")
+            seen.add(event["id"])
+            if (
+                event.get("mode") not in ("2way", "3way")
+                or not isinstance(event.get("created_at"), (int, float))
+                or not math.isfinite(event["created_at"])
+                or event["created_at"] < 0
+            ):
+                raise InvalidSessionDataError(
+                    "투표 이력의 방식·시각이 올바르지 않습니다."
+                )
+            if type(event.get("undone")) is not bool or not isinstance(
+                event.get("algorithm_version"), str
+            ):
+                raise InvalidSessionDataError(
+                    "투표 이력 메타데이터가 올바르지 않습니다."
+                )
+            request_type = (
+                ThreeWayBattleVoteRequest
+                if event.get("mode") == "3way"
+                else BattleVoteRequest
+            )
+            payload = request_type.model_validate(event.get("payload")).model_dump(
+                mode="python"
+            )
+            if set(payload["votes"]) != {c["key"] for c in data["criteria"]}:
+                raise InvalidSessionDataError(
+                    "투표 이력의 기준이 현재 기준과 다릅니다."
+                )
+            ids = {payload["item1_id"], payload["item2_id"]}
+            if payload.get("item3_id") is not None:
+                ids.add(payload["item3_id"])
+            if not ids <= allowed_ids:
+                raise InvalidSessionDataError("투표 이력에 없는 항목이 포함되었습니다.")
+            for field in ("before_state", "after_state"):
+                state = event.get(field)
+                if not isinstance(state, dict) or set(state) != {"items", "criteria"}:
+                    raise InvalidSessionDataError("투표 복구 상태가 없습니다.")
+                validated = SessionDataModel.model_validate(
+                    {"settings": data["settings"], **state}
+                )
+                if {item.id for item in validated.items} != ids or {
+                    c.key for c in validated.criteria
+                } != {c["key"] for c in data["criteria"]}:
+                    raise InvalidSessionDataError(
+                        "투표 복구 상태가 해당 대결과 다릅니다."
+                    )
+            SessionDataModel.model_validate(
+                {
+                    "settings": event.get("settings", baseline["settings"]),
+                    "criteria": data["criteria"],
+                    "items": [],
+                }
+            )
+        return {
+            "data": data,
+            "history": sorted(history, key=lambda e: e["id"]),
+            "baseline": baseline,
+            "legacy": version != 2,
+        }
+
+    @staticmethod
+    def preview_import(raw: str) -> dict[str, Any]:
+        parsed = DataStore.parse_import(raw)
+        return {
+            "items": len(parsed["data"]["items"]),
+            "criteria": len(parsed["data"]["criteria"]),
+            "history": len(parsed["history"]),
+            "legacy": parsed["legacy"],
+            "replaces_existing": True,
+        }
+
+    async def import_json(
+        self, raw: str, expected_export_digest: str | None = None
+    ) -> None:
         """JSON 문자열로부터 전체 데이터를 교체합니다.
 
         _load()와 동일한 관대 파싱을 사용하여 이전 버전 Export 파일도 수용합니다.
         """
-        parsed = json.loads(raw)
-        normalized = _normalize_loaded_data(parsed)
-        validated = SessionDataModel.model_validate(normalized)
+        parsed = self.parse_import(raw)
         async with _get_lock(self._session_id):
-            self._data = validated.model_dump(mode="python")
+            await self._load_from_db()
+            if (
+                expected_export_digest is not None
+                and hashlib.sha256(self.export_json().encode()).hexdigest()
+                != expected_export_digest
+            ):
+                raise InvalidSessionDataError(
+                    "확인 후 데이터가 변경되었습니다. 다시 미리보기해주세요."
+                )
+            self._data = parsed["data"]
+            self._history = parsed["history"]
+            self._baseline = parsed["baseline"]
             self._invalidate_active_round()
             await self._save_to_db()
 
@@ -571,6 +842,14 @@ class DataStore:
         3-way 모드에서는 item3_id를 함께 저장합니다.
         """
         async with _get_lock(self._session_id):
+            await self._load_from_db()
+            ids = [item1_id, item2_id] + ([item3_id] if item3_id is not None else [])
+            if len(ids) != len(set(ids)) or any(
+                self.get_item(iid) is None for iid in ids
+            ):
+                raise BattleItemNotFoundError(
+                    "대결 항목이 변경되었습니다. 새로고침해주세요."
+                )
             token = secrets.token_urlsafe(24)
             round_data: dict[str, Any] = {
                 "token": token,
@@ -584,6 +863,146 @@ class DataStore:
             await self._save_to_db()
             return token
 
+    @asynccontextmanager
+    async def _vote_context(self) -> AsyncIterator[None]:
+        if self._replaying:
+            yield
+        else:
+            async with _get_lock(self._session_id):
+                await self._load_from_db()
+                yield
+
+    def _vote_state(self, ids: set[int]) -> dict[str, Any]:
+        return {
+            "items": deepcopy([item for item in self.items if item["id"] in ids]),
+            "criteria": deepcopy(self.criteria),
+        }
+
+    async def _finish_vote(
+        self, payload: Any, mode: str, before: dict[str, Any]
+    ) -> None:
+        self._invalidate_active_round()
+        if self._replaying:
+            return
+        ids = {item["id"] for item in before["items"]}
+        event = {
+            "id": max((event["id"] for event in self._history), default=0) + 1,
+            "mode": mode,
+            "payload": {
+                "item1_id": payload.item1_id,
+                "item2_id": payload.item2_id,
+                "round_token": payload.round_token,
+                "votes": deepcopy(payload.votes),
+            },
+            "settings": deepcopy(self.settings),
+            "algorithm_version": ALGORITHM_VERSION,
+            "before_state": before,
+            "after_state": self._vote_state(ids),
+            "undone": False,
+            "created_at": time.time(),
+        }
+        if mode == "3way":
+            event["payload"]["item3_id"] = payload.item3_id
+        self._history.append(event)
+        await self._save_to_db()
+
+    async def clear_history(self) -> None:
+        """현재 평점을 보존하고 이후 투표의 재계산 기준점으로 삼습니다."""
+        async with _get_lock(self._session_id):
+            await self._load_from_db()
+            self._reset_history()
+            await self._save_to_db()
+
+    async def undo_last_vote(
+        self, expected_event_id: int | None = None
+    ) -> dict[str, Any]:
+        """현재 기준점 이후의 마지막 유효 투표를 되돌립니다."""
+        async with _get_lock(self._session_id):
+            await self._load_from_db()
+            event = next(
+                (event for event in reversed(self._history) if not event["undone"]),
+                None,
+            )
+            if event is None:
+                raise InvalidBattleVoteError(
+                    "되돌릴 투표가 없습니다. 항목·기준 변경 이후의 투표만 되돌릴 수 있습니다."
+                )
+            if expected_event_id is not None and event["id"] != expected_event_id:
+                raise StaleBattleRoundError(
+                    "이미 취소되었거나 투표 이력이 변경되었습니다."
+                )
+            replacements = {item["id"]: item for item in event["before_state"]["items"]}
+            self._data["items"] = [
+                deepcopy(replacements.get(item["id"], item)) for item in self.items
+            ]
+            self._data["criteria"] = deepcopy(event["before_state"]["criteria"])
+            event["undone"] = True
+            self._invalidate_active_round()
+            await self._save_to_db()
+            return deepcopy(event)
+
+    async def replay_history(
+        self, settings_patch: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """저장된 기준점에서 원시 투표를 재계산합니다. patch 지정 시 전체 이력에 적용합니다."""
+        async with _get_lock(self._session_id):
+            await self._load_from_db()
+            replay = DataStore(self._session_id)
+            replay._replaying = True
+            replay._data = deepcopy(self._baseline or self._snapshot())
+            events = deepcopy(self._history)
+            applied = 0
+            current_settings = deepcopy(self.settings)
+            for event in events:
+                if event["undone"]:
+                    continue
+                replay._data["settings"] = deepcopy(
+                    event.get("settings", replay.settings)
+                )
+                if settings_patch is not None:
+                    replay._data["settings"] = {**current_settings, **settings_patch}
+                replay._data = SessionDataModel.model_validate(replay._data).model_dump(
+                    mode="python"
+                )
+                payload = event["payload"]
+                replay._data["active_round"] = {
+                    "token": payload["round_token"],
+                    "item1_id": payload["item1_id"],
+                    "item2_id": payload["item2_id"],
+                    "item3_id": payload.get("item3_id"),
+                    "issued_at": event["created_at"],
+                }
+                ids = {payload["item1_id"], payload["item2_id"]}
+                if payload.get("item3_id") is not None:
+                    ids.add(payload["item3_id"])
+                event["before_state"] = replay._vote_state(ids)
+                event["settings"] = deepcopy(replay.settings)
+                if event["mode"] == "3way":
+                    await replay.apply_three_way_vote(
+                        ThreeWayBattleVoteRequest.model_validate(payload)
+                    )
+                else:
+                    await replay.apply_battle_vote(
+                        BattleVoteRequest.model_validate(payload)
+                    )
+                event["after_state"] = replay._vote_state(ids)
+                applied += 1
+            replay._data["settings"] = {**current_settings, **(settings_patch or {})}
+            self._data = SessionDataModel.model_validate(replay._data).model_dump(
+                mode="python"
+            )
+            self._history = events
+            self._invalidate_active_round()
+            await self._save_to_db()
+            return {
+                "replayed": applied,
+                "algorithm_version": ALGORITHM_VERSION,
+                "settings_mode": "current"
+                if settings_patch is not None
+                else "recorded",
+                "items": deepcopy(self.items),
+            }
+
     async def apply_battle_vote(self, payload: BattleVoteRequest) -> dict[str, Any]:
         from services import (
             bt_update,
@@ -592,9 +1011,7 @@ class DataStore:
             display_uncertainty,
         )
 
-        async with _get_lock(self._session_id):
-            # 락 이전에 로드된 스냅샷은 동시 요청으로 이미 낡았을 수 있음 — 락 안에서 재로드
-            await self._load_from_db()
+        async with self._vote_context():
             self._validate_active_round(payload)
 
             a1 = self.get_item(payload.item1_id)
@@ -605,6 +1022,12 @@ class DataStore:
 
             self._validate_vote_keys(payload.votes)
 
+            before = self._vote_state({payload.item1_id, payload.item2_id})
+            selected_keys = {
+                key
+                for key, vote in payload.votes.items()
+                if vote not in ("skip", {"skip": "skip"})
+            }
             criteria = self._data["criteria"]
             initial_sq = self._data["settings"]["initial_sigma"] ** 2
             results: list[dict[str, Any]] = []
@@ -612,6 +1035,17 @@ class DataStore:
             for criterion in criteria:
                 key = criterion["key"]
                 winner = payload.votes[key]
+                if winner == "skip":
+                    results.append(
+                        {
+                            "key": key,
+                            "label": criterion["label"],
+                            "color": criterion["color"],
+                            "skipped": True,
+                            "winner": "skip",
+                        }
+                    )
+                    continue
 
                 old_mu1 = a1["mu"].get(key, 0.0)
                 old_sq1 = a1["sigma_sq"].get(key, initial_sq)
@@ -676,13 +1110,23 @@ class DataStore:
 
             # 모든 기준 업데이트 후 계층적 축소
             if self._data["settings"]["hierarchical_strength"] > 0:
-                hierarchical_shrinkage(self, a1)
-                hierarchical_shrinkage(self, a2)
+                hierarchical_shrinkage(self, a1, keys=selected_keys)
+                hierarchical_shrinkage(self, a2, keys=selected_keys)
 
-            a1["matches_played"] += 1
-            a2["matches_played"] += 1
-            self._invalidate_active_round()
-            await self._save_to_db()
+            if selected_keys:
+                a1["matches_played"] += 1
+                a2["matches_played"] += 1
+            for result in results:
+                if result.get("skipped"):
+                    continue
+                for index, item in enumerate((a1, a2), 1):
+                    final = display_rating(self, item["mu"][result["key"]])
+                    result[f"new_r{index}"] = round(final, 1)
+                    original = next(i for i in before["items"] if i["id"] == item["id"])
+                    result[f"diff_r{index}"] = round(
+                        final - display_rating(self, original["mu"][result["key"]]), 1
+                    )
+            await self._finish_vote(payload, "2way", before)
 
             return {
                 "a1_id": a1["id"],
@@ -704,16 +1148,12 @@ class DataStore:
         순차 적용 시 발생하는 업데이트 순서 편향을 제거합니다.
         """
         from services import (
-            sigmoid,
-            _SIGMA_SQ_FLOOR,
             hierarchical_shrinkage,
             display_rating,
             display_uncertainty,
         )
 
-        async with _get_lock(self._session_id):
-            # 락 이전에 로드된 스냅샷은 동시 요청으로 이미 낡았을 수 있음 — 락 안에서 재로드
-            await self._load_from_db()
+        async with self._vote_context():
             self._validate_active_round(payload, item3_id=payload.item3_id)
 
             item_ids = [payload.item1_id, payload.item2_id, payload.item3_id]
@@ -724,6 +1164,12 @@ class DataStore:
 
             self._validate_vote_keys(payload.votes)
 
+            before = self._vote_state(set(item_ids))
+            selected_keys = {
+                key
+                for key, vote in payload.votes.items()
+                if vote not in ("skip", {"skip": "skip"})
+            }
             criteria = self._data["criteria"]
             initial_sq = self._data["settings"]["initial_sigma"] ** 2
             results: list[dict[str, Any]] = []
@@ -732,6 +1178,16 @@ class DataStore:
             for criterion in criteria:
                 key = criterion["key"]
                 vote = payload.votes[key]
+                if vote in ("skip", {"skip": "skip"}):
+                    results.append(
+                        {
+                            "key": key,
+                            "label": criterion["label"],
+                            "color": criterion["color"],
+                            "skipped": True,
+                        }
+                    )
+                    continue
 
                 # best/worst/tied ID 추출
                 # id_key는 클라이언트에서 문자열로 전달되므로 정수 변환·중복·소속 검증을 모두 InvalidBattleVoteError로 통일
@@ -832,33 +1288,16 @@ class DataStore:
 
                 item_by_id = {item["id"]: item for item in items_3}
 
-                # 동시 업데이트: 원본 값에서 모든 그래디언트·정밀도를 계산 후 일괄 적용
-                # 순차 적용 시 후속 쌍이 이미 변경된 값을 사용하는 편향을 제거합니다.
-                orig_mu = {iid: item_by_id[iid]["mu"].get(key, 0.0) for iid in item_ids}
-                orig_sq = {
-                    iid: item_by_id[iid]["sigma_sq"].get(key, initial_sq)
+                ratings = {
+                    iid: (
+                        item_by_id[iid]["mu"].get(key, 0.0),
+                        item_by_id[iid]["sigma_sq"].get(key, initial_sq),
+                    )
                     for iid in item_ids
                 }
-                grad_accum: dict[int, float] = {iid: 0.0 for iid in item_ids}
-                w_accum: dict[int, float] = {iid: 0.0 for iid in item_ids}
-
-                for a_id, b_id, outcome in pairs:
-                    p = sigmoid(orig_mu[a_id] - orig_mu[b_id])
-                    w = p * (1.0 - p)
-                    g = outcome - p
-                    grad_accum[a_id] += g
-                    grad_accum[b_id] -= g
-                    w_accum[a_id] += w
-                    w_accum[b_id] += w
-
-                for iid in item_ids:
-                    prec_new = 1.0 / orig_sq[iid] + w_accum[iid]
-                    item_by_id[iid]["mu"][key] = (
-                        orig_mu[iid] + grad_accum[iid] / prec_new
-                    )
-                    item_by_id[iid]["sigma_sq"][key] = max(
-                        _SIGMA_SQ_FLOOR, 1.0 / prec_new
-                    )
+                for iid, (mu, sigma_sq) in update_ratings(ratings, pairs).items():
+                    item_by_id[iid]["mu"][key] = mu
+                    item_by_id[iid]["sigma_sq"][key] = sigma_sq
 
                 # 기준별 배틀 통계 — 3 쌍 = 3 배틀
                 criterion["battles"] = criterion.get("battles", 0) + 3
@@ -907,12 +1346,23 @@ class DataStore:
             # 계층적 축소
             if self._data["settings"]["hierarchical_strength"] > 0:
                 for item in items_3:
-                    hierarchical_shrinkage(self, item)
+                    hierarchical_shrinkage(self, item, keys=selected_keys)
 
-            for item in items_3:
-                item["matches_played"] += 1
-            self._invalidate_active_round()
-            await self._save_to_db()
+            if selected_keys:
+                for item in items_3:
+                    item["matches_played"] += 1
+            for result in results:
+                if result.get("skipped"):
+                    continue
+                for item in items_3:
+                    k = str(item["id"])
+                    final = display_rating(self, item["mu"][result["key"]])
+                    original = next(i for i in before["items"] if i["id"] == item["id"])
+                    result["ratings"][k] = round(final, 1)
+                    result["diffs"][k] = round(
+                        final - display_rating(self, original["mu"][result["key"]]), 1
+                    )
+            await self._finish_vote(payload, "3way", before)
 
             return {
                 "a1_id": items_3[0]["id"],
@@ -938,50 +1388,51 @@ class DataStore:
 async def get_store(session_id: str) -> DataStore:
     """세션 ID에 해당하는 DataStore를 반환합니다."""
     store = await DataStore.create(session_id)
-    # last_accessed 갱신
-    db = get_db()
-    async with db_write_lock:
+    # 읽기만 지속하는 세션의 갱신은 5분에 한 번으로 제한합니다.
+    async with transaction() as db:
+        now = time.time()
         await db.execute(
-            "UPDATE sessions SET last_accessed = ? WHERE id = ?",
-            (time.time(), session_id),
+            "UPDATE sessions SET last_accessed = ? WHERE id = ? AND last_accessed < ?",
+            (now, session_id, now - 300),
         )
-        await db.commit()
     return store
 
 
 async def session_exists(session_id: str) -> bool:
-    """세션이 DB에 존재하는지 확인합니다."""
-    db = get_db()
-    async with db.execute(
-        "SELECT 1 FROM sessions WHERE id = ?",
-        (session_id,),
-    ) as cursor:
-        return await cursor.fetchone() is not None
+    """확정된 세션의 존재 여부를 확인합니다."""
+    async with database.db_write_lock:
+        async with get_db().execute(
+            "SELECT 1 FROM sessions WHERE id = ?", (session_id,)
+        ) as cursor:
+            return await cursor.fetchone() is not None
 
 
 async def delete_session(session_id: str) -> None:
-    """세션 데이터를 DB에서 삭제하고 런타임 상태를 정리합니다."""
-    db = get_db()
-    async with db_write_lock:
-        await db.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
-        await db.commit()
-    _locks.pop(session_id, None)
+    """진행 중인 세션 명령 뒤에 삭제하고 새 저장은 revision으로 차단합니다."""
+    async with _get_lock(session_id):
+        async with transaction() as db:
+            await db.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
 
 
 async def cleanup_expired_sessions() -> int:
-    """만료된 세션과 그 런타임 락을 정리합니다. 삭제된 개수를 반환합니다."""
+    """보관함에 등록되지 않은 만료 세션만 삭제합니다."""
     cutoff = time.time() - SESSION_TTL_SECONDS
     db = get_db()
-    async with db_write_lock:
+    async with database.db_write_lock:
         async with db.execute(
-            "SELECT id FROM sessions WHERE last_accessed < ?", (cutoff,)
+            "SELECT id FROM sessions WHERE last_accessed < ? AND id NOT IN (SELECT session_id FROM boards)",
+            (cutoff,),
         ) as cursor:
             expired = [row["id"] for row in await cursor.fetchall()]
-        if expired:
-            await db.execute("DELETE FROM sessions WHERE last_accessed < ?", (cutoff,))
-            await db.commit()
+    removed = 0
     for session_id in expired:
-        _locks.pop(session_id, None)
-    if expired:
-        logger.info("cleanup_expired_sessions — removed %d sessions", len(expired))
-    return len(expired)
+        async with _get_lock(session_id):
+            async with transaction() as db:
+                cursor = await db.execute(
+                    "DELETE FROM sessions WHERE id = ? AND last_accessed < ? AND id NOT IN (SELECT session_id FROM boards)",
+                    (session_id, cutoff),
+                )
+                removed += cursor.rowcount
+    if removed:
+        logger.info("cleanup_expired_sessions — removed %d sessions", removed)
+    return removed

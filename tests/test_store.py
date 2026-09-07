@@ -1,3 +1,5 @@
+from typing import Any
+from pathlib import Path
 import json
 import time
 
@@ -211,7 +213,7 @@ class TestActiveRoundItem3Persistence:
 
         ar = s2._data["active_round"]
         assert ar is not None
-        assert "item3_id" not in ar
+        assert ar.get("item3_id") is None
 
 
 # --- Export / Import ---
@@ -451,3 +453,159 @@ class TestSessionIsolation:
         assert s1r.items[0]["name"] == "S1-Item"
         assert len(s2r.items) == 1
         assert s2r.items[0]["name"] == "S2-Item"
+
+
+class TestStorageRecovery:
+    async def test_two_snapshots_preserve_both_additions(
+        self, store_with_items: store.DataStore
+    ) -> None:
+        """서로 다른 요청에서 로드한 스냅샷도 순서대로 병합됩니다."""
+        import asyncio
+
+        sid = store_with_items._session_id
+        a, b = await asyncio.gather(
+            store.DataStore.create(sid), store.DataStore.create(sid)
+        )
+        await asyncio.gather(a.add_item("First"), b.add_item("Second"))
+        loaded = await store.DataStore.create(sid)
+        assert {item["name"] for item in loaded.items} == {
+            "Alpha",
+            "Beta",
+            "First",
+            "Second",
+        }
+        assert len({item["id"] for item in loaded.items}) == 4
+
+    async def test_deleted_snapshot_cannot_resurrect_session(
+        self, store_with_items: store.DataStore
+    ) -> None:
+        sid = store_with_items._session_id
+        stale = await store.DataStore.create(sid)
+        await store.delete_session(sid)
+        with pytest.raises(database.StaleSessionError):
+            await stale.update_settings({"result_auto_skip": True})
+        assert not await store.session_exists(sid)
+
+    async def test_save_rejects_stale_external_mutation(
+        self, store_with_items: store.DataStore
+    ) -> None:
+        stale = await store.DataStore.create(store_with_items._session_id)
+        await store_with_items.add_item("Preserved")
+        with pytest.raises(database.StaleSessionError):
+            await stale.save()
+        assert len((await store.DataStore.create(stale._session_id)).items) == 3
+
+    async def test_cancelled_write_rolls_back_before_next_request(
+        self, store_with_items: store.DataStore, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import asyncio
+
+        db = database.get_db()
+        original = db.executemany
+
+        async def cancel(*args: Any, **kwargs: Any) -> None:
+            raise asyncio.CancelledError()
+
+        monkeypatch.setattr(db, "executemany", cancel)
+        with pytest.raises(asyncio.CancelledError):
+            await store_with_items.add_item("Must not survive")
+        monkeypatch.setattr(db, "executemany", original)
+        assert not db.in_transaction
+        loaded = await store.get_store(store_with_items._session_id)
+        assert [item["name"] for item in loaded.items] == ["Alpha", "Beta"]
+
+    async def test_reads_wait_for_complete_transaction(
+        self, store_with_items: store.DataStore
+    ) -> None:
+        import asyncio
+
+        db = database.get_db()
+        task = None
+        async with database.transaction():
+            await db.execute(
+                "UPDATE items SET name = 'Complete' WHERE session_id = ?",
+                (store_with_items._session_id,),
+            )
+            task = asyncio.create_task(
+                store.DataStore.create(store_with_items._session_id)
+            )
+            await asyncio.sleep(0)
+            assert not task.done()
+        loaded = await task
+        assert {item["name"] for item in loaded.items} == {"Complete"}
+
+    async def test_migration_never_overwrites_existing_session(
+        self, store_with_items: store.DataStore, tmp_path: Path
+    ) -> None:
+        legacy = store_with_items.export_json()
+        await store_with_items.add_item("Latest")
+        path = tmp_path / f"{store_with_items._session_id}.json"
+        path.write_text(legacy)
+        assert await database.migrate_json_sessions(tmp_path) == 0
+        assert path.exists()
+        loaded = await store.DataStore.create(store_with_items._session_id)
+        assert len(loaded.items) == 3
+
+    async def test_round_issue_does_not_rewrite_ratings(
+        self, store_with_items: store.DataStore
+    ) -> None:
+        db = database.get_db()
+        await db.executescript(
+            "CREATE TEMP TABLE rating_writes(n); CREATE TEMP TRIGGER trace_rating_update AFTER UPDATE ON item_ratings BEGIN INSERT INTO rating_writes VALUES (1); END;"
+        )
+        await store_with_items.issue_battle_round(1, 2)
+        async with db.execute("SELECT COUNT(*) FROM rating_writes") as cursor:
+            assert (await cursor.fetchone())[0] == 0
+
+    async def test_registered_board_survives_ttl(
+        self, store_with_items: store.DataStore
+    ) -> None:
+        async with database.transaction() as db:
+            await db.execute("INSERT INTO libraries VALUES ('library', 0)")
+            await db.execute(
+                "INSERT INTO boards VALUES (?, 'library', 'Saved')",
+                (store_with_items._session_id,),
+            )
+            await db.execute("UPDATE sessions SET last_accessed = 0")
+        assert await store.cleanup_expired_sessions() == 0
+
+    async def test_empty_import_rejected_without_reset(
+        self, store_with_items: store.DataStore
+    ) -> None:
+        with pytest.raises(store.InvalidSessionDataError):
+            await store_with_items.import_json("{}")
+        assert len(store_with_items.items) == 2
+
+    async def test_import_confirmation_rejects_changed_snapshot(
+        self, store_with_items: store.DataStore
+    ) -> None:
+        import hashlib
+
+        raw = store_with_items.export_json()
+        digest = hashlib.sha256(raw.encode()).hexdigest()
+        await store_with_items.add_item("New")
+        with pytest.raises(store.InvalidSessionDataError):
+            await store_with_items.import_json(raw, expected_export_digest=digest)
+        assert len(store_with_items.items) == 3
+
+    async def test_database_error_is_reported_as_save_error(
+        self, store_with_items: store.DataStore, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import sqlite3
+
+        async def fail(*args: Any, **kwargs: Any) -> None:
+            raise sqlite3.OperationalError("disk full")
+
+        monkeypatch.setattr(database.get_db(), "executemany", fail)
+        with pytest.raises(store.SessionSaveError):
+            await store_with_items.add_item("Failure")
+        assert not database.get_db().in_transaction
+
+    async def test_capacity_rejects_write_and_preserves_database(
+        self, store_with_items: store.DataStore, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(store, "MAX_BACKUP_BYTES", 1)
+        with pytest.raises(store.SessionSaveError, match="백업 한도"):
+            await store_with_items.add_item("Over capacity")
+        loaded = await store.DataStore.create(store_with_items._session_id)
+        assert [item["name"] for item in loaded.items] == ["Alpha", "Beta"]
