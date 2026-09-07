@@ -39,6 +39,7 @@
   </section>
   {% endif %}
 
+  {% if items %}
   <div class="card overflow-x-auto">
     <table class="w-full min-w-max text-left text-sm">
       <thead class="border-b border-zinc-200 text-xs font-bold tracking-wide text-zinc-500 uppercase dark:border-zinc-800 dark:text-zinc-400">
@@ -55,7 +56,7 @@
                class="inline-flex min-h-9 items-center rounded-md px-1.5 hover:text-violet-600 dark:hover:text-violet-400 {{ 'text-' ~ c.color ~ '-600 dark:text-' ~ c.color ~ '-400' if sort_by == 'criterion:' ~ c.key }}">{{ c.label }}</a>
           </th>
           {% endfor %}
-          <th scope="col" class="px-4 py-3.5 text-right">비교 수</th>
+          <th scope="col" class="px-4 py-3.5 text-right">참여 라운드</th>
           <th scope="col" class="px-4 py-3.5"><span class="sr-only">항목 메뉴</span></th>
         </tr>
       </thead>
@@ -102,15 +103,16 @@
             </div>
           </td>
         </tr>
-        {% else %}
-        <tr><td colspan="{{ (criteria | length) + 5 }}" class="px-5 py-12 text-center">
-          <p class="mb-4 text-zinc-500">{% if total_items | default(0) %}조건에 맞는 항목이 없습니다.{% else %}아직 등록한 항목이 없습니다.{% endif %}</p>
-          <a href="{{ '/ranking' if total_items | default(0) else '/manage?tab=items' }}" class="btn-primary">{{ '필터 초기화' if total_items | default(0) else '항목 추가하기' }}</a>
-        </td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
+  {% else %}
+  <section class="card w-full px-5 py-12 text-center" role="status">
+    <p class="mb-4 text-zinc-500">{% if total_items | default(0) %}조건에 맞는 항목이 없습니다.{% else %}아직 등록한 항목이 없습니다.{% endif %}</p>
+    <a href="{{ '/ranking' if total_items | default(0) else '/manage?tab=items' }}" class="btn-primary">{{ '필터 초기화' if total_items | default(0) else '항목 추가하기' }}</a>
+  </section>
+  {% endif %}
 </div>
 {% endblock %}
 

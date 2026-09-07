@@ -134,7 +134,7 @@
 
       <fieldset class="rounded-2xl border border-zinc-200 p-5 dark:border-zinc-800">
         <legend class="px-2 font-display text-sm font-extrabold tracking-wide text-violet-600 uppercase dark:text-violet-400">Draw Probability (무승부 밸런스)</legend>
-        <p class="text-xs text-zinc-500 dark:text-zinc-400">무승부 확률의 Bayesian Beta 사전분포를 제어합니다. 실제 무승부 이력이 쌓이면 자연 수렴합니다.</p>
+        <p class="text-xs text-zinc-500 dark:text-zinc-400">표시용 무승부 확률의 근사 설정입니다. 실측 비율의 Beta 추정치를 감쇠 전 상한으로 두고 점수 차이에 따라 낮춥니다. 전체 실측 비율로의 수렴을 보장하지 않습니다.</p>
         <div class="mt-4 grid gap-5 md:grid-cols-3">
           <div>
             <label class="block">
