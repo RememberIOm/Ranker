@@ -196,3 +196,24 @@ async def test_focus_label_follows_item_after_position_shuffle(client, monkeypat
         or "'Alpha' 집중 평가 중" in response.text
     )
     assert "'Beta' 집중 평가 중" not in response.text
+
+
+async def test_cross_site_start_cannot_replace_library(client):
+    original = client.cookies.get("ranker_library")
+    sid = client.cookies.get("session_id")
+    response = await client.post(
+        "/start",
+        headers={"Origin": "https://unrelated.example", "Sec-Fetch-Site": "cross-site"},
+    )
+    assert response.status_code == 403
+    assert client.cookies.get("ranker_library") == original
+    assert client.cookies.get("session_id") == sid
+
+
+async def test_same_origin_writes_work_behind_tls_proxy(client):
+    response = await client.post(
+        "/manage/add",
+        data={"name": "정상 항목"},
+        headers={"Origin": "https://test", "Sec-Fetch-Site": "same-origin"},
+    )
+    assert response.status_code == 303

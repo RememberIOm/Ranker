@@ -7,6 +7,7 @@ import logging
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Request, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse, Response, JSONResponse
@@ -164,7 +165,27 @@ class SessionCookieRefreshMiddleware(BaseHTTPMiddleware):
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        response = await call_next(request)
+        # 복구·쿠키 변경도 포함해 브라우저의 외부 출처 쓰기를 거절합니다.
+        # TLS 종료 프록시를 고려해 Origin의 호스트를 실제 요청 Host와 비교합니다.
+        origin = request.headers.get("origin")
+        foreign_origin = False
+        if origin:
+            try:
+                parsed = urlsplit(origin)
+                foreign_origin = (
+                    parsed.scheme not in {"http", "https"}
+                    or parsed.netloc.lower() != request.headers.get("host", "").lower()
+                )
+            except ValueError:
+                foreign_origin = True
+        if request.method not in {"GET", "HEAD", "OPTIONS"} and (
+            foreign_origin or request.headers.get("sec-fetch-site") == "cross-site"
+        ):
+            response = JSONResponse(
+                {"detail": "이 사이트에서 직접 요청해주세요."}, status_code=403
+            )
+        else:
+            response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
