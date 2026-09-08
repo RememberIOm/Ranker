@@ -20,7 +20,7 @@ function loadBattle(mode = '3way') {
     CSS: { escape: (value) => value },
   };
   vm.createContext(context);
-  vm.runInContext(fs.readFileSync('static/battle.js', 'utf8'), context);
+  vm.runInContext(fs.readFileSync('ranker/static/battle.js', 'utf8'), context);
   context.updateCardUI = () => {};
   context.updateProgress = () => {};
   return { context, listeners, submit };

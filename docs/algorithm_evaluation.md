@@ -1,6 +1,8 @@
 # 알고리즘 변경과 합성 평가
 
-실행 완료: `uv run python scripts/evaluate_algorithm.py` (20개 seed, 10개 조건).
+> `bt-diagonal-v1`의 과거 평가 기록입니다. 아래 재현 명령은 당시 코드 기준입니다. 현재 구현과 실행 명령은 [gpl-map-v2 평가](algorithm_evaluation_v2.md)를 참조하세요.
+
+실행 완료: `uv run python -m scripts.evaluate_algorithm` (20개 seed, 10개 조건).
 원시 수치와 seed 간 표준편차는 [algorithm_evaluation.json](algorithm_evaluation.json)에 있다.
 이는 합성 진단이며 실제 사용자 정확도, 구간 보정, 3-way의 실제 시간 절약을 입증하지 않는다.
 

@@ -13,9 +13,17 @@ AGENTS.md
 opencode.json
 
 # Tailwind 빌드 아티팩트 (docker compose tailwind 서비스가 생성)
-static/output.css
+ranker/static/output.css
 node_modules/
 
 # 브라우저 테스트 결과
 /test-results/
 /playwright-report/
+
+# 로컬 환경과 실행 산출물
+.venv/
+.cache/
+.pytest_cache/
+.ruff_cache/
+*.db-wal
+*.db-shm

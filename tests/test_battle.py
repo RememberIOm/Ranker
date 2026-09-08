@@ -2,8 +2,8 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from schemas import BattleVoteRequest, ThreeWayBattleVoteRequest
-import store
+from ranker.schemas import BattleVoteRequest, ThreeWayBattleVoteRequest
+from ranker import store
 
 
 class TestBattleVoteValidation:
@@ -205,9 +205,9 @@ class TestThreeWayTiedVote:
             assert r["worst_id"] is None
             assert r["middle_id"] is None
 
-        # draws 통계: 기준당 3개 무승부 쌍
+        # draws 통계: 기준당 동률 응답 한 건
         for c in s.criteria:
-            assert c.get("draws", 0) == 3
+            assert c.get("draws", 0) == 1
 
     async def test_invalid_role_combination(
         self, store_with_three_items: store.DataStore
@@ -336,10 +336,10 @@ class TestThreeWayModeBVote:
             assert r["worst_id"] == items[2]["id"]
             assert r["middle_id"] == items[1]["id"]
 
-        # Mode B: 무승부 쌍 없음 (3개 쌍 모두 outcome=1.0)
+        # Mode B: 동률 없는 완전 순위 응답 한 건
         for c in s.criteria:
             assert c.get("draws", 0) == 0
-            assert c["battles"] == 3
+            assert c["battles"] == 1
 
 
 class TestVoteHistory:
@@ -374,7 +374,6 @@ class TestVoteHistory:
         from copy import deepcopy
 
         session = store_with_three_items
-        await session.update_settings({"hierarchical_strength": 5})
         key = session.criteria[0]["key"]
         before = deepcopy(session.items)
         result = await self._vote(session, three_way=three_way, skip_key=key)
@@ -386,7 +385,7 @@ class TestVoteHistory:
         assert result["results"][0]["skipped"] is True
 
     @pytest.mark.parametrize("three_way", [False, True])
-    async def test_undo_and_replay_from_saved_baseline(
+    async def test_undo_and_full_refit(
         self, store_with_three_items: store.DataStore, three_way: bool
     ) -> None:
         from copy import deepcopy
@@ -398,8 +397,8 @@ class TestVoteHistory:
         await self._vote(session, three_way=three_way)
         await session.undo_last_vote(expected_event_id=2)
         assert session.items == first
-        replay = await session.replay_history()
-        assert replay["replayed"] == 1
+        replay = await session.recalculate_ratings()
+        assert replay["responses"] == len(session.criteria)
         assert session.items == first
         await session.undo_last_vote(expected_event_id=1)
         assert session.items == baseline
@@ -425,7 +424,7 @@ class TestVoteHistory:
         await session.delete_item(2)
         with pytest.raises(store.InvalidBattleVoteError):
             await session.undo_last_vote()
-        await session.replay_history()
+        await session.recalculate_ratings()
         assert [item["id"] for item in session.items] == [1]
 
     async def test_history_export_import_and_current_settings_replay(
@@ -441,21 +440,20 @@ class TestVoteHistory:
         assert preview["history"] == 1
         await session.import_json(raw)
         assert len(session.history) == 1
-        result = await session.replay_history({"display_center": 1500})
-        assert result["settings_mode"] == "current"
+        result = await session.recalculate_ratings({"display_center": 1500})
+        assert result["responses"] == len(session.criteria)
         assert session.settings["display_center"] == 1500
         assert session.items == expected
 
     @pytest.mark.parametrize("three_way", [False, True])
-    async def test_result_matches_final_shrunk_rating(
+    async def test_result_matches_final_refitted_rating(
         self, store_with_three_items: store.DataStore, three_way: bool
     ) -> None:
-        from services import display_rating
+        from ranker.services import display_rating
 
         session = store_with_three_items
         session.items[0]["mu"][session.criteria[0]["key"]] = 2.0
         await session.save()
-        await session.update_settings({"hierarchical_strength": 5})
         response = await self._vote(session, three_way=three_way)
         for result in response["results"]:
             for item in session.items[: 3 if three_way else 2]:
@@ -468,7 +466,7 @@ class TestVoteHistory:
                     display_rating(session, item["mu"][result["key"]]), 1
                 )
 
-    async def test_clear_history_preserves_ratings_as_new_baseline(
+    async def test_clear_history_retains_refittable_observations(
         self, store_with_items: store.DataStore
     ) -> None:
         from copy import deepcopy
@@ -479,7 +477,7 @@ class TestVoteHistory:
         await session.clear_history()
         assert session.history == []
         assert session.items == expected
-        await session.replay_history()
+        await session.recalculate_ratings()
         assert session.items == expected
 
     async def test_archived_votes_survive_structure_change_and_export(
@@ -493,7 +491,9 @@ class TestVoteHistory:
         raw = session.export_json()
         await session.import_json(raw)
         assert session.history[0]["payload"]["item2_id"] == 2
-        assert (await session.replay_history())["replayed"] == 0
+        assert (await session.recalculate_ratings())["responses"] == len(
+            session.criteria
+        )
         assert [item["id"] for item in session.items] == [1]
 
     async def test_rename_preserves_history_and_current_name_on_undo_replay(
@@ -504,7 +504,9 @@ class TestVoteHistory:
         await session.update_item(1, name="Renamed")
         assert len(session.history) == 1
         assert not session.history[0]["archived"]
-        assert (await session.replay_history())["replayed"] == 1
+        assert (await session.recalculate_ratings())["responses"] == len(
+            session.criteria
+        )
         assert session.get_item(1)["name"] == "Renamed"
         await session.undo_last_vote()
         assert session.get_item(1)["name"] == "Renamed"
@@ -531,14 +533,14 @@ class TestVoteHistory:
         event = backup["history"][0]
         event["payload"]["item1_id"] = "1"
         event["payload"]["item2_id"] = "2"
-        event["settings"]["hierarchical_strength"] = "0"
+        event["settings"]["initial_sigma"] = "2"
         for field in ("before_state", "after_state"):
             for item in event[field]["items"]:
                 item["id"] = str(item["id"])
                 item["matches_played"] = str(item["matches_played"])
         await session.import_json(json.dumps(backup))
         session = await store.DataStore.create(session._session_id)
-        assert session.history[0]["settings"]["hierarchical_strength"] == 0.0
+        assert session.history[0]["settings"]["initial_sigma"] == 2.0
         assert session.history[0]["after_state"]["items"][0]["matches_played"] == 1
         assert session.history[0]["payload"]["item1_id"] == 1
         assert session.history[0]["before_state"]["items"][0]["id"] == 1

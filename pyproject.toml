@@ -8,6 +8,8 @@ dependencies = [
     "jinja2>=3.1.6",
     "python-multipart>=0.0.26",
     "aiosqlite>=0.22.1",
+    "numpy>=2.5.3",
+    "scipy>=1.18.1",
 ]
 
 [project.optional-dependencies]
@@ -22,3 +24,8 @@ dev = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 pythonpath = ["."]
+testpaths = ["tests"]
+cache_dir = ".cache/pytest"
+
+[tool.ruff]
+cache-dir = ".cache/ruff"

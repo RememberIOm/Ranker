@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-import database
-import store
+from ranker import database
+from ranker import store
 
 
 @pytest.fixture()

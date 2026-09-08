@@ -1,0 +1,89 @@
+{
+  "algorithm_version": "gpl-map-v2",
+  "runtime": [
+    {
+      "items": 50,
+      "ballots": 300,
+      "mode": 3,
+      "fit_and_marginals_seconds": 0.018801725998855545,
+      "matching_seconds": 0.08668967599987809,
+      "process_peak_rss_mib": 128.72265625
+    },
+    {
+      "items": 100,
+      "ballots": 600,
+      "mode": 3,
+      "fit_and_marginals_seconds": 0.013575940000009723,
+      "matching_seconds": 0.12411591000090993,
+      "process_peak_rss_mib": 157.7265625
+    },
+    {
+      "items": 500,
+      "ballots": 2000,
+      "mode": 3,
+      "fit_and_marginals_seconds": 0.08923056799903861,
+      "matching_seconds": 0.13127023099877988,
+      "process_peak_rss_mib": 172.1171875
+    },
+    {
+      "items": 1000,
+      "ballots": 3000,
+      "mode": 3,
+      "fit_and_marginals_seconds": 0.3495149330010463,
+      "matching_seconds": 0.14640854299977946,
+      "process_peak_rss_mib": 183.203125
+    }
+  ],
+  "search_quality": [
+    {
+      "items": 24,
+      "mode": 3,
+      "ballots": 200,
+      "seeds": [
+        80,
+        81,
+        82,
+        83,
+        84
+      ],
+      "full_candidate_count": 2024,
+      "chosen_over_full_best_utility": [
+        0.9733575212518846,
+        0.968602702239785,
+        0.990075190631508,
+        1.0,
+        0.9029784296347821
+      ],
+      "mean_ratio": 0.9670027687515919,
+      "minimum_ratio": 0.9029784296347821
+    },
+    {
+      "items": 96,
+      "mode": 2,
+      "ballots": 400,
+      "seeds": [
+        80,
+        81,
+        82,
+        83,
+        84
+      ],
+      "full_candidate_count": 4560,
+      "chosen_over_full_best_utility": [
+        1.000000000000002,
+        0.8840074457349644,
+        0.9538885636334441,
+        0.9867250590687523,
+        0.8982586543660874
+      ],
+      "mean_ratio": 0.94457594456065,
+      "minimum_ratio": 0.8840074457349644
+    }
+  ],
+  "limitations": [
+    "One criterion, local machine, synthetic random full rankings.",
+    "Peak RSS is cumulative for this process, not per-request allocation.",
+    "Search regret measures the local design utility, not real ranking accuracy.",
+    "No guarantee at the maximum item/criterion/backup limits."
+  ]
+}

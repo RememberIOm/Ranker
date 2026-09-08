@@ -2,7 +2,7 @@ services:
   app:
     build:
       context: .
-      dockerfile: Dockerfile.dev
+      dockerfile: docker/Dockerfile.dev
     ports:
       - "8080:8080"
     volumes:
@@ -10,7 +10,6 @@ services:
       - /app/.venv      # venv는 컨테이너 내부 것 사용
       - ranker_data:/data  # 세션 데이터 영속
     environment:
-      - SESSION_DIR=/data/sessions
       - DATABASE_PATH=/data/ranker.db
 
   tailwind:
@@ -21,7 +20,6 @@ services:
       - tailwind_modules:/app/node_modules  # node_modules는 Docker 볼륨으로 격리 (호스트 미노출)
     command: >
       sh -c "npm ci &&
-             mkdir -p static &&
              npm run build:css:watch"
 
 volumes:

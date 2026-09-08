@@ -7,9 +7,9 @@ import re
 import httpx
 import pytest
 
-from main import app
-from routers.ranking import histogram, ranking_rows
-from store import get_store
+from ranker.main import app
+from ranker.routers.ranking import histogram, ranking_rows
+from ranker.store import get_store
 
 
 @pytest.fixture
@@ -145,7 +145,7 @@ async def test_native_backup_over_one_megabyte_can_be_restored(client):
 
 
 async def test_import_race_returns_conflict(client, monkeypatch):
-    from store import DataStore, InvalidSessionDataError
+    from ranker.store import DataStore, InvalidSessionDataError
 
     raw = (await client.get("/manage/export")).text
     digest = hashlib.sha256((raw + raw).encode()).hexdigest()
@@ -161,7 +161,7 @@ async def test_import_race_returns_conflict(client, monkeypatch):
 
 
 async def test_capacity_error_explains_recovery_and_preserves_data(client, monkeypatch):
-    import store
+    from ranker import store
 
     await client.post("/manage/add", data={"name": "보존 항목"})
     monkeypatch.setattr(store, "MAX_BACKUP_BYTES", 1)
@@ -181,7 +181,7 @@ async def test_long_name_rejected_without_breaking_existing_board(client):
 
 
 async def test_focus_label_follows_item_after_position_shuffle(client, monkeypatch):
-    from routers import battle
+    from ranker.routers import battle
 
     await client.post("/manage/add-bulk", data={"names": "Alpha\nBeta"})
     monkeypatch.setattr(

@@ -1,36 +1,15 @@
 from typing import Any
-from pathlib import Path
 import json
 import time
 
 import pytest
 
-from schemas import BattleVoteRequest
-import database
-import store
+from ranker.schemas import BattleVoteRequest
+from ranker import database
+from ranker import store
 
 
 class TestStoreValidation:
-    async def test_import_json_repairs_missing_mu(
-        self, temp_store: store.DataStore
-    ) -> None:
-        """import_json은 _load와 동일한 관대 파싱을 사용하여 누락된 mu/sigma_sq를 자동 보정합니다."""
-        await temp_store.import_json(
-            """
-            {
-              "criteria": [
-                {"key": "story", "label": "스토리", "color": "blue", "weight": 1.0}
-              ],
-              "items": [
-                {"id": 1, "name": "Alpha", "mu": {}, "sigma_sq": {}, "matches_played": 0}
-              ]
-            }
-            """
-        )
-
-        assert temp_store.items[0]["mu"]["story"] == pytest.approx(0.0)
-        assert temp_store.items[0]["sigma_sq"]["story"] > 0
-
     async def test_delete_session_clears_runtime_state(self, store_factory) -> None:
         session_id = "b" * 32
         session = await store_factory(session_id)
@@ -41,49 +20,6 @@ class TestStoreValidation:
 
         assert not await store.session_exists(session_id)
         assert session_id not in store._locks
-
-    async def test_migration_from_elo_format(self, temp_store: store.DataStore) -> None:
-        """구 Elo 형식 JSON import 시 mu/sigma_sq로 자동 마이그레이션"""
-        legacy_payload = """
-        {
-          "settings": {
-            "initial_rating": 1400,
-            "elo_draw_max": 0.33,
-            "elo_draw_scale": 300.0,
-            "elo_k_max": 100,
-            "elo_k_min": 30,
-            "elo_decay_factor": 50
-          },
-          "criteria": [
-            {"key": "story", "label": "스토리", "color": "blue"},
-            {"key": "visual", "label": "작화", "color": "purple"}
-          ],
-          "items": [
-            {"id": 1, "name": "Alpha", "ratings": {"story": 1510, "visual": 1400}, "matches_played": 3, "criterion_matches": {"story": 3, "visual": 2}}
-          ]
-        }
-        """
-        await temp_store.import_json(legacy_payload)
-
-        # mu로 변환됨: (1510 - 1400) / 173.72 ≈ 0.633
-        assert temp_store.items[0]["mu"]["story"] == pytest.approx(
-            (1510 - 1400) / 173.72, abs=0.01
-        )
-        # visual은 center와 동일 → mu ≈ 0
-        assert temp_store.items[0]["mu"]["visual"] == pytest.approx(0.0, abs=0.01)
-        # sigma_sq가 존재하고 양수
-        assert temp_store.items[0]["sigma_sq"]["story"] > 0
-        assert temp_store.items[0]["sigma_sq"]["visual"] > 0
-        # criterion_matches가 높을수록 sigma_sq가 작음
-        assert (
-            temp_store.items[0]["sigma_sq"]["story"]
-            < temp_store.items[0]["sigma_sq"]["visual"]
-        )
-
-        # settings도 마이그레이션됨
-        assert "draw_prior_max" in temp_store.settings
-        assert "elo_k_max" not in temp_store.settings
-        assert temp_store.settings["display_center"] == pytest.approx(1400.0)
 
     async def test_add_item_initializes_mu_sigma(
         self, temp_store: store.DataStore
@@ -114,32 +50,6 @@ class TestStoreValidation:
         # 이전 기준 제거됨
         assert "story" not in item["mu"]
         assert "story" not in item["sigma_sq"]
-
-    async def test_import_clamps_draws_to_battles(
-        self, temp_store: store.DataStore
-    ) -> None:
-        """손상된 import_json: draws > battles → battles로 클램프
-
-        Beta prior `beta_param = (1-prior_max)*prior_strength + (battles-draws)`가
-        음수가 되어 매치 확률이 0/0이 되는 것을 방지하는 정합성 보호.
-        """
-        await temp_store.import_json(
-            """
-            {
-              "criteria": [
-                {"key": "story", "label": "스토리", "color": "blue", "weight": 1.0,
-                 "battles": 5, "draws": 99}
-              ],
-              "items": [
-                {"id": 1, "name": "Alpha", "mu": {"story": 0.0}, "sigma_sq": {"story": 4.0}}
-              ]
-            }
-            """
-        )
-
-        story = next(c for c in temp_store.criteria if c["key"] == "story")
-        assert story["battles"] == 5
-        assert story["draws"] == 5  # min(99, 5)로 클램프
 
 
 # --- Per-Criterion Matches ---
@@ -350,56 +260,6 @@ class TestCleanupExpiredSessions:
         assert await store.session_exists(session_id)
 
 
-# --- JSON to SQLite Migration ---
-
-
-class TestJsonMigration:
-    async def test_migrate_json_session(self, _temp_db, tmp_path) -> None:
-        """JSON 파일을 SQLite로 마이그레이션"""
-        session_dir = tmp_path / "sessions"
-        session_dir.mkdir()
-        session_id = "m" * 32
-        data = {
-            "settings": {
-                "initial_sigma": 2.0,
-                "display_center": 1200.0,
-                "display_scale": 173.72,
-            },
-            "criteria": [
-                {"key": "story", "label": "스토리", "color": "blue", "weight": 1.0}
-            ],
-            "items": [
-                {
-                    "id": 1,
-                    "name": "Alpha",
-                    "mu": {"story": 0.5},
-                    "sigma_sq": {"story": 3.0},
-                    "matches_played": 5,
-                    "criterion_matches": {"story": 5},
-                }
-            ],
-        }
-        (session_dir / f"{session_id}.json").write_text(
-            json.dumps(data), encoding="utf-8"
-        )
-
-        from database import migrate_json_sessions
-
-        migrated = await migrate_json_sessions(session_dir)
-        assert migrated == 1
-
-        # 마이그레이션된 파일이 migrated/로 이동
-        assert (session_dir / "migrated" / f"{session_id}.json").exists()
-        assert not (session_dir / f"{session_id}.json").exists()
-
-        # DB에서 데이터 확인
-        assert await store.session_exists(session_id)
-        s = await store.get_store(session_id)
-        assert len(s.items) == 1
-        assert s.items[0]["name"] == "Alpha"
-        assert s.items[0]["mu"]["story"] == pytest.approx(0.5)
-
-
 # --- CASCADE Delete ---
 
 
@@ -534,18 +394,6 @@ class TestStorageRecovery:
         loaded = await task
         assert {item["name"] for item in loaded.items} == {"Complete"}
 
-    async def test_migration_never_overwrites_existing_session(
-        self, store_with_items: store.DataStore, tmp_path: Path
-    ) -> None:
-        legacy = store_with_items.export_json()
-        await store_with_items.add_item("Latest")
-        path = tmp_path / f"{store_with_items._session_id}.json"
-        path.write_text(legacy)
-        assert await database.migrate_json_sessions(tmp_path) == 0
-        assert path.exists()
-        loaded = await store.DataStore.create(store_with_items._session_id)
-        assert len(loaded.items) == 3
-
     async def test_round_issue_does_not_rewrite_ratings(
         self, store_with_items: store.DataStore
     ) -> None:
@@ -670,7 +518,7 @@ class TestStorageRecovery:
         self, store_with_items: store.DataStore
     ) -> None:
         import httpx
-        from main import app
+        from ranker.main import app
 
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app),

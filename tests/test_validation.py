@@ -4,8 +4,8 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
-from main import app
-from schemas import CriterionModel, ItemModel, SettingsModel
+from ranker.main import app
+from ranker.schemas import CriterionModel, ItemModel, SettingsModel
 
 
 @pytest.mark.parametrize("weight", [float("inf"), float("nan"), -1, 0])
@@ -22,7 +22,7 @@ def test_reject_nonfinite_rating(value: float) -> None:
 
 def test_independent_blind_defaults() -> None:
     settings = SettingsModel()
-    assert settings.hierarchical_strength == 0
+    assert "hierarchical_strength" not in settings.model_dump()
     assert settings.blind_mode
 
 
@@ -55,7 +55,7 @@ async def test_missing_htmx_session_redirects_whole_page(_temp_db) -> None:
         assert response.headers["HX-Redirect"] == "/"
 
 
-@pytest.mark.parametrize("field", ["initial_sigma", "draw_bandwidth"])
+@pytest.mark.parametrize("field", ["initial_sigma"])
 def test_reject_underflowing_scale(field: str) -> None:
     with pytest.raises(ValidationError):
         SettingsModel(**{field: 1e-200})

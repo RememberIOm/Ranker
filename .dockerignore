@@ -1,18 +1,15 @@
+# 이미지에 필요한 소스와 의존성 명세만 빌드 컨텍스트로 보냅니다.
+**
+!LICENSE
+!pyproject.toml
+!uv.lock
+!package.json
+!package-lock.json
+!frontend/
+!frontend/**
+!ranker/
+!ranker/**
+!docker/
+!docker/**
 **/__pycache__
-**/*.db
-**/*.sqlite
-**/*.csv
-**/.DS_Store
-**/venv
-**/.venv
-**/node_modules
-data
-static/output.css
-.git
-fly.toml
-docker-compose.yml
-Dockerfile.dev
-
-# 테스트 실행 산출물
-test-results
-playwright-report
+ranker/static/output.css

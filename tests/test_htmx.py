@@ -4,7 +4,7 @@ import httpx
 import pytest
 from httpx import ASGITransport
 
-from main import app
+from ranker.main import app
 
 
 @pytest.fixture()

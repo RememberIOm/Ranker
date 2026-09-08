@@ -98,3 +98,45 @@ test('백업 미리보기 후 교체', async ({ page }) => {
   expect(after).not.toContain('나중에 추가한 항목');
   expect(JSON.parse(after).items).toHaveLength(3);
 });
+
+test('새 모델의 동률 응답은 한 건이며 기록 정리 후에도 다시 계산 가능', async ({ page }) => {
+  await setup(page, true);
+  for (const key of ['story','visual','ost','voice','char','fun']) await page.locator(`#all-tied-btn-${key}`).click();
+  await page.locator('#submit-btn').click();
+  await expect(page.locator('#result-modal')).toBeVisible();
+  const before = await (await page.request.get('/manage/export')).json();
+  expect(before.schema_version).toBe(3);
+  expect(before.criteria[0].battles).toBe(1);
+  expect(before.observations.story[0].count).toBe(1);
+  await page.request.post('/history/archive');
+  await page.goto('/history');
+  await page.getByText('고급 · 현재 설정으로 다시 계산', { exact: true }).click();
+  await page.getByRole('button', { name: '기록된 투표 다시 계산', exact: true }).click();
+  await page.locator('[data-confirm-ok]').click();
+  await expect(page).toHaveURL(/\/ranking$/);
+  const after = await (await page.request.get('/manage/export')).json();
+  expect(after.items).toEqual(before.items);
+  expect(after.history).toHaveLength(0);
+  expect(after.observations).toEqual(before.observations);
+});
+
+test('비블라인드 확률과 설정에 삭제된 휴리스틱이 노출되지 않음', async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  await setup(page, true);
+  await page.request.post('/manage/settings', { form: { battle_mode: '3way' } });
+  await page.goto('/battle');
+  await expect(page.locator('[aria-label*="상대 강도"]')).toHaveCount(0);
+  await page.request.post('/manage/settings', { form: { battle_mode: '2way' } });
+  await page.goto('/battle');
+  await expect(page.locator('#battle-state')).toHaveAttribute('data-battle-mode', '2way');
+  await expect(page.locator('main')).not.toContainText('NaN');
+  await page.goto('/manage?tab=settings');
+  await page.getByText('고급 설정 · 계산 방식과 표시 단위', { exact: true }).click();
+  await expect(page.locator('input[name="hierarchical_strength"]')).toHaveCount(0);
+  await expect(page.locator('input[name="draw_bandwidth"]')).toHaveCount(0);
+  await page.locator('input[name="initial_sigma"]').fill('3');
+  await page.getByRole('button', { name: '설정 저장하기', exact: true }).click();
+  await expect.poll(async () => (await (await page.request.get('/manage/export')).json()).settings.initial_sigma).toBe(3);
+  expect(errors).toEqual([]);
+});

@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}투표 내역 · Ranker{% endblock %}
+{% block content %}
+<div class="mx-auto max-w-3xl">
+  <header class="mb-6 flex flex-wrap items-center justify-between gap-3">
+    <div><h1 class="font-display text-2xl font-bold">투표 내역</h1><p class="mt-2 text-sm text-zinc-500">최근 선택을 확인하고 마지막 투표를 되돌릴 수 있습니다.</p></div>
+    <a href="/battle" class="btn-primary">대결로 돌아가기</a>
+  </header>
+  {% if can_undo %}
+  <form action="/history/undo" method="post" data-confirm-message="마지막 투표를 취소하고 나머지 관측으로 점수를 다시 계산하시겠습니까?" class="mb-5">
+    <input type="hidden" name="event_id" value="{{ last_event_id }}"><button type="submit" class="btn-secondary">마지막 투표 실행 취소</button>
+  </form>
+  {% endif %}
+  <ol class="flex flex-col gap-3">
+    {% for event in events %}
+    <li class="card p-5 {{ 'opacity-60' if event.undone or event.archived | default(false) }}">
+      <div class="mb-2 flex flex-wrap justify-between gap-2"><h2 class="font-bold">{{ event.item_names | join(' · ') }}</h2><span class="text-xs text-zinc-500">{% if event.archived | default(false) %}구조 변경 전 기록 · 취소 불가{% elif event.undone %}실행 취소됨{% else %}{{ '3개 항목 비교' if event.mode == '3way' else '1대1' }}{% endif %}</span></div>
+      <p class="mb-3 text-xs text-zinc-500">{{ event.created_at }}</p>
+      <ul class="flex flex-col gap-1 text-sm text-zinc-600 dark:text-zinc-300">{% for line in event.vote_summary %}<li>{{ line }}</li>{% endfor %}</ul>
+    </li>
+    {% else %}<li class="card p-8 text-center text-sm text-zinc-500">아직 기록된 투표가 없습니다. 대결을 시작하면 여기에 쌓입니다.</li>{% endfor %}
+  </ol>
+  <details class="card mt-6 p-5">
+    <summary class="cursor-pointer font-semibold">고급 · 현재 설정으로 다시 계산</summary>
+    <p class="my-4 text-sm leading-relaxed text-zinc-500">현재 기준에 보존된 모든 순위 응답을 처음부터 다시 계산합니다. 상세 내역을 정리했거나 항목을 추가한 뒤에도 이전 응답이 반영됩니다. 삭제한 기준의 응답은 제외됩니다.</p>
+    <a href="/manage/export" class="mb-4 inline-flex text-sm font-semibold text-violet-600 underline dark:text-violet-400">현재 결과 JSON 내보내기</a>
+    <form action="/history/recalculate" method="post" data-confirm-message="기록된 투표를 현재 설정으로 다시 계산하시겠습니까? 현재 점수가 변경됩니다."><button type="submit" class="btn-secondary">기록된 투표 다시 계산</button></form>
+  </details>
+  {% if events %}
+  <details class="card mt-5 p-5">
+    <summary class="cursor-pointer font-semibold">기록 정리</summary>
+    <p class="my-4 text-sm text-zinc-500">점수와 순위 응답별 횟수는 유지하면서 상세 투표 내역을 비웁니다. 이후에도 전체 재계산이 가능하지만 정리한 투표는 개별 취소할 수 없습니다.</p>
+    <a href="/manage/export" class="mb-4 inline-flex text-sm font-semibold text-violet-600 underline dark:text-violet-400">기록 포함 JSON 백업</a>
+    <form action="/history/archive" method="post" data-confirm-message="백업을 내려받았나요? 현재 점수는 유지하고 투표 이력을 지웁니다. 이전 투표는 취소할 수 없습니다."><button type="submit" class="btn-secondary">점수를 유지하고 기록 비우기</button></form>
+  </details>
+  {% endif %}
+</div>
+{% endblock %}
