@@ -21,7 +21,6 @@ RUN uv sync --frozen --no-dev --no-editable
 
 COPY LICENSE ./
 COPY ranker/ ranker/
-COPY scripts/__init__.py scripts/convert_legacy_db.py scripts/
 
 # 사전 빌드된 CSS 복사
 COPY --from=css-builder /build/ranker/static/output.css /app/ranker/static/output.css

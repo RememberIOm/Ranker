@@ -11,7 +11,5 @@
 !ranker/**
 !docker/
 !docker/**
-!scripts/__init__.py
-!scripts/convert_legacy_db.py
 **/__pycache__
 ranker/static/output.css
