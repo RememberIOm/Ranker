@@ -4,7 +4,7 @@
         {% for c in criteria %}{{ criteria_row(c) }}{% endfor %}
       </div>
       <div class="mt-5 flex flex-wrap items-center justify-between gap-3">
-        <button type="button" class="btn-secondary" onclick="addCriteriaRow()">+ 기준 추가</button>
+        <button type="button" class="btn-secondary" data-action="add-criterion">+ 기준 추가</button>
         <button type="submit" class="btn-primary px-8">저장</button>
       </div>
     <template id="criteria-row-template">{{ criteria_row({'key': '', 'label': '', 'color': 'gray', 'weight': 1.0}) }}</template>

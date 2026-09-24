@@ -8,9 +8,9 @@ from itertools import combinations
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+from scipy.special import roots_legendre
 
 from ranker.rating_engine import expected_information, predict_pair
-from scipy.special import roots_legendre
 
 if TYPE_CHECKING:
     from ranker.store import DataStore
@@ -139,7 +139,7 @@ def _select_match(
     )
     if len(options) > _MATCH_CANDIDATES:
         options = random.sample(options, _MATCH_CANDIDATES)
-    recent = store.recent_votes(5)
+    recent = store.recent_votes()
     if store.active_round:
         recent.append(store.active_round)
     recent_pairs = set()
@@ -203,3 +203,47 @@ def get_item_ranks(store: DataStore) -> tuple[dict[int, int], int]:
 def get_item_rank(store: DataStore, item_id: int) -> tuple[int, int]:
     ranks, total = get_item_ranks(store)
     return ranks.get(item_id, total), total
+
+
+# Dense joint sampling is O(n^3); beyond this the page shows point ranks only.
+_RANK_SAMPLE_ITEMS = 1000
+
+
+def rank_uncertainty(
+    store: DataStore, sort_by: str, samples: int = 1000
+) -> dict[str, Any] | None:
+    """90% rank intervals and adjacent-order confidence from the joint Laplace fit.
+
+    Draws composite scores from the per-criterion Gaussian approximations, which
+    are independent across criteria. A fixed seed keeps a page stable on reload.
+    """
+    items = store.items
+    criteria = (
+        store.criteria
+        if sort_by == "total"
+        else [c for c in store.criteria if "criterion:" + c["key"] == sort_by]
+    )
+    if not 2 <= len(items) <= _RANK_SAMPLE_ITEMS or not criteria:
+        return None
+    ids = [item["id"] for item in items]
+    rng = np.random.default_rng(0)
+    total_weight = sum(c["weight"] for c in criteria)
+    draws = np.zeros((samples, len(ids)))
+    for criterion in criteria:
+        posterior = store.posterior(criterion["key"])
+        covariance = posterior.covariance(ids)[: len(ids), : len(ids)]
+        mean = np.array([posterior.mean(iid) for iid in ids])
+        # Cholesky of the marginal covariance; jitter guards rounding only.
+        factor = np.linalg.cholesky(covariance + 1e-12 * np.eye(len(ids)))
+        noise = rng.standard_normal((samples, len(ids))) @ factor.T
+        draws += criterion["weight"] / total_weight * (mean + noise)
+    ranks = np.argsort(np.argsort(-draws, axis=1), axis=1) + 1
+    low, high = np.percentile(ranks, [5, 95], axis=0, method="nearest")
+    order = np.argsort(-draws.mean(axis=0))
+    adjacent = (draws[:, order[:-1]] > draws[:, order[1:]]).mean(axis=0)
+    return {
+        "intervals": {
+            iid: (int(lo), int(hi)) for iid, lo, hi in zip(ids, low, high, strict=True)
+        },
+        "adjacent_confidence": float(adjacent.mean()),
+    }

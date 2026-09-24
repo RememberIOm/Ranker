@@ -2,19 +2,19 @@
 
 import json
 import os
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
-from ranker.store import DataStore, InvalidSessionDataError
+from ranker.store import InvalidSessionDataError, open_store
 
 
-@pytest.mark.parametrize("version", [None, 1, 2, 3.0, "3"])
+@pytest.mark.parametrize("version", [None, 1, 2, 3, 4.5, "4"])
 async def test_obsolete_backup_versions_leave_saved_data(store_with_items, version):
-    original = store_with_items.export_json()
+    original = await store_with_items.export_json()
     backup = json.loads(original)
     if version is None:
         del backup["schema_version"]
@@ -22,15 +22,15 @@ async def test_obsolete_backup_versions_leave_saved_data(store_with_items, versi
         backup["schema_version"] = version
     with pytest.raises(InvalidSessionDataError):
         await store_with_items.import_json(json.dumps(backup))
-    loaded = await DataStore.create(store_with_items._session_id)
-    assert loaded.export_json() == original
+    loaded = await open_store(store_with_items._session_id)
+    assert await loaded.export_json() == original
 
 
 @pytest.mark.parametrize(
     "damage", ["missing_rating", "draw_count", "elo", "observations"]
 )
 async def test_current_backup_is_rejected_without_repair(store_with_items, damage):
-    original = store_with_items.export_json()
+    original = await store_with_items.export_json()
     backup = json.loads(original)
     if damage == "missing_rating":
         backup["items"][0]["mu"] = {}
@@ -42,8 +42,8 @@ async def test_current_backup_is_rejected_without_repair(store_with_items, damag
         del backup["observations"]
     with pytest.raises((ValidationError, InvalidSessionDataError)):
         await store_with_items.import_json(json.dumps(backup))
-    loaded = await DataStore.create(store_with_items._session_id)
-    assert loaded.export_json() == original
+    loaded = await open_store(store_with_items._session_id)
+    assert await loaded.export_json() == original
 
 
 def test_app_resources_and_lifespan_from_another_directory(tmp_path):
@@ -75,5 +75,6 @@ with TestClient(app) as client:
         capture_output=True,
         text=True,
         timeout=20,
+        check=False,
     )
     assert result.returncode == 0, result.stdout + result.stderr

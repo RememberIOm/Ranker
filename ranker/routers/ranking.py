@@ -1,5 +1,6 @@
 """원점수 정렬과 필터를 제공하는 랭킹 화면."""
 
+import asyncio
 import math
 from typing import Any
 
@@ -7,7 +8,12 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
 
 from ranker.deps import require_store
-from ranker.services import composite_rating, display_rating, display_uncertainty
+from ranker.services import (
+    composite_rating,
+    display_rating,
+    display_uncertainty,
+    rank_uncertainty,
+)
 from ranker.store import DataStore
 from ranker.template_env import templates
 
@@ -72,6 +78,21 @@ def histogram(scores: list[float]) -> dict[str, list]:
     }
 
 
+_CHART_COLORS = {
+    "red": "#ef4444",
+    "orange": "#f97316",
+    "yellow": "#eab308",
+    "green": "#22c55e",
+    "teal": "#14b8a6",
+    "cyan": "#06b6d4",
+    "blue": "#3b82f6",
+    "indigo": "#6366f1",
+    "purple": "#a855f7",
+    "pink": "#ec4899",
+    "gray": "#71717a",
+}
+
+
 @router.get("", response_class=HTMLResponse)
 async def get_ranking(
     request: Request,
@@ -80,12 +101,18 @@ async def get_ranking(
     filter: str = "all",
     store: DataStore = Depends(require_store),
 ) -> HTMLResponse:
-    keys = {c["key"] for c in store.criteria}
-    if sort_by != "total" and sort_by.removeprefix("criterion:") not in keys:
+    selected = next(
+        (c for c in store.criteria if sort_by == "criterion:" + c["key"]), None
+    )
+    if selected is None:
         sort_by = "total"
     if filter not in {"all", "uncertain", "top"}:
         filter = "all"
     ranked = ranking_rows(store, sort_by)
+    uncertainty = await asyncio.to_thread(rank_uncertainty, store, sort_by)
+    if uncertainty:
+        for row in ranked:
+            row["rank_interval"] = uncertainty["intervals"][row["id"]]
     total_items = len(ranked)
     q = q.strip()[:500]
     ranked = [r for r in ranked if q.casefold() in r["name"].casefold()]
@@ -93,15 +120,6 @@ async def get_ranking(
         ranked = [r for r in ranked if r["under_evaluated"]]
     elif filter == "top":
         ranked = [r for r in ranked if r["rank"] <= 5]
-    category = next(
-        (
-            c["label"]
-            for c in store.criteria
-            if sort_by == "criterion:" + c["key"]
-            or (sort_by != "total" and sort_by == c["key"])
-        ),
-        "종합 점수",
-    )
     return templates.TemplateResponse(
         request,
         "ranking.html",
@@ -112,9 +130,11 @@ async def get_ranking(
             "q": q,
             "filter": filter,
             "total_items": total_items,
+            "adjacent_confidence": uncertainty and uncertainty["adjacent_confidence"],
             "chart_data": {
                 **histogram([r["sort_score"] for r in ranked]),
-                "category": category,
+                "category": selected["label"] if selected else "종합 점수",
+                "color": _CHART_COLORS[selected["color"]] if selected else "#7c3aed",
             },
         },
     )

@@ -3,7 +3,7 @@
 
 /* Class scanning */
 @source "../ranker/templates/**/*.html";
-@source "../ranker/static/battle.js";
+@source "../ranker/static/*.js";
 
 /* Safelist: templates compose color classes at runtime from stored criterion
    colors (text-{color}-600, bg-{color}-500, ring-{color}-300, …) for the
@@ -20,9 +20,19 @@
 /* Class-based dark mode driven by .dark on <html> */
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* Latin display face is self-hosted; Korean text uses the platform font. */
+@font-face {
+  font-family: "Outfit";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/static/fonts/outfit-latin-wght.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
 @theme {
-  --font-sans: "Noto Sans KR", ui-sans-serif, system-ui, -apple-system, "Apple SD Gothic Neo", sans-serif;
-  --font-display: "Outfit", "Noto Sans KR", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", "Noto Sans CJK KR", sans-serif;
+  --font-display: "Outfit", ui-sans-serif, system-ui, -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif;
 
   --animate-toast-in: toast-in 0.25s cubic-bezier(0.21, 1.02, 0.73, 1) both;
   --animate-toast-out: toast-out 0.2s ease-in both;

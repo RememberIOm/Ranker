@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}요청을 처리하지 못했습니다 · Ranker{% endblock %}
+{% block content %}
+<div class="mx-auto max-w-xl">
+  <section class="card p-6 sm:p-8">
+    <h1 class="mb-3 font-display text-xl font-bold">요청을 처리하지 못했습니다</h1>
+    <p class="text-sm leading-relaxed text-zinc-600 dark:text-zinc-300">{{ message }}</p>
+    <div class="mt-6 flex flex-wrap gap-2">
+      <a href="{{ back_url | default('/collections') }}" class="btn-primary">돌아가기</a>
+      <a href="/" class="btn-secondary">처음으로</a>
+    </div>
+  </section>
+</div>
+{% endblock %}

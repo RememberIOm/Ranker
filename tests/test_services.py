@@ -1,9 +1,10 @@
 import pytest
+
 from ranker import store
 from ranker.services import (
+    composite_rating,
     display_rating,
     display_uncertainty,
-    composite_rating,
     get_item_rank,
     get_item_ranks,
 )
@@ -29,7 +30,7 @@ class TestCompositeRating:
         # 모든 기준 weight를 1.0으로 통일
         for c in temp_store.criteria:
             c["weight"] = 1.0
-        await temp_store.add_item("Alpha")
+        await temp_store.add_items(["Alpha"])
         item = temp_store.items[0]
         # 기준별 다른 mu 설정
         keys = [c["key"] for c in temp_store.criteria]
@@ -50,7 +51,7 @@ class TestCompositeRating:
                 {"key": "b", "label": "B", "color": "red", "weight": 1.0},
             ]
         )
-        await temp_store.add_item("Alpha")
+        await temp_store.add_items(["Alpha"])
         item = temp_store.items[0]
         item["mu"]["a"] = 1.0
         item["mu"]["b"] = 0.0
@@ -63,7 +64,7 @@ class TestCompositeRating:
 
     async def test_zero_mu_gives_center(self, temp_store: store.DataStore) -> None:
         """모든 mu=0.0 → display_center 반환"""
-        await temp_store.add_item("Alpha")
+        await temp_store.add_items(["Alpha"])
         item = temp_store.items[0]
         assert composite_rating(temp_store, item) == pytest.approx(
             temp_store.settings["display_center"]
@@ -77,7 +78,7 @@ class TestCompositeRating:
         예전 `or 1.0` fallback은 빈 criteria에서 0을 반환해 매치메이킹·랭킹·확률
         계산이 모두 0점으로 표시되는 사용자 영향이 있었음.
         """
-        await temp_store.add_item("Alpha")
+        await temp_store.add_items(["Alpha"])
         item = temp_store.items[0]
         # criteria를 강제로 비움 (정상 경로에선 발생하지 않지만 일시 상태 방어)
         temp_store._data["criteria"] = []
@@ -88,15 +89,15 @@ class TestCompositeRating:
 
 class TestGetItemRank:
     async def test_single_item_rank_one(self, temp_store: store.DataStore) -> None:
-        await temp_store.add_item("Alpha")
+        await temp_store.add_items(["Alpha"])
         rank, total = get_item_rank(temp_store, temp_store.items[0]["id"])
         assert rank == 1
         assert total == 1
 
     async def test_rank_ordering(self, temp_store: store.DataStore) -> None:
         """mu가 높은 항목이 더 높은 순위"""
-        await temp_store.add_item("Low")
-        await temp_store.add_item("High")
+        await temp_store.add_items(["Low"])
+        await temp_store.add_items(["High"])
         # High에 높은 mu 설정
         for c in temp_store.criteria:
             temp_store.items[1]["mu"][c["key"]] = 2.0
@@ -106,8 +107,8 @@ class TestGetItemRank:
 
     async def test_missing_item_returns_last(self, temp_store: store.DataStore) -> None:
         """존재하지 않는 ID → (total, total)"""
-        await temp_store.add_item("Alpha")
-        await temp_store.add_item("Beta")
+        await temp_store.add_items(["Alpha"])
+        await temp_store.add_items(["Beta"])
         rank, total = get_item_rank(temp_store, 9999)
         assert rank == total == 2
 
@@ -115,7 +116,7 @@ class TestGetItemRank:
         self, temp_store: store.DataStore
     ) -> None:
         for name in ("A", "B", "C"):
-            await temp_store.add_item(name)
+            await temp_store.add_items([name])
         for key in temp_store.items[2]["mu"]:
             temp_store.items[2]["mu"][key] = -1.0
         ranks, total = get_item_ranks(temp_store)

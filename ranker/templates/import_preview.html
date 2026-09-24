@@ -1,19 +1,17 @@
 {% extends "base.html" %}
-{% block title %}가져오기 미리보기 · Ranker{% endblock %}
+{% block title %}가져오기 확인 · Ranker{% endblock %}
 {% block content %}
 <div class="mx-auto max-w-2xl">
-  <h1 class="mb-2 font-display text-2xl font-bold">가져오기 미리보기</h1>
-  <p class="mb-6 text-sm text-zinc-500">파일을 검사했습니다. 아래 내용을 확인하고 적용하면 현재 랭킹의 데이터가 교체됩니다.</p>
+  <h1 class="mb-2 font-display text-2xl font-bold">가져오기 확인</h1>
+  <p class="mb-6 text-sm text-zinc-500">파일에 문제가 없습니다. 교체하면 지금 랭킹의 항목·기준·설정·투표 내역이 파일 내용으로 바뀝니다.</p>
   <section class="card p-5 sm:p-6">
-    <table class="w-full text-left text-sm"><caption class="sr-only">현재 데이터와 가져올 데이터 비교</caption><thead><tr class="border-b border-zinc-200 dark:border-zinc-800"><th scope="col" class="py-3">내용</th><th scope="col" class="py-3">현재</th><th scope="col" class="py-3">가져올 데이터</th></tr></thead>
-      <tbody><tr><th scope="row" class="py-3">항목</th><td>{{ current_items }}개</td><td>{{ preview['items'] }}개</td></tr><tr><th scope="row" class="py-3">평가 기준</th><td>{{ current_criteria }}개</td><td>{{ preview['criteria'] }}개</td></tr><tr><th scope="row" class="py-3">포함된 투표 기록</th><td>—</td><td>{{ preview['history'] }}개</td></tr></tbody>
+    <table class="w-full text-left text-sm"><caption class="sr-only">현재 데이터와 가져올 데이터 비교</caption><thead><tr class="border-b border-zinc-200 dark:border-zinc-800"><th scope="col" class="py-3"></th><th scope="col" class="py-3">지금</th><th scope="col" class="py-3">파일</th></tr></thead>
+      <tbody><tr><th scope="row" class="py-3">항목</th><td>{{ current_items }}개</td><td>{{ preview['items'] }}개</td></tr><tr><th scope="row" class="py-3">평가 기준</th><td>{{ current_criteria }}개</td><td>{{ preview['criteria'] }}개</td></tr><tr><th scope="row" class="py-3">투표 내역</th><td>—</td><td>{{ preview['history'] }}건</td></tr></tbody>
     </table>
-    <p class="my-5 rounded-xl bg-amber-100 p-4 text-sm font-semibold text-amber-900 dark:bg-amber-500/15 dark:text-amber-300">현재 항목·기준·설정·투표 기록을 교체합니다. 보존하려면 먼저 현재 데이터를 내보내세요.</p>
-    <a href="/manage/export" class="mb-5 inline-flex text-sm font-semibold text-violet-600 underline dark:text-violet-400">현재 데이터 JSON 내보내기</a>
-    <form action="/manage/import" method="post" class="flex flex-wrap gap-3">
-      <input type="hidden" name="confirmed_digest" value="{{ digest }}">
-      <input type="hidden" name="raw_json" value="{{ raw_json }}">
-      <button type="submit" class="btn-primary">확인한 데이터로 교체</button><a href="/manage?tab=data" class="btn-secondary">취소</a>
+    <p class="my-5 rounded-xl bg-amber-100 p-4 text-sm font-semibold text-amber-900 dark:bg-amber-500/15 dark:text-amber-300">지금 데이터가 필요하면 먼저 백업을 받아두세요. 확인은 한 시간 안에 해야 합니다.</p>
+    <a href="/manage/export" class="mb-5 inline-flex text-sm font-semibold text-violet-600 underline dark:text-violet-400">지금 데이터 백업 받기</a>
+    <form action="/manage/import/confirm" method="post" class="flex flex-wrap gap-3">
+      <button type="submit" class="btn-primary">파일 내용으로 교체</button><a href="/manage?tab=data" class="btn-secondary">취소</a>
     </form>
   </section>
 </div>

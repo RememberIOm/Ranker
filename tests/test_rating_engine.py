@@ -1,16 +1,18 @@
 """Inference contracts: observations, rather than update order, determine ratings."""
 
-from itertools import permutations
+import random
+from collections import Counter
+from itertools import pairwise, permutations
 
 import numpy as np
 import pytest
 
 from ranker.rating_engine import (
     RankingLikelihood,
-    fit_rankings,
-    ranking_probability,
-    predict_pair,
     expected_information,
+    fit_rankings,
+    predict_pair,
+    ranking_probability,
 )
 
 
@@ -62,7 +64,7 @@ def test_one_win_retains_common_offset_variance():
 def test_every_three_way_response_has_a_joint_likelihood(groups):
     fit = fit_rankings([groups] * 8)
     assert np.isfinite(fit.location).all()
-    for upper, lower in zip(groups, groups[1:]):
+    for upper, lower in pairwise(groups):
         assert min(fit.mean(i) for i in upper) > max(fit.mean(i) for i in lower)
     for group in groups:
         assert max(fit.mean(i) for i in group) - min(fit.mean(i) for i in group) < 1e-7
@@ -128,7 +130,7 @@ def test_full_ballot_fisher_matches_all_thirteen_score_outer_products():
     expected = np.zeros((5, 5))
     for ranking in ranks:
 
-        def log_probability(y):
+        def log_probability(y, ranking=ranking):
             return np.log(
                 ranking_probability(dict(zip([1, 2, 3], y[:3])), tuple(y[3:]), ranking)
             )
@@ -152,3 +154,23 @@ def test_adaptive_prediction_against_independent_high_order_gaussian_quadrature(
     reference = np.einsum("i,j,ijc->c", w, w, point_probabilities)
     prediction = predict_pair(fit_rankings([], initial_sigma=sigma), 1, 2)
     np.testing.assert_allclose(prediction, reference, atol=2e-8, rtol=0)
+
+
+@pytest.mark.parametrize("seed", range(3))
+def test_fit_converges_when_counts_scale_the_objective(seed):
+    """An absolute gradient stop rejected these optimal fits under L-BFGS."""
+    rng = random.Random(seed)
+    rankings, counts = [], []
+    for _ in range(600):
+        ids = rng.sample(range(1, 101), rng.choice((2, 3)))
+        rankings.append(tuple((i,) for i in ids))
+        counts.append(rng.randint(1, 10_000))
+    fit = fit_rankings(rankings, counts=counts)
+    aggregated = Counter()
+    for ranking, count in zip(rankings, counts, strict=True):
+        aggregated[ranking] += count
+    objective = RankingLikelihood(sorted(aggregated.items()), 4.0)
+    value, gradient = objective.value_gradient(fit.location)
+    step = np.linalg.solve(fit.precision.toarray(), gradient)
+    # The Newton decrement estimates the remaining objective gap.
+    assert gradient @ step <= 1e-12 * value

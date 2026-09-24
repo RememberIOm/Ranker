@@ -13,10 +13,10 @@
     </div>
 
     <div class="mt-4 flex max-h-[45dvh] flex-col gap-1.5 overflow-y-auto pr-1">
-      {% if not results %}<p class="py-4 text-center text-sm text-zinc-500">모든 기준을 건너뛰었습니다. 점수는 변경되지 않았습니다.</p>{% endif %}
+      {% if not results %}<p class="py-4 text-center text-sm text-zinc-500">모든 기준을 건너뛰어 점수가 그대로입니다.</p>{% endif %}
       {% for r in results %}
       {% if r.skipped | default(false) %}
-      <p class="rounded-xl bg-zinc-50 px-3 py-3 text-center text-sm text-zinc-500 dark:bg-zinc-800/60">{{ r.label }} · 건너뜀 (점수 변경 없음)</p>
+      <p class="rounded-xl bg-zinc-50 px-3 py-3 text-center text-sm text-zinc-500 dark:bg-zinc-800/60">{{ r.label }} · 건너뜀</p>
       {% else %}
       <div class="animate-result-row grid grid-cols-[1fr_auto_1fr] items-center gap-2 rounded-xl bg-zinc-50 px-3 py-2.5 dark:bg-zinc-800/60" style="animation-delay: {{ loop.index0 * 50 }}ms">
         <div class="flex items-baseline justify-end gap-1.5 text-right">
@@ -41,13 +41,13 @@
         <div id="modal-progress" class="h-full rounded-full bg-violet-500 transition-[width] ease-linear" style="width: 0%; transition-duration: {{ (result_skip_seconds * 1000) | int }}ms"></div>
       </div>
       <div class="mt-3 flex items-center justify-between gap-3">
-        <p class="text-xs font-medium text-zinc-500 dark:text-zinc-400">{{ result_skip_seconds }}초 후 자동 이동...</p>
-        <button type="button" onclick="cancelAutoSkip()" class="btn-secondary px-4 py-2 text-xs">유지</button>
+        <p class="text-xs font-medium text-zinc-500 dark:text-zinc-400">{{ result_skip_seconds }}초 뒤 다음 대결로 넘어갑니다</p>
+        <button type="button" data-battle="keep-result" class="btn-secondary px-4 py-2 text-xs">유지</button>
       </div>
     </div>
     <div id="click-skip-area" class="{{ 'hidden' if result_auto_skip else '' }} mt-5 text-center">
-      <button type="button" id="next-battle-btn" onclick="dismissModal()" class="btn-primary w-full py-3 sm:w-auto sm:px-10">{{ icon('swords') }}<span>다음 대결</span></button>
-      <p class="mt-2.5 text-[11px] text-zinc-400 dark:text-zinc-500">바깥 배경을 클릭하거나 Esc를 눌러도 넘어갑니다</p>
+      <button type="button" id="next-battle-btn" data-battle="dismiss-result" class="btn-primary w-full py-3 sm:w-auto sm:px-10">{{ icon('swords') }}<span>다음 대결</span></button>
+      <p class="mt-2.5 text-[11px] text-zinc-400 dark:text-zinc-500">바깥을 누르거나 Esc를 눌러도 됩니다</p>
     </div>
   </div>
 </div>

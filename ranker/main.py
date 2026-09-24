@@ -1,39 +1,47 @@
 # main.py
-# 세션 기반 멀티유저 Ranker 웹앱 엔트리포인트.
-# 각 사용자는 JSON 파일을 업로드하거나 새 세션을 시작하여 독립적으로 사용합니다.
+# 앱 구성, 수명주기, 공통 HTTP 처리.
 
 import asyncio
 import logging
 from contextlib import asynccontextmanager
 from urllib.parse import urlsplit
 
-from fastapi import FastAPI, Request, UploadFile, File
-from fastapi.responses import HTMLResponse, RedirectResponse, Response, JSONResponse
-from pydantic import ValidationError
+from fastapi import FastAPI, File, Request, UploadFile
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
-from starlette.middleware.base import BaseHTTPMiddleware
+from pydantic import ValidationError
+from starlette.datastructures import MutableHeaders
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from ranker.database import init_db, close_db, StaleSessionError
-from ranker.rating_engine import FitConvergenceError
+from ranker.boards import create_board
+from ranker.cookies import delete_session_cookie, session_cookie_header
+from ranker.database import close_db, init_db
 from ranker.deps import (
     RequiresSessionException,
-    create_session_id,
+    UploadTooLargeError,
     get_session_store,
-    import_json_upload,
+    import_error_message,
     is_htmx,
+    read_backup_upload,
 )
+from ranker.rating_engine import FitConvergenceError
+from ranker.routers import battle, collections, history, manage, ranking
+from ranker.schemas import MAX_BACKUP_BYTES
 from ranker.store import (
+    BackupLimitError,
+    BattleItemNotFoundError,
+    DataStore,
+    InvalidBattleVoteError,
     InvalidSessionDataError,
     SessionSaveError,
+    StaleBattleRoundError,
+    StaleImportError,
+    StaleSessionError,
     cleanup_expired_sessions,
-    get_store,
-    session_exists,
+    delete_session,
 )
-from ranker.routers import battle, ranking, manage, collections, history
 from ranker.template_env import PACKAGE_DIR, templates
-
-from ranker.cookies import COOKIE_SECURE, set_session_cookie
-
 
 logging.basicConfig(
     level=logging.INFO,
@@ -44,24 +52,17 @@ logger = logging.getLogger("ranker")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """앱 시작 시 DB 초기화, 만료 세션 주기적 정리 태스크를 수행합니다."""
-    _log = logging.getLogger("ranker.lifespan")
-
     await init_db()
 
-    async def _periodic_cleanup():
+    async def periodic_cleanup():
         while True:
+            await asyncio.sleep(3600)
             try:
-                await asyncio.sleep(3600)  # 1시간마다
-                removed = await cleanup_expired_sessions()
-                _log.info("cleanup_done — removed %d expired sessions", removed)
-            except asyncio.CancelledError:
-                _log.info("cleanup_cancelled")
-                raise
+                await cleanup_expired_sessions()
             except Exception:
-                _log.exception("cleanup_failed")
+                logger.exception("cleanup_failed")
 
-    task = asyncio.create_task(_periodic_cleanup())
+    task = asyncio.create_task(periodic_cleanup())
     try:
         yield
     finally:
@@ -77,128 +78,216 @@ app = FastAPI(lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=PACKAGE_DIR / "static"), name="static")
 
 
-@app.exception_handler(FitConvergenceError)
-async def fit_error_handler(request: Request, exc: FitConvergenceError):
-    return JSONResponse({"detail": str(exc)}, status_code=503)
+# --- Errors ---
 
 
-@app.exception_handler(InvalidSessionDataError)
-async def invalid_session_handler(request: Request, exc: InvalidSessionDataError):
-    return JSONResponse(
-        {
-            "detail": "이 랭킹을 읽을 수 없습니다. 원본을 보존한 뒤 지원되는 백업을 가져오거나 새 랭킹을 시작해주세요."
-        },
-        status_code=409,
+def wants_json(request: Request) -> bool:
+    """HTMX와 스크립트 요청은 JSON, 일반 폼 제출과 페이지 이동은 HTML로 답합니다."""
+    return is_htmx(request) or request.headers.get("content-type", "").startswith(
+        "application/json"
     )
 
 
-@app.exception_handler(RequiresSessionException)
-async def session_exception_handler(request: Request, exc: RequiresSessionException):
-    if is_htmx(request):
-        return Response(status_code=200, headers={"HX-Redirect": "/"})
-    return RedirectResponse(url="/", status_code=303)
-
-
-@app.exception_handler(SessionSaveError)
-async def session_save_error_handler(request: Request, exc: SessionSaveError):
-    logger.error("session_save_failed — path=%s: %s", request.url.path, exc)
-    message = (
-        "랭킹의 백업 한도(64MB)에 도달했습니다. 백업 후 투표 이력을 정리해주세요."
-        if "백업 한도" in str(exc)
-        else "세션 저장에 실패했습니다. 잠시 후 다시 시도해주세요."
+def error_response(request: Request, status: int, message: str) -> Response:
+    if wants_json(request):
+        return JSONResponse({"detail": message}, status_code=status)
+    return templates.TemplateResponse(
+        request, "error.html", {"message": message}, status_code=status
     )
-    return JSONResponse({"detail": message}, status_code=500)
 
 
-@app.exception_handler(StaleSessionError)
-async def stale_session_handler(
-    request: Request, exc: StaleSessionError
-) -> JSONResponse:
-    return JSONResponse(
-        {"detail": "랭킹이 변경되거나 삭제되었습니다. 새로고침해주세요."},
-        status_code=409,
-    )
+_ERROR_STATUS: dict[type[Exception], int] = {
+    BattleItemNotFoundError: 404,
+    InvalidBattleVoteError: 422,
+    InvalidSessionDataError: 409,
+    StaleBattleRoundError: 409,
+    StaleImportError: 409,
+    StaleSessionError: 409,
+    BackupLimitError: 409,
+    SessionSaveError: 500,
+    FitConvergenceError: 503,
+}
+
+
+def _register_error(exc_type: type[Exception], status: int) -> None:
+    @app.exception_handler(exc_type)
+    async def handler(request: Request, exc: Exception) -> Response:
+        if status >= 500:
+            logger.error("%s — path=%s: %s", exc_type.__name__, request.url.path, exc)
+        return error_response(request, status, str(exc))
+
+
+for _exc_type, _status in _ERROR_STATUS.items():
+    _register_error(_exc_type, _status)
 
 
 @app.exception_handler(ValidationError)
-async def data_validation_handler(
-    request: Request, exc: ValidationError
-) -> JSONResponse:
-    return JSONResponse(
-        {"detail": "입력값의 길이, 개수 또는 범위를 확인해주세요."}, status_code=422
+@app.exception_handler(RequestValidationError)
+async def validation_handler(request: Request, exc: Exception) -> Response:
+    return error_response(request, 422, "입력값의 길이, 개수 또는 범위를 확인해주세요.")
+
+
+@app.exception_handler(StarletteHTTPException)
+async def http_error_handler(request: Request, exc: StarletteHTTPException):
+    return error_response(request, exc.status_code, str(exc.detail))
+
+
+@app.exception_handler(RequiresSessionException)
+async def session_required_handler(request: Request, exc: RequiresSessionException):
+    if is_htmx(request):
+        return Response(status_code=200, headers={"HX-Redirect": "/"})
+    if wants_json(request):
+        return JSONResponse(
+            {"detail": "열려 있는 랭킹이 없습니다. 내 랭킹에서 다시 열어주세요."},
+            status_code=401,
+        )
+    return RedirectResponse(url="/", status_code=303)
+
+
+# --- ASGI middleware ---
+
+
+def _plain_response(status: int, message: str) -> Response:
+    return JSONResponse({"detail": message}, status_code=status)
+
+
+class SecurityMiddleware:
+    """외부 출처의 쓰기 요청을 거절하고 보안 헤더를 붙입니다."""
+
+    CSP = (
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; font-src 'self'; connect-src 'self'; "
+        "base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
     )
 
+    def __init__(self, app):
+        self.app = app
 
-class SessionCookieRefreshMiddleware(BaseHTTPMiddleware):
-    """유효한 세션 쿠키를 모든 응답에서 갱신하여 활성 사용자의 세션이 만료되지 않도록 합니다.
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        headers = dict(scope["headers"])
+        is_static = scope["path"].startswith("/static/")
 
-    /static/* 경로는 세션과 무관하므로 제외 — 불필요한 DB 조회와 Set-Cookie 헤더를 피함.
-    """
+        async def send_with_headers(message):
+            if message["type"] == "http.response.start":
+                h = MutableHeaders(scope=message)
+                h["X-Content-Type-Options"] = "nosniff"
+                h["X-Frame-Options"] = "DENY"
+                h["Referrer-Policy"] = "strict-origin-when-cross-origin"
+                h["Content-Security-Policy"] = self.CSP
+                if not is_static:
+                    h["Cache-Control"] = "no-store"
+            await send(message)
 
-    async def dispatch(self, request: Request, call_next):
-        response = await call_next(request)
-        # static 자원 요청은 세션과 무관 — 쿠키 갱신 스킵 (DB 조회 절감)
-        if request.url.path.startswith("/static/"):
-            return response
-        session_id = request.cookies.get("session_id")
-        replaces_cookie = any(
-            value.decode("latin-1").startswith("session_id=")
-            for key, value in response.raw_headers
-            if key.lower() == b"set-cookie"
-        )
-        if session_id and not replaces_cookie and await session_exists(session_id):
-            set_session_cookie(response, session_id)
-        return response
+        if scope["method"] not in {"GET", "HEAD", "OPTIONS"} and self._foreign(headers):
+            response = _plain_response(403, "이 사이트에서 직접 요청해주세요.")
+            return await response(scope, receive, send_with_headers)
+        await self.app(scope, receive, send_with_headers)
 
-
-class SecurityHeadersMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        # 복구·쿠키 변경도 포함해 브라우저의 외부 출처 쓰기를 거절합니다.
+    @staticmethod
+    def _foreign(headers: dict[bytes, bytes]) -> bool:
         # TLS 종료 프록시를 고려해 Origin의 호스트를 실제 요청 Host와 비교합니다.
-        origin = request.headers.get("origin")
-        foreign_origin = False
-        if origin:
-            try:
-                parsed = urlsplit(origin)
-                foreign_origin = (
-                    parsed.scheme not in {"http", "https"}
-                    or parsed.netloc.lower() != request.headers.get("host", "").lower()
+        if headers.get(b"sec-fetch-site") == b"cross-site":
+            return True
+        origin = headers.get(b"origin", b"").decode("latin-1")
+        if not origin:
+            return False
+        try:
+            parsed = urlsplit(origin)
+        except ValueError:
+            return True
+        host = headers.get(b"host", b"").decode("latin-1").lower()
+        return parsed.scheme not in {"http", "https"} or parsed.netloc.lower() != host
+
+
+class BodyLimitMiddleware:
+    """백업 업로드 외의 요청 본문은 1MB로 제한합니다."""
+
+    UPLOAD_PATHS = frozenset({"/upload", "/manage/import"})
+    SMALL = 1024 * 1024
+    # multipart 경계와 헤더 여유분
+    LARGE = MAX_BACKUP_BYTES + 1024 * 1024
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        limit = self.LARGE if scope["path"] in self.UPLOAD_PATHS else self.SMALL
+        too_large = _plain_response(413, "요청이 너무 큽니다.")
+        length = dict(scope["headers"]).get(b"content-length")
+        if length is not None and (not length.isdigit() or int(length) > limit):
+            return await too_large(scope, receive, send)
+
+        received = 0
+        rejected = False
+        started = False
+
+        async def limited_receive():
+            nonlocal received, rejected
+            message = await receive()
+            if message["type"] == "http.request":
+                received += len(message.get("body", b""))
+                if received > limit:
+                    rejected = True
+                    return {"type": "http.disconnect"}
+            return message
+
+        async def guarded_send(message):
+            nonlocal started
+            if rejected:
+                return
+            started = started or message["type"] == "http.response.start"
+            await send(message)
+
+        try:
+            await self.app(scope, limited_receive, guarded_send)
+        except Exception:
+            if not rejected:
+                raise
+        if rejected and not started:
+            await too_large(scope, receive, send)
+
+
+class SessionCookieMiddleware:
+    """연 랭킹의 세션 쿠키 만료를 응답마다 연장합니다. DB를 다시 읽지 않습니다."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+
+        async def send_with_cookie(message):
+            if message["type"] == "http.response.start":
+                session_id = scope.get("state", {}).get("session_id")
+                headers = MutableHeaders(scope=message)
+                replaced = any(
+                    value.startswith("session_id=")
+                    for value in headers.getlist("set-cookie")
                 )
-            except ValueError:
-                foreign_origin = True
-        if request.method not in {"GET", "HEAD", "OPTIONS"} and (
-            foreign_origin or request.headers.get("sec-fetch-site") == "cross-site"
-        ):
-            response = JSONResponse(
-                {"detail": "이 사이트에서 직접 요청해주세요."}, status_code=403
-            )
-        else:
-            response = await call_next(request)
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["X-Frame-Options"] = "DENY"
-        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; "
-            "script-src 'self' 'unsafe-inline'; "
-            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-            "img-src 'self' data:; "
-            "font-src 'self' data: https://fonts.gstatic.com; "
-            "connect-src 'self';"
-        )
-        if not request.url.path.startswith("/static/"):
-            response.headers["Cache-Control"] = "no-store"
-        return response
+                if session_id and not replaced:
+                    headers.append("set-cookie", session_cookie_header(session_id))
+            await send(message)
+
+        await self.app(scope, receive, send_with_cookie)
 
 
-app.add_middleware(SecurityHeadersMiddleware)
-app.add_middleware(SessionCookieRefreshMiddleware)
+app.add_middleware(SessionCookieMiddleware)
+app.add_middleware(BodyLimitMiddleware)
+app.add_middleware(SecurityMiddleware)
 
-# 라우터 등록
 app.include_router(battle.router)
 app.include_router(ranking.router)
 app.include_router(manage.router)
 app.include_router(collections.router)
 app.include_router(history.router)
+
+
+# --- Pages ---
 
 
 @app.get("/health")
@@ -208,71 +297,42 @@ async def health() -> dict[str, str]:
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
-    """
-    인덱스 페이지: 세션이 이미 있으면 메인 화면, 없으면 업로드/시작 화면을 표시합니다.
-    """
-    session_id = request.cookies.get("session_id")
-    has_session = bool(session_id and await get_session_store(request, session_id))
+    has_session = await get_session_store(request, request.cookies.get("session_id"))
     return templates.TemplateResponse(
-        request,
-        "index.html",
-        {
-            "has_session": has_session,
-        },
+        request, "index.html", {"has_session": has_session is not None}
     )
-
-
-async def _register_board(request: Request, response: Response, sid: str) -> None:
-    from ranker.boards import attach_board, get_library, set_library_cookie
-
-    code = await get_library(request, create=True)
-    previous = request.cookies.get("session_id")
-    if previous and previous != sid and await session_exists(previous):
-        await attach_board(code, previous, "기존 랭킹")
-    await attach_board(code, sid, "새 랭킹")
-    set_library_cookie(response, code, COOKIE_SECURE)
 
 
 @app.post("/start")
 async def start_new_session(request: Request):
-    """새 세션(빈 데이터)을 생성하고 쿠키를 설정합니다."""
-    sid = create_session_id()
-    store = await get_store(sid)  # 기본 데이터로 초기화
-    await store.save()
-
     response = RedirectResponse(url="/manage", status_code=303)
-    set_session_cookie(response, sid)
-    await _register_board(request, response, sid)
+    await create_board(request, response, "새 랭킹")
     return response
 
 
 @app.post("/upload")
 async def upload_session(request: Request, file: UploadFile = File(...)):
-    """JSON 파일을 업로드하여 새 세션을 생성합니다."""
-    sid = create_session_id()
-    store = await get_store(sid)
-
-    error = await import_json_upload(file, store)
-    if error:
-        return error
-
+    """백업 파일로 새 랭킹을 만듭니다."""
+    try:
+        raw = await read_backup_upload(file)
+        DataStore.parse_import(raw)  # 잘못된 파일이면 랭킹을 만들지 않습니다.
+    except UploadTooLargeError as exc:
+        return error_response(request, 413, str(exc))
+    except (ValueError, ValidationError) as exc:
+        return error_response(request, 400, import_error_message(exc))
     response = RedirectResponse(url="/battle", status_code=303)
-    set_session_cookie(response, sid)
-    await _register_board(request, response, sid)
+    store = await create_board(request, response, "가져온 랭킹")
+    await store.import_json(raw)
     return response
 
 
 @app.post("/end-session")
 async def end_session(request: Request):
-    """현재 세션을 종료하고 쿠키를 삭제합니다."""
-    session_id = request.cookies.get("session_id")
-    if session_id:
-        store = await get_session_store(request, session_id)
-        if store:
-            await store.delete_session()
-
+    """현재 랭킹을 삭제하고 쿠키를 지웁니다."""
+    store = await get_session_store(request, request.cookies.get("session_id"))
+    if store:
+        await delete_session(store.session_id)
+        request.state.session_id = None
     response = RedirectResponse(url="/", status_code=303)
-    response.delete_cookie(
-        "session_id", httponly=True, samesite="strict", secure=COOKIE_SECURE
-    )
+    delete_session_cookie(response)
     return response

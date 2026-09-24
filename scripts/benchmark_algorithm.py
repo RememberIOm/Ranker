@@ -3,14 +3,14 @@
 uv run python -m scripts.benchmark_algorithm --output docs/algorithm_benchmark_v2.json
 """
 
-from collections import Counter
-from itertools import combinations
 import argparse
 import json
-from pathlib import Path
 import random
 import resource
 import time
+from collections import Counter
+from itertools import combinations
+from pathlib import Path
 
 import numpy as np
 

@@ -3,15 +3,15 @@
   <div id="view-row-{{ item.id }}" class="flex min-h-11 items-center gap-3">
     <span class="h-2 w-2 shrink-0 rounded-full bg-violet-500" aria-hidden="true"></span>
     <span class="min-w-0 flex-1 truncate text-sm font-semibold" title="{{ item.name }}">{{ item.name }}</span>
-    {% if item.matches_played < 10 %}
-    <span class="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-extrabold tracking-wide text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400">평가 부족</span>
+    {% if item.criterion_matches and (item.criterion_matches.values() | min) < 5 %}
+    <span class="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-extrabold tracking-wide text-amber-700 dark:bg-amber-500/15 dark:text-amber-400">평가 부족</span>
     {% endif %}
     <div class="flex shrink-0 items-center gap-0.5 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100">
       <a href="/battle/focus/{{ item.id }}" class="action-chip">{{ icon('target', 'w-4 h-4') }}<span>집중 평가</span></a>
-      <button type="button" class="action-chip" onclick="toggleEdit('{{ item.id }}')">{{ icon('pencil', 'w-4 h-4') }}<span>수정</span></button>
+      <button type="button" class="action-chip" data-action="toggle-edit" data-id="{{ item.id }}">{{ icon('pencil', 'w-4 h-4') }}<span>수정</span></button>
       <form action="/manage/delete" method="post"
             hx-post="/manage/delete" hx-target="#item-list" hx-swap="innerHTML"
-            hx-confirm="{{ item.name | e }} 항목을 삭제하시겠습니까?">
+            hx-confirm="'{{ item.name }}' 항목을 삭제할까요?">
         <input type="hidden" name="item_id" value="{{ item.id }}">
         <button type="submit" class="action-chip text-rose-500 hover:bg-rose-100 hover:text-rose-700 dark:text-rose-400 dark:hover:bg-rose-500/15 dark:hover:text-rose-300">{{ icon('trash', 'w-4 h-4') }}<span>삭제</span></button>
       </form>
@@ -23,6 +23,6 @@
     <input id="input-name-{{ item.id }}" type="text" name="new_name" value="{{ item.name }}" required autocomplete="off"
            class="field-input min-h-10 flex-1 px-3 text-sm" aria-label="새 이름">
     <button type="submit" class="btn-primary min-h-10 px-4 text-xs">저장</button>
-    <button type="button" class="btn-ghost min-h-10 px-4 text-xs" onclick="toggleEdit('{{ item.id }}')">취소</button>
+    <button type="button" class="btn-ghost min-h-10 px-4 text-xs" data-action="toggle-edit" data-id="{{ item.id }}">취소</button>
   </form>
 </li>

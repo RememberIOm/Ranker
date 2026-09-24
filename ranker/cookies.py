@@ -26,3 +26,15 @@ def set_session_cookie(response: Response, session_id: str) -> None:
         samesite="strict",
         secure=COOKIE_SECURE,
     )
+
+
+def delete_session_cookie(response: Response) -> None:
+    response.delete_cookie(
+        "session_id", httponly=True, samesite="strict", secure=COOKIE_SECURE
+    )
+
+
+def session_cookie_header(session_id: str) -> str:
+    response = Response()
+    set_session_cookie(response, session_id)
+    return response.headers["set-cookie"]

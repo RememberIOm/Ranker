@@ -1,5 +1,13 @@
 const { test, expect } = require('@playwright/test');
 
+// 인라인 스크립트를 쓰지 않는 CSP에서 막힌 요소가 없는지 확인합니다.
+function watchErrors(page) {
+  const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
+  return errors;
+}
+
 async function setup(page, threeWay = false) {
   await page.request.post('/start');
   await page.request.post('/manage/add-bulk', { form: { names: 'Alpha\nBeta\nGamma' } });
@@ -21,9 +29,9 @@ test('투표와 partial 교체, 건너뛰기, 실행 취소', async ({ page }) =
   await expect(page.locator('#submit-btn')).toBeDisabled();
   await expect(page.locator('#battle-state')).not.toHaveAttribute('data-round-token', token);
   await page.goto('/history');
-  await page.getByRole('button', { name: '마지막 투표 실행 취소' }).click();
+  await page.getByRole('button', { name: '마지막 투표 취소' }).click();
   await page.locator('[data-confirm-ok]').click();
-  await expect(page.getByRole('button', { name: '마지막 투표 실행 취소' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '마지막 투표 취소' })).toHaveCount(0);
   expect(errors).toEqual([]);
 });
 
@@ -77,8 +85,8 @@ test('이름 있는 목록과 복구 코드로 다시 열기', async ({ page, co
   await expect(page.getByRole('heading', { name: '영화 목록', exact: true })).toBeVisible();
   await context.clearCookies();
   await page.goto('/collections');
-  await page.getByLabel('보관한 복구 코드', { exact: true }).fill(code);
-  await page.getByRole('button', { name: '불러오기', exact: true }).click();
+  await page.locator('form[action="/collections/recover"] input[name="code"]').fill(code);
+  await page.locator('form[action="/collections/recover"] button').click();
   await expect(page.getByRole('heading', { name: '영화 목록', exact: true })).toBeVisible();
   await page.getByRole('button', { name: '열기', exact: true }).click();
   await expect(page).toHaveURL(/\/ranking$/);
@@ -91,8 +99,8 @@ test('백업 미리보기 후 교체', async ({ page }) => {
   await page.goto('/manage?tab=data');
   await page.locator('input[type="file"]').setInputFiles({ name: 'backup.json', mimeType: 'application/json', buffer: Buffer.from(backup) });
   await page.locator('#import-form button[type="submit"]').click();
-  await expect(page.getByRole('heading', { name: '가져오기 미리보기' })).toBeVisible();
-  await page.getByRole('button', { name: '확인한 데이터로 교체' }).click();
+  await expect(page.getByRole('heading', { name: '가져오기 확인' })).toBeVisible();
+  await page.getByRole('button', { name: '파일 내용으로 교체' }).click();
   await expect(page).toHaveURL(/\/manage\?tab=data$/);
   const after = await (await page.request.get('/manage/export')).text();
   expect(after).not.toContain('나중에 추가한 항목');
@@ -105,13 +113,13 @@ test('새 모델의 동률 응답은 한 건이며 기록 정리 후에도 다�
   await page.locator('#submit-btn').click();
   await expect(page.locator('#result-modal')).toBeVisible();
   const before = await (await page.request.get('/manage/export')).json();
-  expect(before.schema_version).toBe(3);
+  expect(before.schema_version).toBe(4);
   expect(before.criteria[0].battles).toBe(1);
   expect(before.observations.story[0].count).toBe(1);
-  await page.request.post('/history/archive');
+  await page.request.post('/history/clear');
   await page.goto('/history');
-  await page.getByText('고급 · 현재 설정으로 다시 계산', { exact: true }).click();
-  await page.getByRole('button', { name: '기록된 투표 다시 계산', exact: true }).click();
+  await page.getByText('현재 설정으로 다시 계산', { exact: true }).click();
+  await page.getByRole('button', { name: '다시 계산', exact: true }).click();
   await page.locator('[data-confirm-ok]').click();
   await expect(page).toHaveURL(/\/ranking$/);
   const after = await (await page.request.get('/manage/export')).json();
@@ -132,11 +140,39 @@ test('비블라인드 확률과 설정에 삭제된 휴리스틱이 노출되지
   await expect(page.locator('#battle-state')).toHaveAttribute('data-battle-mode', '2way');
   await expect(page.locator('main')).not.toContainText('NaN');
   await page.goto('/manage?tab=settings');
-  await page.getByText('고급 설정 · 계산 방식과 표시 단위', { exact: true }).click();
+  await page.getByText('고급 설정: 점수 계산과 표시', { exact: true }).click();
   await expect(page.locator('input[name="hierarchical_strength"]')).toHaveCount(0);
   await expect(page.locator('input[name="draw_bandwidth"]')).toHaveCount(0);
   await page.locator('input[name="initial_sigma"]').fill('3');
-  await page.getByRole('button', { name: '설정 저장하기', exact: true }).click();
+  await page.locator('form[action="/manage/settings"] button[type="submit"]').click();
   await expect.poll(async () => (await (await page.request.get('/manage/export')).json()).settings.initial_sigma).toBe(3);
+  expect(errors).toEqual([]);
+});
+
+test('3way 건너뛰기는 저장되고 점수를 바꾸지 않음', async ({ page }) => {
+  const errors = watchErrors(page);
+  await setup(page, true);
+  await page.getByRole('button', { name: '전부 A 최고만 선택' }).click();
+  for (const key of ['visual','ost','voice','char','fun']) await page.locator(`#tied-btn-${key}`).click();
+  await page.locator('#btn-story-skip').click();
+  await expect(page.locator('#submit-btn')).toBeEnabled();
+  await page.locator('#submit-btn').click();
+  await expect(page.locator('#result-modal')).toContainText('스토리 · 건너뜀');
+  await page.locator('#next-battle-btn').click();
+  await expect(page.locator('#result-modal')).toHaveCount(0);
+  const backup = await (await page.request.get('/manage/export')).json();
+  expect(backup.history[0].payload.votes.story).toBe('skip');
+  expect(backup.criteria[0].battles).toBe(0);
+  expect(errors).toEqual([]);
+});
+
+test('주요 화면에서 스크립트·CSP 오류가 없음', async ({ page }) => {
+  const errors = watchErrors(page);
+  await setup(page);
+  for (const path of ['/', '/battle', '/ranking', '/manage?tab=criteria', '/history', '/collections']) {
+    await page.goto(path);
+  }
+  await page.goto('/ranking');
+  await expect(page.locator('#distributionChart')).toBeVisible();
   expect(errors).toEqual([]);
 });

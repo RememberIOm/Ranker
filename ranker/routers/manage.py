@@ -2,33 +2,35 @@
 # 관리 페이지: 항목 CRUD, 대량 추가, 평가 기준 편집, 평점 설정, JSON Import/Export
 # 세션별 DataStore를 사용합니다.
 
+import hashlib
 import json
 import re
-import hashlib
 import unicodedata
 
-from fastapi import APIRouter, Request, Form, UploadFile, File, Depends
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from pydantic import ValidationError
 
-from ranker.deps import MAX_UPLOAD_BYTES, is_htmx, require_store
-from ranker.schemas import CriterionModel, SettingsModel
-from ranker.store import DataStore, InvalidSessionDataError
+from ranker.deps import (
+    UploadTooLargeError,
+    import_error_message,
+    is_htmx,
+    read_backup_upload,
+    require_store,
+)
+from ranker.schemas import CriterionModel, SettingsModel, safe_relative_path
+from ranker.store import DataStore
 from ranker.template_env import templates
 
 router = APIRouter(prefix="/manage", tags=["manage"])
 
 
 def _safe_redirect(url: str, fallback: str) -> str:
-    """외부 URL로의 오픈 리다이렉트를 방지합니다. 상대 경로만 허용합니다."""
-    if (
-        url.startswith("/")
-        and not url.startswith("//")
-        and "\\" not in url
-        and not any(ord(c) < 32 for c in url)
-    ):
-        return url
-    return fallback
+    """외부 URL로의 오픈 리다이렉트를 막습니다."""
+    try:
+        return safe_relative_path(url) or fallback
+    except ValueError:
+        return fallback
 
 
 _VALID_TABS = {"items", "criteria", "settings", "data"}
@@ -80,8 +82,7 @@ async def manage_page(
 async def add_item(
     request: Request, name: str = Form(...), store: DataStore = Depends(require_store)
 ) -> Response:
-    if name.strip():
-        await store.add_item(name)
+    await store.add_items([name])
 
     if is_htmx(request):
         return templates.TemplateResponse(
@@ -101,8 +102,7 @@ async def add_items_bulk(
     request: Request, names: str = Form(...), store: DataStore = Depends(require_store)
 ) -> Response:
     """줄바꿈으로 구분된 이름 목록을 한번에 추가합니다."""
-    name_list = [n.strip() for n in names.splitlines() if n.strip()]
-    await store.add_items_bulk(name_list)
+    await store.add_items(names.splitlines())
 
     if is_htmx(request):
         return templates.TemplateResponse(
@@ -150,7 +150,7 @@ async def edit_item(
     store: DataStore = Depends(require_store),
 ) -> Response:
     if new_name.strip():
-        await store.update_item(item_id, name=new_name.strip())
+        await store.rename_item(item_id, new_name)
 
     if is_htmx(request):
         return templates.TemplateResponse(
@@ -299,9 +299,8 @@ async def update_settings(
 
 @router.get("/export")
 async def export_data(store: DataStore = Depends(require_store)) -> Response:
-    """전체 데이터를 JSON 파일로 다운로드합니다."""
     return Response(
-        content=store.export_json(),
+        content=await store.export_json(),
         media_type="application/json",
         headers={"Content-Disposition": "attachment; filename=ranker_data.json"},
     )
@@ -310,54 +309,40 @@ async def export_data(store: DataStore = Depends(require_store)) -> Response:
 @router.post("/import")
 async def import_data(
     request: Request,
-    file: UploadFile | None = File(None),
-    raw_json: str = Form(""),
-    confirmed_digest: str = Form(""),
+    file: UploadFile = File(...),
     store: DataStore = Depends(require_store),
 ) -> Response:
-    """가져올 데이터와 교체 대상을 먼저 보여주고 같은 상태에서만 교체합니다."""
-    if file is not None:
-        raw = await file.read(MAX_UPLOAD_BYTES + 1)
-        try:
-            raw_json = raw.decode("utf-8")
-        except UnicodeDecodeError:
-            return HTMLResponse("UTF-8 JSON 파일이 필요합니다.", status_code=400)
-    if len(raw_json.encode("utf-8")) > MAX_UPLOAD_BYTES:
-        return HTMLResponse("파일 크기는 64MB를 초과할 수 없습니다.", status_code=413)
+    """백업을 검증해 서버에 잠시 보관하고, 교체될 내용을 먼저 보여줍니다."""
     try:
-        preview = store.preview_import(raw_json)
-    except (ValueError, ValidationError, OverflowError):
-        return HTMLResponse(
-            "유효하지 않은 백업 파일입니다. 기존 데이터는 유지됩니다.", status_code=400
-        )
-    digest = hashlib.sha256((store.export_json() + raw_json).encode()).hexdigest()
-    if confirmed_digest:
-        if confirmed_digest != digest:
-            return HTMLResponse(
-                "미리보기 이후 데이터가 바뀌었습니다. 파일을 다시 선택해 확인해주세요.",
-                status_code=409,
-            )
-        try:
-            await store.import_json(
-                raw_json,
-                expected_export_digest=hashlib.sha256(
-                    store.export_json().encode()
-                ).hexdigest(),
-            )
-        except InvalidSessionDataError:
-            return HTMLResponse(
-                "미리보기 이후 데이터가 바뀌었습니다. 다시 확인해주세요.",
-                status_code=409,
-            )
-        return RedirectResponse(url="/manage?tab=data", status_code=303)
+        preview = await store.stage_import(await read_backup_upload(file))
+    except UploadTooLargeError as exc:
+        return _import_error(request, 413, str(exc))
+    except (ValueError, ValidationError) as exc:
+        return _import_error(request, 400, import_error_message(exc))
     return templates.TemplateResponse(
         request,
         "import_preview.html",
         {
             "preview": preview,
-            "raw_json": raw_json,
-            "digest": digest,
             "current_items": len(store.items),
             "current_criteria": len(store.criteria),
         },
+    )
+
+
+@router.post("/import/confirm")
+async def confirm_import(store: DataStore = Depends(require_store)) -> Response:
+    await store.apply_staged_import()
+    return RedirectResponse(url="/manage?tab=data", status_code=303)
+
+
+def _import_error(request: Request, status: int, message: str) -> Response:
+    return templates.TemplateResponse(
+        request,
+        "error.html",
+        {
+            "message": f"{message} 현재 데이터는 바뀌지 않았습니다.",
+            "back_url": "/manage?tab=data",
+        },
+        status_code=status,
     )

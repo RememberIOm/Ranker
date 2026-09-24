@@ -6,17 +6,16 @@ Independent N(0, initial_sigma²) skills and N(0, 1) log tie prevalences make th
 objective strictly convex. No online updates or pseudo-independent rank breaking.
 """
 
+import math
 from collections import Counter
+from collections.abc import Iterable
 from dataclasses import dataclass
 from functools import cached_property, lru_cache
 from itertools import combinations
-import math
-from typing import Iterable
 
 import numpy as np
 from numpy.typing import NDArray
 from scipy.integrate import cubature
-from scipy.optimize import minimize
 from scipy.sparse import coo_matrix, csc_matrix, diags
 from scipy.sparse.linalg import splu
 from scipy.special import logsumexp, softmax
@@ -56,12 +55,13 @@ def ballot_ranking(ids: list[int], vote: str | dict[str, str]) -> Ranking | None
             raise ValueError("알 수 없는 투표 값입니다.")
         return canonical_ranking(choices[vote])
     if not isinstance(vote, dict):
-        raise ValueError("3개 대결의 순위가 필요합니다.")
+        # Callers treat every malformed ballot as a validation error.
+        raise ValueError("3개 대결의 순위가 필요합니다.")  # noqa: TRY004
     roles: dict[int, str] = {}
     for key, role in vote.items():
         try:
             iid = int(key)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             raise ValueError("숫자가 아닌 항목 ID입니다.") from None
         if iid in roles or iid not in ids or role not in {"best", "worst", "tied"}:
             raise ValueError("중복되거나 알 수 없는 항목·역할입니다.")
@@ -233,7 +233,7 @@ class Posterior:
         }
 
     @classmethod
-    def from_dict(cls, state: dict) -> "Posterior":
+    def from_dict(cls, state: dict) -> Posterior:
         n = len(state["location"])
         return cls(
             tuple(state["item_ids"]),
@@ -243,6 +243,34 @@ class Posterior:
             ).tocsc(),
             state["prior_variance"],
         )
+
+
+def _newton(objective: RankingLikelihood, x: NDArray) -> tuple[NDArray, csc_matrix]:
+    """Damped Newton with the exact sparse Hessian of the strictly convex objective.
+
+    Stops when the Newton decrement, an affine-invariant estimate of the remaining
+    objective gap, is negligible. Absolute gradient thresholds grow with counts.
+    """
+    value, gradient = objective.value_gradient(x)
+    for _ in range(100):
+        precision = objective.precision(x)
+        step = splu(precision).solve(-gradient)
+        decrement = float(-gradient @ step)
+        if not math.isfinite(decrement):
+            break
+        if decrement <= 1e-13 * max(1.0, abs(value)):
+            return x, precision
+        scale = 1.0
+        while scale > 1e-12:
+            candidate = x + scale * step
+            new_value, new_gradient = objective.value_gradient(candidate)
+            if new_value <= value - 0.25 * scale * decrement:
+                break
+            scale /= 2
+        else:
+            break
+        x, value, gradient = candidate, new_value, new_gradient
+    raise FitConvergenceError("평점 계산이 수렴하지 않았습니다. 저장하지 않았습니다.")
 
 
 def fit_rankings(
@@ -258,31 +286,11 @@ def fit_rankings(
     if len(weights) != len(groups) or any(type(w) is not int or w < 1 for w in weights):
         raise ValueError("관측 수는 양의 정수여야 합니다.")
     aggregated = Counter()
-    for ranking, count in zip(groups, weights):
+    for ranking, count in zip(groups, weights, strict=True):
         aggregated[ranking] += count
     objective = RankingLikelihood(sorted(aggregated.items()), initial_sigma**2)
-    x = np.zeros(len(objective.item_ids) + 2)
-    if groups:
-        result = minimize(
-            objective.value_gradient,
-            x,
-            jac=True,
-            method="L-BFGS-B",
-            options={"gtol": 1e-9, "ftol": 1e-14, "maxiter": 1000, "maxls": 50},
-        )
-        x = result.x
-        _, gradient = objective.value_gradient(x)
-        if (
-            not np.isfinite(x).all()
-            or not np.isfinite(gradient).all()
-            or np.max(np.abs(gradient)) > 5e-5
-        ):
-            raise FitConvergenceError(
-                "평점 계산이 수렴하지 않았습니다. 저장하지 않았습니다."
-            )
-    return Posterior(
-        tuple(objective.item_ids), x, objective.precision(x), initial_sigma**2
-    )
+    x, precision = _newton(objective, np.zeros(len(objective.item_ids) + 2))
+    return Posterior(tuple(objective.item_ids), x, precision, initial_sigma**2)
 
 
 def ranking_probability(

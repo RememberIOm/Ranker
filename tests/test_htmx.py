@@ -1,24 +1,24 @@
 """HTMX partial 응답 통합 테스트"""
 
-import httpx
+import httpx2
 import pytest
-from httpx import ASGITransport
+from httpx2 import ASGITransport
 
 from ranker.main import app
 
 
 @pytest.fixture()
-async def client(_temp_db) -> httpx.AsyncClient:
+async def client(_temp_db) -> httpx2.AsyncClient:
     """세션이 설정된 테스트 클라이언트를 반환합니다."""
     transport = ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+    async with httpx2.AsyncClient(transport=transport, base_url="http://test") as c:
         # 새 세션 생성
         resp = await c.post("/start", follow_redirects=False)
         assert resp.status_code == 303
         yield c
 
 
-async def _setup_battle(client: httpx.AsyncClient) -> None:
+async def _setup_battle(client: httpx2.AsyncClient) -> None:
     """배틀에 필요한 항목과 기준을 설정합니다."""
     await client.post("/manage/add", data={"name": "Alpha"})
     await client.post("/manage/add", data={"name": "Beta"})
@@ -36,7 +36,7 @@ async def _setup_battle(client: httpx.AsyncClient) -> None:
 
 class TestBattleHTMX:
     async def test_get_battle_htmx_returns_partial(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         """GET /battle + HX-Request → partial HTML (<!DOCTYPE 없음)"""
         await _setup_battle(client)
@@ -47,7 +47,7 @@ class TestBattleHTMX:
         assert "criteria-list" in resp.text
 
     async def test_get_battle_normal_returns_full_page(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         """GET /battle (일반 요청) → full HTML"""
         await _setup_battle(client)
@@ -55,7 +55,9 @@ class TestBattleHTMX:
         assert resp.status_code == 200
         assert "<!DOCTYPE" in resp.text
 
-    async def test_post_vote_htmx_returns_html(self, client: httpx.AsyncClient) -> None:
+    async def test_post_vote_htmx_returns_html(
+        self, client: httpx2.AsyncClient
+    ) -> None:
         """POST /battle/vote + HX-Request → 결과 모달 HTML + OOB swap"""
         await _setup_battle(client)
         # 배틀 페이지에서 라운드 토큰 추출
@@ -89,34 +91,37 @@ class TestBattleHTMX:
         assert "result-modal" in vote_resp.text
         assert "hx-swap-oob" in vote_resp.text
 
-    async def test_post_vote_non_htmx_returns_json(
-        self, client: httpx.AsyncClient
+    async def test_three_way_skip_is_saved_as_a_skip(
+        self, client: httpx2.AsyncClient
     ) -> None:
-        """POST /battle/vote (일반 요청) → JSON"""
-        await _setup_battle(client)
-        resp = await client.get("/battle")
+        """3개 비교의 건너뛰기는 문자열 "skip"으로 저장됩니다."""
         import re
 
-        token_match = re.search(r'data-round-token="([^"]+)"', resp.text)
-        id1_match = re.search(r'data-item1-id="(\d+)"', resp.text)
-        id2_match = re.search(r'data-item2-id="(\d+)"', resp.text)
-
+        await _setup_battle(client)
+        await client.post(
+            "/manage/settings", data={"battle_mode": "3way", "blind_mode": "on"}
+        )
+        resp = await client.get("/battle")
+        state = {
+            key: re.search(rf'data-{key}="([^"]+)"', resp.text).group(1)
+            for key in ("item1-id", "item2-id", "item3-id", "round-token")
+        }
         vote_resp = await client.post(
-            "/battle/vote",
+            "/battle/vote/3way",
             json={
-                "item1_id": int(id1_match.group(1)),
-                "item2_id": int(id2_match.group(1)),
-                "round_token": token_match.group(1),
-                "votes": {"story": "1"},
+                "item1_id": int(state["item1-id"]),
+                "item2_id": int(state["item2-id"]),
+                "item3_id": int(state["item3-id"]),
+                "round_token": state["round-token"],
+                "votes": {"story": "skip"},
             },
         )
         assert vote_resp.status_code == 200
-        data = vote_resp.json()
-        assert "results" in data
-        assert "next_url" in data
+        assert "건너뜀" in vote_resp.text
+        assert 'id="battle-arena" hx-swap-oob' in vote_resp.text
 
     async def test_result_modal_has_hold_button_when_auto_skip(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         """auto_skip 활성화 시 결과 모달이 "유지" 버튼과 노출된 auto-skip-area를 포함한다."""
         await _setup_battle(client)
@@ -160,11 +165,11 @@ class TestBattleHTMX:
         assert click_area, "click-skip-area div를 찾을 수 없습니다"
         assert "hidden" in click_area.group(1)
         # 유지 버튼이 존재해야 함
-        assert "cancelAutoSkip()" in body
+        assert 'data-battle="keep-result"' in body
         assert "유지" in body
 
     async def test_result_modal_no_hold_button_when_manual(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         """auto_skip 비활성화(기본) 시 결과 모달은 click-skip 영역만 노출한다."""
         await _setup_battle(client)
@@ -199,7 +204,7 @@ class TestBattleHTMX:
 
 
 class TestManageHTMX:
-    async def test_add_item_htmx_returns_list(self, client: httpx.AsyncClient) -> None:
+    async def test_add_item_htmx_returns_list(self, client: httpx2.AsyncClient) -> None:
         """POST /manage/add + HX-Request → 항목 리스트 HTML"""
         resp = await client.post(
             "/manage/add",
@@ -211,7 +216,9 @@ class TestManageHTMX:
         assert "TestItem" in resp.text
         assert "<!DOCTYPE" not in resp.text
 
-    async def test_add_item_non_htmx_redirects(self, client: httpx.AsyncClient) -> None:
+    async def test_add_item_non_htmx_redirects(
+        self, client: httpx2.AsyncClient
+    ) -> None:
         """POST /manage/add (일반 요청) → 303 redirect"""
         resp = await client.post(
             "/manage/add",
@@ -221,7 +228,7 @@ class TestManageHTMX:
         assert resp.status_code == 303
 
     async def test_delete_item_htmx_returns_updated_empty_list(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         """POST /manage/delete는 빈 상태와 항목 수를 함께 갱신합니다."""
         # 항목 추가
@@ -245,7 +252,7 @@ class TestManageHTMX:
         assert "항목 0개" in del_resp.text
         assert "ToDelete" not in del_resp.text
 
-    async def test_edit_item_htmx_returns_row(self, client: httpx.AsyncClient) -> None:
+    async def test_edit_item_htmx_returns_row(self, client: httpx2.AsyncClient) -> None:
         """POST /manage/edit + HX-Request → 수정된 항목 행 HTML"""
         await client.post("/manage/add", data={"name": "Original"})
         resp = await client.get("/manage?tab=items")
@@ -265,7 +272,7 @@ class TestManageHTMX:
         assert "<!DOCTYPE" not in edit_resp.text
 
     async def test_settings_htmx_returns_toast_trigger(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         """POST /manage/settings + HX-Request → HX-Trigger 헤더"""
         resp = await client.post(
@@ -280,7 +287,7 @@ class TestManageHTMX:
         assert "showToast" in trigger
 
     async def test_criteria_htmx_returns_toast_trigger(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         """POST /manage/criteria + HX-Request → HX-Trigger 헤더"""
         resp = await client.post(

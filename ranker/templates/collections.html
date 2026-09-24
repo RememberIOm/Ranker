@@ -3,7 +3,17 @@
 {% block content %}
 <div class="mx-auto max-w-3xl">
   <h1 class="mb-2 font-display text-2xl font-bold">내 랭킹</h1>
-  <p class="mb-6 text-sm leading-relaxed text-zinc-500 dark:text-zinc-400">주제별로 랭킹을 만들어 따로 평가하세요. 랭킹은 직접 삭제할 때까지 보관됩니다. 다른 브라우저에서는 복구 코드를 사용하세요.</p>
+  <p class="mb-6 text-sm leading-relaxed text-zinc-500 dark:text-zinc-400">주제마다 랭킹을 따로 만들 수 있습니다. 목록에 넣은 랭킹은 직접 지우기 전까지 남아 있습니다.</p>
+  {% if unlisted %}
+  <section class="card mb-6 border-amber-300 p-5 dark:border-amber-500/40">
+    <h2 class="mb-2 font-bold">지금 열린 랭킹이 목록에 없습니다</h2>
+    <p class="mb-3 text-sm text-zinc-500">목록에 없는 랭킹은 7일 동안 열지 않으면 삭제됩니다. 계속 쓰려면 목록에 넣어주세요.</p>
+    <form action="/collections/keep-current" method="post" class="flex flex-wrap gap-2">
+      <label class="min-w-0 flex-1"><span class="sr-only">랭킹 이름</span><input type="text" name="name" required maxlength="100" value="내 랭킹" class="field-input"></label>
+      <button type="submit" class="btn-primary">목록에 넣기</button>
+    </form>
+  </section>
+  {% endif %}
   <section class="card mb-6 p-5">
     <h2 class="mb-3 font-bold">새 랭킹 만들기</h2>
     <form action="/collections/create" method="post" class="flex flex-wrap gap-2">
@@ -15,44 +25,37 @@
     {% for board in boards %}
     <li class="card p-5">
       <div class="flex flex-wrap items-center justify-between gap-3">
-        <div><h2 class="font-bold break-words">{{ board.name }}</h2><p class="mt-1 text-xs text-zinc-500">항목 {{ board.item_count }}개{% if board.session_id == active_session_id %} · 현재 랭킹{% endif %}</p></div>
+        <div><h2 class="font-bold break-words">{{ board.name }}</h2><p class="mt-1 text-xs text-zinc-500">항목 {{ board.item_count }}개{% if board.session_id == active_session_id %} · 지금 열림{% endif %}</p></div>
         <form action="/collections/switch" method="post"><input type="hidden" name="session_id" value="{{ board.session_id }}"><button type="submit" class="btn-primary">열기</button></form>
       </div>
-      <details class="mt-4"><summary class="cursor-pointer text-sm font-semibold text-zinc-500">이름 변경</summary>
+      <details class="mt-4"><summary class="cursor-pointer text-sm font-semibold text-zinc-500">이름 바꾸기</summary>
         <form action="/collections/rename" method="post" class="mt-3 flex flex-wrap gap-2">
           <input type="hidden" name="session_id" value="{{ board.session_id }}">
           <label class="min-w-0 flex-1"><span class="sr-only">{{ board.name }}의 새 이름</span><input type="text" name="name" value="{{ board.name }}" required maxlength="100" class="field-input"></label>
           <button type="submit" class="btn-secondary">저장</button>
         </form>
       </details>
-      <form action="/collections/delete" method="post" data-confirm-message="이 랭킹의 항목·점수·투표 기록을 영구 삭제하시겠습니까? 필요한 데이터는 먼저 JSON으로 내보내세요." class="mt-3">
+      <form action="/collections/delete" method="post" data-confirm-message="이 랭킹의 항목·점수·투표 내역을 모두 지울까요? 되돌릴 수 없습니다." class="mt-3">
         <input type="hidden" name="session_id" value="{{ board.session_id }}"><button type="submit" class="btn-ghost text-rose-600 dark:text-rose-400">랭킹 삭제</button>
       </form>
     </li>
-    {% else %}<li class="card p-8 text-center text-sm text-zinc-500">아직 랭킹이 없습니다. 위에서 첫 랭킹을 만들어주세요.</li>{% endfor %}
+    {% else %}<li class="card p-8 text-center text-sm text-zinc-500">아직 랭킹이 없습니다.</li>{% endfor %}
   </ul>
+  {% if recovery_code %}
   <section class="card mb-5 p-5">
-    <h2 class="mb-2 font-bold">다른 브라우저에서도 이어서 사용</h2>
-    <p class="text-sm leading-relaxed text-zinc-500">이 복구 코드를 보관하세요. 코드를 가진 사람은 내 랭킹에 접근할 수 있으니 공개하지 마세요. 별도 JSON 내보내기로 데이터도 백업할 수 있습니다.</p>
-    <details class="mt-4"><summary class="cursor-pointer font-semibold">내 복구 코드 보기</summary>
-      <div class="mt-3 flex flex-wrap gap-2"><label class="min-w-0 flex-1"><span class="sr-only">내 복구 코드</span><input id="recovery-code" type="text" readonly value="{{ recovery_code }}" class="field-input font-mono text-sm"></label><button type="button" onclick="copyRecoveryCode()" class="btn-secondary">복사</button></div>
+    <h2 class="mb-2 font-bold">다른 브라우저에서 열기</h2>
+    <p class="text-sm leading-relaxed text-zinc-500">복구 코드가 있으면 다른 브라우저에서도 이 목록을 열 수 있습니다. 코드를 아는 사람은 누구나 목록에 들어올 수 있으니 따로 보관하세요.</p>
+    <details class="mt-4"><summary class="cursor-pointer font-semibold">복구 코드 보기</summary>
+      <div class="mt-3 flex flex-wrap gap-2"><label class="min-w-0 flex-1"><span class="sr-only">복구 코드</span><input id="recovery-code" type="text" readonly value="{{ recovery_code }}" class="field-input font-mono text-sm"></label><button type="button" data-action="copy-recovery-code" class="btn-secondary">복사</button></div>
     </details>
   </section>
+  {% endif %}
   <section class="card p-5">
-    <h2 class="mb-3 font-bold">보관한 복구 코드로 열기</h2>
+    <h2 class="mb-3 font-bold">복구 코드로 열기</h2>
     <form action="/collections/recover" method="post" class="flex flex-wrap gap-2">
-      <label class="min-w-0 flex-1"><span class="sr-only">보관한 복구 코드</span><input type="password" name="code" required autocomplete="off" placeholder="복구 코드 입력" class="field-input"></label>
-      <button type="submit" class="btn-primary">불러오기</button>
+      <label class="min-w-0 flex-1"><span class="sr-only">복구 코드</span><input type="password" name="code" required autocomplete="off" placeholder="복구 코드" class="field-input"></label>
+      <button type="submit" class="btn-primary">목록 불러오기</button>
     </form>
   </section>
 </div>
-{% endblock %}
-{% block scripts %}
-<script>
-async function copyRecoveryCode() {
-  var field = document.getElementById('recovery-code');
-  try { await navigator.clipboard.writeText(field.value); showToast('복구 코드를 복사했습니다.', 'success'); }
-  catch (error) { field.focus(); field.select(); showToast('선택된 코드를 직접 복사해주세요.', 'info'); }
-}
-</script>
 {% endblock %}

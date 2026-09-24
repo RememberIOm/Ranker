@@ -10,16 +10,17 @@ from pydantic import (
     model_validator,
 )
 
-
 MAX_BACKUP_BYTES = 64 * 1024 * 1024
+MAX_HISTORY_EVENTS = 100_000
+MAX_ID = 2**63 - 1
 
 
 VoteChoice = Literal["1", "2", "draw", "skip"]
 ThreeWayRole = Literal["best", "worst", "tied"]
 
 
-def _safe_relative_path(value: str | None) -> str | None:
-    """오픈 리다이렉트 방지 — 상대 경로만 허용합니다."""
+def safe_relative_path(value: str | None) -> str | None:
+    """오픈 리다이렉트 방지 — 같은 사이트의 절대 경로만 허용합니다."""
     if value in (None, ""):
         return None
     if (
@@ -32,7 +33,7 @@ def _safe_relative_path(value: str | None) -> str | None:
     raise ValueError("redirect_to는 안전한 상대 경로여야 합니다.")
 
 
-SafeRedirect = Annotated[str | None, AfterValidator(_safe_relative_path)]
+SafeRedirect = Annotated[str | None, AfterValidator(safe_relative_path)]
 
 
 class SettingsModel(BaseModel):
@@ -70,7 +71,7 @@ class CriterionModel(BaseModel):
     draws: int = Field(default=0, ge=0, le=2**63 - 1)
 
     @model_validator(mode="after")
-    def validate_counters(self) -> "CriterionModel":
+    def validate_counters(self) -> CriterionModel:
         if self.draws > self.battles:
             raise ValueError("무승부 수는 비교 수를 넘을 수 없습니다.")
         return self
@@ -132,7 +133,7 @@ class ActiveRoundModel(BaseModel):
     issued_at: float = Field(ge=0.0)
 
     @model_validator(mode="after")
-    def validate_distinct_items(self) -> "ActiveRoundModel":
+    def validate_distinct_items(self) -> ActiveRoundModel:
         ids = [self.item1_id, self.item2_id]
         if self.item3_id is not None:
             ids.append(self.item3_id)
@@ -195,9 +196,11 @@ class SessionDataModel(BaseModel):
         default_factory=dict
     )
     posteriors: dict[str, PosteriorModel] = Field(default_factory=dict)
+    # Item IDs are never reused, even for items deleted before any vote.
+    next_item_id: int = Field(default=1, ge=1, le=MAX_ID)
 
     @model_validator(mode="after")
-    def validate_consistency(self) -> "SessionDataModel":
+    def validate_consistency(self) -> SessionDataModel:
         criterion_keys = [criterion.key for criterion in self.criteria]
         if len(set(criterion_keys)) != len(criterion_keys):
             raise ValueError("criteria.key는 중복될 수 없습니다.")
@@ -232,6 +235,15 @@ class SessionDataModel(BaseModel):
                         f"item {item.id}에 정의되지 않은 {field_name} key가 있습니다: {sorted(unknown)}"
                     )
 
+        used = item_ids | {
+            i
+            for rows in self.observations.values()
+            for row in rows
+            for group in row.groups
+            for i in group
+        }
+        if used and self.next_item_id <= max(used):
+            raise ValueError("next_item_id는 사용된 항목 ID보다 커야 합니다.")
         return self
 
 
@@ -245,49 +257,10 @@ class BattleVoteRequest(BaseModel):
     redirect_to: SafeRedirect = None
 
     @model_validator(mode="after")
-    def validate_item_pair(self) -> "BattleVoteRequest":
+    def validate_item_pair(self) -> BattleVoteRequest:
         if self.item1_id == self.item2_id:
             raise ValueError("같은 항목끼리는 대결할 수 없습니다.")
         return self
-
-
-class CriteriaResult(BaseModel):
-    """개별 기준의 정적 순위 모형 재적합 결과"""
-
-    key: str
-    label: str
-    color: str
-    winner: VoteChoice
-    old_r1: float
-    new_r1: float
-    diff_r1: float
-    old_r2: float
-    new_r2: float
-    diff_r2: float
-    sigma1: float
-    sigma2: float
-
-
-class SkippedCriteriaResult(BaseModel):
-    """건너뛴 기준에는 점수 변화가 없습니다."""
-
-    key: str
-    label: str
-    color: str
-    skipped: Literal[True] = True
-    winner: Literal["skip"] | None = None
-
-
-class BattleVoteResponse(BaseModel):
-    """전체 배틀 투표 응답 — 모든 criteria 결과를 한번에 반환"""
-
-    a1_id: int
-    a2_id: int
-    a1_name: str
-    a2_name: str
-    results: list[CriteriaResult | SkippedCriteriaResult]
-    total_items: int
-    next_url: str
 
 
 # --- 3-way Battle ---
@@ -306,36 +279,74 @@ class ThreeWayBattleVoteRequest(BaseModel):
     redirect_to: SafeRedirect = None
 
     @model_validator(mode="after")
-    def validate_item_triple(self) -> "ThreeWayBattleVoteRequest":
+    def validate_item_triple(self) -> ThreeWayBattleVoteRequest:
         ids = {self.item1_id, self.item2_id, self.item3_id}
         if len(ids) != 3:
             raise ValueError("3-way 대결에는 서로 다른 3개 항목이 필요합니다.")
         return self
 
 
-class ThreeWayCriteriaResult(BaseModel):
-    """3-way 개별 기준 결과"""
+class VotePayloadModel(BaseModel):
+    """One submitted ballot: the compared items and every criterion's answer."""
 
-    key: str
-    label: str
-    color: str
-    best_id: int | None = None
-    worst_id: int | None = None
-    middle_id: int | None = None
-    ratings: dict[str, float]  # {item_id_str: new_display_rating}
-    diffs: dict[str, float]  # {item_id_str: rating_change}
-    sigmas: dict[str, float]  # {item_id_str: display_uncertainty}
+    model_config = ConfigDict(extra="forbid")
+
+    item1_id: int = Field(ge=1, le=MAX_ID)
+    item2_id: int = Field(ge=1, le=MAX_ID)
+    item3_id: int | None = Field(default=None, ge=1, le=MAX_ID)
+    votes: dict[str, VoteChoice | dict[str, ThreeWayRole] | Literal["skip"]] = Field(
+        min_length=1
+    )
+
+    @property
+    def ids(self) -> list[int]:
+        ids = [self.item1_id, self.item2_id]
+        return ids if self.item3_id is None else [*ids, self.item3_id]
+
+    @model_validator(mode="after")
+    def validate_ballots(self) -> VotePayloadModel:
+        from ranker.rating_engine import ballot_ranking
+
+        for vote in self.votes.values():
+            ballot_ranking(self.ids, vote)
+        return self
 
 
-class ThreeWayBattleVoteResponse(BaseModel):
-    """3-way 배틀 투표 응답"""
+class VoteEventModel(BaseModel):
+    """A vote history entry, with names and labels as they were at vote time."""
 
-    a1_id: int
-    a2_id: int
-    a3_id: int
-    a1_name: str
-    a2_name: str
-    a3_name: str
-    results: list[ThreeWayCriteriaResult | SkippedCriteriaResult]
-    total_items: int
-    next_url: str
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+
+    id: int = Field(ge=1, le=MAX_ID)
+    mode: Literal["2way", "3way"]
+    created_at: float = Field(ge=0, le=253_402_300_799)
+    undone: bool = False
+    archived: bool = False
+    payload: VotePayloadModel
+    names: dict[str, Annotated[str, Field(max_length=500)]]
+    labels: dict[str, Annotated[str, Field(max_length=200)]]
+
+    @model_validator(mode="after")
+    def validate_shape(self) -> VoteEventModel:
+        if (self.mode == "3way") != (self.payload.item3_id is not None):
+            raise ValueError("대결 방식과 항목 수가 다릅니다.")
+        if set(self.names) != {str(i) for i in self.payload.ids}:
+            raise ValueError("투표 기록의 항목 이름이 대결 항목과 다릅니다.")
+        if set(self.labels) != set(self.payload.votes):
+            raise ValueError("투표 기록의 기준 이름이 투표 기준과 다릅니다.")
+        return self
+
+
+class BackupModel(BaseModel):
+    """Backup format 4. Posteriors are derived and refitted on import."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal[4]
+    settings: dict
+    criteria: list
+    items: list
+    next_item_id: int
+    observations: dict
+    exposures: dict
+    history: list[VoteEventModel] = Field(max_length=MAX_HISTORY_EVENTS)

@@ -14,36 +14,36 @@
   </h1>
 
   <p class="animate-slide-up mt-6 text-base leading-relaxed text-zinc-600 sm:text-lg dark:text-zinc-400" style="animation-delay: 80ms">
-    직관적인 양자택일로 최고의 항목을 가려내세요.<br>
-    당신의 선택이 실시간으로 랭킹을 변화시킵니다.
+    두세 개씩 놓고 더 나은 쪽을 고르면 순위가 정해집니다.<br>
+    영화, 음식, 여행지처럼 무엇이든 비교할 수 있습니다.
   </p>
 
   {% if has_session %}
   <div class="animate-slide-up mt-10 flex flex-col items-center gap-3 sm:flex-row" style="animation-delay: 160ms">
     <a href="/battle" class="btn-primary w-full px-8 py-3.5 text-base sm:w-auto">
-      {{ icon('swords') }} 대결 시작하기
+      {{ icon('swords') }} 대결하기
     </a>
     <a href="/ranking" class="btn-secondary w-full px-8 py-3.5 text-base sm:w-auto">
       {{ icon('trophy') }} 랭킹 보기
     </a>
   </div>
-  <div class="animate-slide-up mt-8 flex items-center gap-3 text-sm" style="animation-delay: 240ms">
-    <span class="text-xs font-bold tracking-widest text-zinc-400 uppercase dark:text-zinc-500">Management</span>
-    <a href="/manage" class="font-semibold text-violet-600 underline-offset-4 hover:underline dark:text-violet-400">데이터 관리 &rarr;</a>
+  <div class="animate-slide-up mt-8 flex items-center gap-4 text-sm" style="animation-delay: 240ms">
+    <a href="/manage" class="font-semibold text-violet-600 underline-offset-4 hover:underline dark:text-violet-400">항목·기준 관리 &rarr;</a>
+    <a href="/collections" class="font-semibold text-violet-600 underline-offset-4 hover:underline dark:text-violet-400">내 랭킹 &rarr;</a>
   </div>
 
   {% else %}
   <div class="animate-slide-up mt-10 w-full max-w-md" style="animation-delay: 160ms">
     <div class="card p-6 text-left">
       <h2 class="flex items-center gap-2 font-display text-lg font-bold">
-        <span class="text-violet-600 dark:text-violet-400">{{ icon('folder-open') }}</span> 기존 데이터로 시작
+        <span class="text-violet-600 dark:text-violet-400">{{ icon('folder-open') }}</span> 백업 파일로 시작
       </h2>
-      <p class="mt-1.5 text-sm text-zinc-600 dark:text-zinc-400">이전에 내보낸 JSON 파일을 업로드하여 이어서 진행합니다.</p>
-      <form id="upload-form" action="/upload" method="post" enctype="multipart/form-data" class="mt-4 flex flex-col gap-3">
+      <p class="mt-1.5 text-sm text-zinc-600 dark:text-zinc-400">Ranker에서 내보낸 JSON 파일을 올리면 이어서 할 수 있습니다.</p>
+      <form action="/upload" method="post" enctype="multipart/form-data" data-busy-label="불러오는 중…" class="mt-4 flex flex-col gap-3">
         <input type="file" name="file" accept="application/json,.json" required aria-label="JSON 파일 선택"
                class="field-input cursor-pointer py-2.5 file:mr-3 file:cursor-pointer file:rounded-lg file:border-0 file:bg-violet-100 file:px-3 file:py-1.5 file:text-xs file:font-bold file:text-violet-700 dark:file:bg-violet-500/20 dark:file:text-violet-300">
-        <button type="submit" id="upload-btn" class="btn-primary">
-          {{ icon('upload') }} 업로드 &amp; 시작
+        <button type="submit" class="btn-primary">
+          {{ icon('upload') }} 불러오기
         </button>
       </form>
     </div>
@@ -56,30 +56,15 @@
 
     <form action="/start" method="post">
       <button type="submit" class="btn-secondary w-full py-3.5">
-        {{ icon('sparkles') }} 빈 데이터로 새로 시작
+        {{ icon('sparkles') }} 새 랭킹 만들기
       </button>
     </form>
   </div>
 
   <p class="animate-fade-in mt-10 text-xs leading-relaxed text-zinc-500 dark:text-zinc-500" style="animation-delay: 320ms">
-    각 사용자는 독립된 세션에서 자신만의 데이터를 관리합니다.<br>
-    랭킹은 직접 삭제할 때까지 보관됩니다. 내 랭킹에서 복구 코드를 보관하고, 관리 → 데이터에서 JSON으로 백업할 수 있습니다.
+    만든 랭킹은 ‘내 랭킹’ 목록에 남습니다.<br>
+    다른 브라우저에서는 복구 코드로 열고, 백업은 관리 → 데이터에서 받을 수 있습니다.
   </p>
   {% endif %}
 </section>
-{% endblock %}
-
-{% block scripts %}
-{% if not has_session %}
-<script>
-  (function () {
-    var form = document.getElementById('upload-form');
-    var btn = document.getElementById('upload-btn');
-    form.addEventListener('submit', function () {
-      btn.disabled = true;
-      btn.innerHTML = '<svg class="h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 0 1 8-8v4a4 4 0 0 0-4 4H4z"></path></svg><span>업로드 중...</span>';
-    });
-  })();
-</script>
-{% endif %}
 {% endblock %}

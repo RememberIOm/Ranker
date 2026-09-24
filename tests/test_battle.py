@@ -1,9 +1,10 @@
 from typing import Any
+
 import pytest
 from pydantic import ValidationError
 
-from ranker.schemas import BattleVoteRequest, ThreeWayBattleVoteRequest
 from ranker import store
+from ranker.schemas import BattleVoteRequest, ThreeWayBattleVoteRequest
 
 
 class TestBattleVoteValidation:
@@ -29,7 +30,7 @@ class TestBattleVoteValidation:
         item2 = store_with_items.items[1]
         votes = {criterion["key"]: "1" for criterion in store_with_items.criteria}
         round_token = await store_with_items.issue_battle_round(
-            item1["id"], item2["id"]
+            [item1["id"], item2["id"]]
         )
         payload = BattleVoteRequest(
             item1_id=item1["id"],
@@ -39,11 +40,11 @@ class TestBattleVoteValidation:
             redirect_to="/battle",
         )
 
-        result = await store_with_items.apply_battle_vote(payload)
+        result = await store_with_items.apply_vote(payload)
         assert result["a1_id"] == item1["id"]
 
         with pytest.raises(store.StaleBattleRoundError):
-            await store_with_items.apply_battle_vote(payload)
+            await store_with_items.apply_vote(payload)
 
     async def test_unknown_winner_value_raises(
         self, store_with_items: store.DataStore
@@ -58,7 +59,7 @@ class TestBattleVoteValidation:
         s = store_with_items
         item1 = s.items[0]
         item2 = s.items[1]
-        token = await s.issue_battle_round(item1["id"], item2["id"])
+        token = await s.issue_battle_round([item1["id"], item2["id"]])
         votes = {c["key"]: "unknown" for c in s.criteria}  # 알 수 없는 vote 값
         # Literal 검증을 우회하기 위해 SimpleNamespace로 페이로드 모사
         payload = SimpleNamespace(
@@ -70,7 +71,7 @@ class TestBattleVoteValidation:
         )
 
         with pytest.raises(store.InvalidBattleVoteError):
-            await s.apply_battle_vote(payload)  # type: ignore[arg-type]
+            await s.apply_vote(payload)  # type: ignore[arg-type]
 
     async def test_vote_result_contains_sigma(
         self, store_with_items: store.DataStore
@@ -79,7 +80,7 @@ class TestBattleVoteValidation:
         item1 = store_with_items.items[0]
         item2 = store_with_items.items[1]
         votes = {criterion["key"]: "1" for criterion in store_with_items.criteria}
-        token = await store_with_items.issue_battle_round(item1["id"], item2["id"])
+        token = await store_with_items.issue_battle_round([item1["id"], item2["id"]])
         payload = BattleVoteRequest(
             item1_id=item1["id"],
             item2_id=item2["id"],
@@ -87,7 +88,7 @@ class TestBattleVoteValidation:
             votes=votes,
             redirect_to="/battle",
         )
-        result = await store_with_items.apply_battle_vote(payload)
+        result = await store_with_items.apply_vote(payload)
         for r in result["results"]:
             assert "sigma1" in r
             assert "sigma2" in r
@@ -106,7 +107,7 @@ class TestThreeWayTiedVote:
         s = store_with_three_items
         items = s.items
         token = await s.issue_battle_round(
-            items[0]["id"], items[1]["id"], items[2]["id"]
+            [items[0]["id"], items[1]["id"], items[2]["id"]]
         )
 
         votes = {}
@@ -123,7 +124,7 @@ class TestThreeWayTiedVote:
             round_token=token,
             votes=votes,
         )
-        resp_data = await s.apply_three_way_vote(payload)
+        resp_data = await s.apply_vote(payload)
 
         # best(item1)는 레이팅 상승
         for r in resp_data["results"]:
@@ -141,7 +142,7 @@ class TestThreeWayTiedVote:
         s = store_with_three_items
         items = s.items
         token = await s.issue_battle_round(
-            items[0]["id"], items[1]["id"], items[2]["id"]
+            [items[0]["id"], items[1]["id"], items[2]["id"]]
         )
 
         votes = {}
@@ -158,7 +159,7 @@ class TestThreeWayTiedVote:
             round_token=token,
             votes=votes,
         )
-        resp_data = await s.apply_three_way_vote(payload)
+        resp_data = await s.apply_vote(payload)
 
         # worst(item1)는 레이팅 하락
         for r in resp_data["results"]:
@@ -177,7 +178,7 @@ class TestThreeWayTiedVote:
         s = store_with_three_items
         items = s.items
         token = await s.issue_battle_round(
-            items[0]["id"], items[1]["id"], items[2]["id"]
+            [items[0]["id"], items[1]["id"], items[2]["id"]]
         )
 
         votes = {}
@@ -194,7 +195,7 @@ class TestThreeWayTiedVote:
             round_token=token,
             votes=votes,
         )
-        resp_data = await s.apply_three_way_vote(payload)
+        resp_data = await s.apply_vote(payload)
 
         # 모든 레이팅 변화가 0에 가까움 (동일 레이팅 항목들의 대칭 무승부)
         for r in resp_data["results"]:
@@ -216,7 +217,7 @@ class TestThreeWayTiedVote:
         s = store_with_three_items
         items = s.items
         token = await s.issue_battle_round(
-            items[0]["id"], items[1]["id"], items[2]["id"]
+            [items[0]["id"], items[1]["id"], items[2]["id"]]
         )
 
         votes = {}
@@ -234,7 +235,7 @@ class TestThreeWayTiedVote:
             votes=votes,
         )
         with pytest.raises(store.InvalidBattleVoteError):
-            await s.apply_three_way_vote(payload)
+            await s.apply_vote(payload)
 
     async def test_non_numeric_id_key_rejected(
         self, store_with_three_items: store.DataStore
@@ -243,7 +244,7 @@ class TestThreeWayTiedVote:
         s = store_with_three_items
         items = s.items
         token = await s.issue_battle_round(
-            items[0]["id"], items[1]["id"], items[2]["id"]
+            [items[0]["id"], items[1]["id"], items[2]["id"]]
         )
 
         votes = {}
@@ -261,7 +262,7 @@ class TestThreeWayTiedVote:
             votes=votes,
         )
         with pytest.raises(store.InvalidBattleVoteError):
-            await s.apply_three_way_vote(payload)
+            await s.apply_vote(payload)
 
     async def test_duplicate_item_id_in_vote_rejected(
         self, store_with_three_items: store.DataStore
@@ -277,7 +278,7 @@ class TestThreeWayTiedVote:
         if items[0]["id"] != 1:
             pytest.skip("이 회귀 테스트는 첫 항목 id가 1일 때만 의미가 있습니다.")
         token = await s.issue_battle_round(
-            items[0]["id"], items[1]["id"], items[2]["id"]
+            [items[0]["id"], items[1]["id"], items[2]["id"]]
         )
 
         votes = {}
@@ -295,7 +296,7 @@ class TestThreeWayTiedVote:
             votes=votes,
         )
         with pytest.raises(store.InvalidBattleVoteError):
-            await s.apply_three_way_vote(payload)
+            await s.apply_vote(payload)
 
 
 # --- 3-way Mode B (Full Ranking) ---
@@ -309,7 +310,7 @@ class TestThreeWayModeBVote:
         s = store_with_three_items
         items = s.items
         token = await s.issue_battle_round(
-            items[0]["id"], items[1]["id"], items[2]["id"]
+            [items[0]["id"], items[1]["id"], items[2]["id"]]
         )
 
         # best=item0, worst=item2, middle=item1 (미지정 → 자동 추론)
@@ -327,7 +328,7 @@ class TestThreeWayModeBVote:
             round_token=token,
             votes=votes,
         )
-        resp_data = await s.apply_three_way_vote(payload)
+        resp_data = await s.apply_vote(payload)
 
         for r in resp_data["results"]:
             assert r["diffs"][str(items[0]["id"])] > 0  # best 상승
@@ -350,7 +351,7 @@ class TestVoteHistory:
         three_way: bool = False,
         skip_key: str | None = None,
     ) -> dict[str, Any]:
-        token = await session.issue_battle_round(1, 2, 3 if three_way else None)
+        token = await session.issue_battle_round([1, 2, 3] if three_way else [1, 2])
         votes = {
             c["key"]: ({"1": "best", "3": "worst"} if three_way else "1")
             for c in session.criteria
@@ -358,12 +359,12 @@ class TestVoteHistory:
         if skip_key is not None:
             votes[skip_key] = "skip"
         if three_way:
-            return await session.apply_three_way_vote(
+            return await session.apply_vote(
                 ThreeWayBattleVoteRequest(
                     item1_id=1, item2_id=2, item3_id=3, round_token=token, votes=votes
                 )
             )
-        return await session.apply_battle_vote(
+        return await session.apply_vote(
             BattleVoteRequest(item1_id=1, item2_id=2, round_token=token, votes=votes)
         )
 
@@ -402,7 +403,7 @@ class TestVoteHistory:
         assert session.items == first
         await session.undo_last_vote(expected_event_id=1)
         assert session.items == baseline
-        with pytest.raises(store.InvalidBattleVoteError):
+        with pytest.raises(store.StaleBattleRoundError):
             await session.undo_last_vote()
 
     async def test_double_undo_is_rejected(
@@ -414,7 +415,7 @@ class TestVoteHistory:
         await session.undo_last_vote(expected_event_id=2)
         with pytest.raises(store.StaleBattleRoundError):
             await session.undo_last_vote(expected_event_id=2)
-        assert not session.history[0]["undone"]
+        assert not (await session.history_events())[0]["undone"]
 
     async def test_structure_edit_resets_undo_baseline(
         self, store_with_items: store.DataStore
@@ -422,7 +423,7 @@ class TestVoteHistory:
         session = store_with_items
         await self._vote(session)
         await session.delete_item(2)
-        with pytest.raises(store.InvalidBattleVoteError):
+        with pytest.raises(store.StaleBattleRoundError):
             await session.undo_last_vote()
         await session.recalculate_ratings()
         assert [item["id"] for item in session.items] == [1]
@@ -435,11 +436,11 @@ class TestVoteHistory:
         session = store_with_items
         await self._vote(session)
         expected = deepcopy(session.items)
-        raw = session.export_json()
+        raw = await session.export_json()
         preview = session.preview_import(raw)
         assert preview["history"] == 1
         await session.import_json(raw)
-        assert len(session.history) == 1
+        assert len(await session.history_events()) == 1
         result = await session.recalculate_ratings({"display_center": 1500})
         assert result["responses"] == len(session.criteria)
         assert session.settings["display_center"] == 1500
@@ -453,7 +454,7 @@ class TestVoteHistory:
 
         session = store_with_three_items
         session.items[0]["mu"][session.criteria[0]["key"]] = 2.0
-        await session.save()
+        await session._save_to_db()
         response = await self._vote(session, three_way=three_way)
         for result in response["results"]:
             for item in session.items[: 3 if three_way else 2]:
@@ -475,7 +476,7 @@ class TestVoteHistory:
         await self._vote(session)
         expected = deepcopy(session.items)
         await session.clear_history()
-        assert session.history == []
+        assert (await session.history_events()) == []
         assert session.items == expected
         await session.recalculate_ratings()
         assert session.items == expected
@@ -486,11 +487,11 @@ class TestVoteHistory:
         session = store_with_items
         await self._vote(session)
         await session.delete_item(2)
-        assert len(session.history) == 1
-        assert session.history[0]["archived"] is True
-        raw = session.export_json()
+        assert len(await session.history_events()) == 1
+        assert (await session.history_events())[0]["archived"] is True
+        raw = await session.export_json()
         await session.import_json(raw)
-        assert session.history[0]["payload"]["item2_id"] == 2
+        assert (await session.history_events())[0]["payload"]["item2_id"] == 2
         assert (await session.recalculate_ratings())["responses"] == len(
             session.criteria
         )
@@ -501,9 +502,9 @@ class TestVoteHistory:
     ) -> None:
         session = store_with_items
         await self._vote(session)
-        await session.update_item(1, name="Renamed")
-        assert len(session.history) == 1
-        assert not session.history[0]["archived"]
+        await session.rename_item(1, "Renamed")
+        assert len(await session.history_events()) == 1
+        assert not (await session.history_events())[0]["archived"]
         assert (await session.recalculate_ratings())["responses"] == len(
             session.criteria
         )
@@ -517,10 +518,10 @@ class TestVoteHistory:
         session = store_with_items
         await self._vote(session)
         await session.set_criteria(session.criteria[:1])
-        assert session.history[0]["archived"]
-        await session.import_json(session.export_json())
+        assert (await session.history_events())[0]["archived"]
+        await session.import_json(await session.export_json())
         assert len(session.criteria) == 1
-        assert len(session.history[0]["payload"]["votes"]) == 6
+        assert len((await session.history_events())[0]["payload"]["votes"]) == 6
 
     async def test_import_persists_validated_history_values(
         self, store_with_items: store.DataStore
@@ -529,21 +530,17 @@ class TestVoteHistory:
 
         session = store_with_items
         await self._vote(session)
-        backup = json.loads(session.export_json())
+        backup = json.loads(await session.export_json())
         event = backup["history"][0]
         event["payload"]["item1_id"] = "1"
         event["payload"]["item2_id"] = "2"
-        event["settings"]["initial_sigma"] = "2"
-        for field in ("before_state", "after_state"):
-            for item in event[field]["items"]:
-                item["id"] = str(item["id"])
-                item["matches_played"] = str(item["matches_played"])
+        event["created_at"] = str(int(event["created_at"]))
         await session.import_json(json.dumps(backup))
-        session = await store.DataStore.create(session._session_id)
-        assert session.history[0]["settings"]["initial_sigma"] == 2.0
-        assert session.history[0]["after_state"]["items"][0]["matches_played"] == 1
-        assert session.history[0]["payload"]["item1_id"] == 1
-        assert session.history[0]["before_state"]["items"][0]["id"] == 1
+        session = await store.open_store(session.session_id)
+        stored = (await session.history_events())[0]
+        assert stored["payload"]["item1_id"] == 1
+        assert isinstance(stored["created_at"], float)
+        assert stored["names"] == {"1": "Alpha", "2": "Beta"}
         await session.undo_last_vote()
         assert all(item["matches_played"] == 0 for item in session.items)
         assert all(
@@ -554,30 +551,30 @@ class TestVoteHistory:
 
     @pytest.mark.parametrize("timestamp", [253_402_300_800, 1e12, 10**400])
     async def test_import_rejects_unrenderable_event_timestamp(
-        self, store_with_items: store.DataStore, timestamp: int | float
+        self, store_with_items: store.DataStore, timestamp: float
     ) -> None:
         import json
 
         session = store_with_items
         await self._vote(session)
-        original = session.export_json()
+        original = await session.export_json()
         backup = json.loads(original)
         backup["history"][0]["created_at"] = timestamp
-        with pytest.raises(store.InvalidSessionDataError, match="시각"):
+        with pytest.raises(ValidationError, match="created_at"):
             await session.import_json(json.dumps(backup))
-        reloaded = await store.DataStore.create(session._session_id)
-        assert reloaded.export_json() == original
+        reloaded = await store.open_store(session._session_id)
+        assert await reloaded.export_json() == original
 
     async def test_import_timestamp_boundary_can_be_rendered(
         self, store_with_items: store.DataStore
     ) -> None:
         import json
-        from datetime import datetime, timezone
+        from datetime import UTC, datetime
 
         session = store_with_items
         await self._vote(session)
-        backup = json.loads(session.export_json())
+        backup = json.loads(await session.export_json())
         backup["history"][0]["created_at"] = 253_402_300_799
         await session.import_json(json.dumps(backup))
-        timestamp = session.history[0]["created_at"]
-        assert datetime.fromtimestamp(timestamp, timezone.utc).year == 9999
+        timestamp = (await session.history_events())[0]["created_at"]
+        assert datetime.fromtimestamp(timestamp, UTC).year == 9999

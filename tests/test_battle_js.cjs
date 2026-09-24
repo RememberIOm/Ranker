@@ -57,7 +57,7 @@ test('3개 비교에서 건너뛰기는 동률과 구별하고 재선택할 수 
   const { context: ctx } = loadBattle();
   ctx.skipCriterion('quality');
   assert.equal(ctx.isComplete(ctx.votes.quality), true);
-  assert.equal(ctx.serializeVotes().quality.skip, 'skip');
+  assert.equal(ctx.serializeVotes().quality, 'skip');
   ctx.selectItem('quality', 2);
   assert.equal(ctx.votes.quality.skip, undefined);
   assert.equal(ctx.votes.quality.best, 2);
@@ -110,7 +110,7 @@ test('기준 키가 JS 내장 속성 이름이어도 독립적으로 저장한�
   }
   ctx.clearAll();
   ctx.skipCriterion('__proto__');
-  assert.equal(ctx.serializeVotes().__proto__.skip, 'skip');
+  assert.equal(JSON.parse(JSON.stringify(ctx.serializeVotes())).__proto__, 'skip');
 });
 
 test('다음 카드가 없는 응답은 결과를 닫을 때 새 대결로 이동한다', () => {
@@ -119,7 +119,8 @@ test('다음 카드가 없는 응답은 결과를 닫을 때 새 대결로 이�
   const arena = { inert: false };
   const container = { innerHTML: '' };
   ctx.window = { location: { href: '' } };
-  ctx.document.createElement = () => ({ innerHTML: '', querySelectorAll: () => [] });
+  // 응답에 다음 대결이 없으면 battle-state의 라운드 토큰이 그대로 남습니다.
+  ctx.htmx = { swap: (target, html) => { container.innerHTML = html; } };
   ctx.document.getElementById = (id) => {
     if (id === 'battle-arena') return arena;
     if (id === 'result-modal-container') return container;

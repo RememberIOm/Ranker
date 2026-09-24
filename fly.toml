@@ -30,6 +30,5 @@ primary_region = 'nrt'
 
 [[vm]]
   # 현재 저장소 계층은 단일 프로세스 전제를 둡니다.
-  memory = '512mb'
   cpus = 1
-  memory_mb = 512
+  memory = '512mb'

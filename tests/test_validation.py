@@ -1,6 +1,6 @@
 """입력 경계와 세션 쿠키 회귀 검증."""
 
-import httpx
+import httpx2
 import pytest
 from pydantic import ValidationError
 
@@ -27,8 +27,8 @@ def test_independent_blind_defaults() -> None:
 
 
 async def test_start_replaces_existing_cookie(_temp_db) -> None:
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    async with httpx2.AsyncClient(
+        transport=httpx2.ASGITransport(app=app), base_url="http://test"
     ) as client:
         await client.post("/start")
         old = client.cookies.get("session_id")
@@ -47,8 +47,8 @@ async def test_start_replaces_existing_cookie(_temp_db) -> None:
 
 
 async def test_missing_htmx_session_redirects_whole_page(_temp_db) -> None:
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    async with httpx2.AsyncClient(
+        transport=httpx2.ASGITransport(app=app), base_url="http://test"
     ) as client:
         response = await client.get("/manage", headers={"HX-Request": "true"})
         assert response.status_code == 200

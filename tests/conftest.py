@@ -4,8 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from ranker import database
-from ranker import store
+from ranker import database, store
 
 
 @pytest.fixture()
@@ -27,32 +26,27 @@ async def _temp_db():
 
 @pytest.fixture()
 async def temp_store(_temp_db) -> store.DataStore:
-    """기본 세션 ID로 DataStore를 반환합니다."""
-    s = await store.get_store("a" * 32)
-    await s.save()
-    return s
+    """기본 세션 ID로 새 DataStore를 반환합니다."""
+    return await store.create_store("a" * 32)
 
 
 @pytest.fixture()
 async def store_factory(
     _temp_db,
 ) -> Callable[[str], Coroutine[None, None, store.DataStore]]:
-    """임의 session_id로 DataStore를 생성할 수 있는 팩토리"""
-    return store.get_store
+    """임의 session_id로 새 DataStore를 만드는 팩토리"""
+    return store.create_store
 
 
 @pytest.fixture()
 async def store_with_items(temp_store: store.DataStore) -> store.DataStore:
     """2개 항목(Alpha, Beta)이 추가된 DataStore를 반환합니다."""
-    await temp_store.add_item("Alpha")
-    await temp_store.add_item("Beta")
+    await temp_store.add_items(["Alpha", "Beta"])
     return temp_store
 
 
 @pytest.fixture()
 async def store_with_three_items(temp_store: store.DataStore) -> store.DataStore:
     """3개 항목(Alpha, Beta, Gamma)이 추가된 DataStore를 반환합니다."""
-    await temp_store.add_item("Alpha")
-    await temp_store.add_item("Beta")
-    await temp_store.add_item("Gamma")
+    await temp_store.add_items(["Alpha", "Beta", "Gamma"])
     return temp_store

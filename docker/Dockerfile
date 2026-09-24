@@ -1,17 +1,17 @@
 # ── Stage 1: CSS 빌드 ──────────────────────────────────────────
-FROM node:22-alpine AS css-builder
+FROM node:26.10.0-alpine@sha256:0b36e8c136b94cd4fcf02188228e76c31ad5872eef3fec8cbd2eee500cfd9e80 AS css-builder
 WORKDIR /build
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 COPY frontend/ frontend/
 COPY ranker/templates/ ranker/templates/
-COPY ranker/static/battle.js ranker/static/battle.js
+COPY ranker/static/*.js ranker/static/
 RUN npm run build:css
 
 # ── Stage 2: Python 런타임 ─────────────────────────────────────
-FROM python:3.13-slim
+FROM python:3.14.7-slim@sha256:caaf356f40667c496d405780745b9ac25771c189a51dfcc42430d531ea09f8a2
 
-COPY --from=ghcr.io/astral-sh/uv:0.6 /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.12.18@sha256:3adc3706091ce7c2fe595e669628caedd6d951551b92b258b7e7dbe06d9440bc /uv /uvx /bin/
 
 WORKDIR /app
 
@@ -21,6 +21,7 @@ RUN uv sync --frozen --no-dev --no-editable
 
 COPY LICENSE ./
 COPY ranker/ ranker/
+COPY scripts/__init__.py scripts/convert_legacy_db.py scripts/
 
 # 사전 빌드된 CSS 복사
 COPY --from=css-builder /build/ranker/static/output.css /app/ranker/static/output.css

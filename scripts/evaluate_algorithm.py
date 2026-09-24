@@ -8,14 +8,14 @@ assumed choice counts are not measured human effort. No real-user claims.
 """
 
 import argparse
-from collections import Counter
-from itertools import combinations
 import json
 import math
-from pathlib import Path
 import random
-from statistics import mean, stdev
 import time
+from collections import Counter
+from itertools import combinations
+from pathlib import Path
+from statistics import mean, stdev
 
 import numpy as np
 from scipy.special import expit, softmax
