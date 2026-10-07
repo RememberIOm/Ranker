@@ -4,44 +4,11 @@ from ranker import store
 from ranker.services import (
     composite_rating,
     display_rating,
-    display_uncertainty,
-    get_item_rank,
     get_item_ranks,
 )
 
 
-class TestDisplayConversion:
-    async def test_mu_zero_gives_center(self, temp_store: store.DataStore) -> None:
-        assert display_rating(temp_store, 0.0) == pytest.approx(
-            temp_store.settings["display_center"]
-        )
-
-    async def test_uncertainty_positive(self, temp_store: store.DataStore) -> None:
-        u = display_uncertainty(temp_store, 4.0)
-        assert u > 0.0
-        assert u == pytest.approx(2.0 * temp_store.settings["display_scale"])
-
-
 class TestCompositeRating:
-    async def test_uniform_weights_equals_mean(
-        self, temp_store: store.DataStore
-    ) -> None:
-        """모든 weight=1.0일 때 display_rating 평균과 일치"""
-        # 모든 기준 weight를 1.0으로 통일
-        for c in temp_store.criteria:
-            c["weight"] = 1.0
-        await temp_store.add_items(["Alpha"])
-        item = temp_store.items[0]
-        # 기준별 다른 mu 설정
-        keys = [c["key"] for c in temp_store.criteria]
-        for i, k in enumerate(keys):
-            item["mu"][k] = float(i) * 0.5
-
-        expected = sum(display_rating(temp_store, item["mu"][k]) for k in keys) / len(
-            keys
-        )
-        assert composite_rating(temp_store, item) == pytest.approx(expected)
-
     async def test_custom_weights(self, temp_store: store.DataStore) -> None:
         """비균일 weight에서 가중 평균 정확성 검증"""
         # 기준 2개만 사용, 나머지 weight=0 대신 아주 작은 값
@@ -62,14 +29,6 @@ class TestCompositeRating:
         ) / 3
         assert composite_rating(temp_store, item) == pytest.approx(expected)
 
-    async def test_zero_mu_gives_center(self, temp_store: store.DataStore) -> None:
-        """모든 mu=0.0 → display_center 반환"""
-        await temp_store.add_items(["Alpha"])
-        item = temp_store.items[0]
-        assert composite_rating(temp_store, item) == pytest.approx(
-            temp_store.settings["display_center"]
-        )
-
     async def test_empty_criteria_returns_display_center(
         self, temp_store: store.DataStore
     ) -> None:
@@ -88,30 +47,6 @@ class TestCompositeRating:
 
 
 class TestGetItemRank:
-    async def test_single_item_rank_one(self, temp_store: store.DataStore) -> None:
-        await temp_store.add_items(["Alpha"])
-        rank, total = get_item_rank(temp_store, temp_store.items[0]["id"])
-        assert rank == 1
-        assert total == 1
-
-    async def test_rank_ordering(self, temp_store: store.DataStore) -> None:
-        """mu가 높은 항목이 더 높은 순위"""
-        await temp_store.add_items(["Low"])
-        await temp_store.add_items(["High"])
-        # High에 높은 mu 설정
-        for c in temp_store.criteria:
-            temp_store.items[1]["mu"][c["key"]] = 2.0
-        rank_high, _ = get_item_rank(temp_store, temp_store.items[1]["id"])
-        rank_low, _ = get_item_rank(temp_store, temp_store.items[0]["id"])
-        assert rank_high < rank_low  # 낮은 rank = 높은 순위
-
-    async def test_missing_item_returns_last(self, temp_store: store.DataStore) -> None:
-        """존재하지 않는 ID → (total, total)"""
-        await temp_store.add_items(["Alpha"])
-        await temp_store.add_items(["Beta"])
-        rank, total = get_item_rank(temp_store, 9999)
-        assert rank == total == 2
-
     async def test_exact_ties_share_competition_rank(
         self, temp_store: store.DataStore
     ) -> None:

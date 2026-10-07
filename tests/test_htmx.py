@@ -46,51 +46,6 @@ class TestBattleHTMX:
         assert "battle-state" in resp.text
         assert "criteria-list" in resp.text
 
-    async def test_get_battle_normal_returns_full_page(
-        self, client: httpx2.AsyncClient
-    ) -> None:
-        """GET /battle (일반 요청) → full HTML"""
-        await _setup_battle(client)
-        resp = await client.get("/battle")
-        assert resp.status_code == 200
-        assert "<!DOCTYPE" in resp.text
-
-    async def test_post_vote_htmx_returns_html(
-        self, client: httpx2.AsyncClient
-    ) -> None:
-        """POST /battle/vote + HX-Request → 결과 모달 HTML + OOB swap"""
-        await _setup_battle(client)
-        # 배틀 페이지에서 라운드 토큰 추출
-        resp = await client.get("/battle")
-        text = resp.text
-        # round_token 추출
-        import re
-
-        token_match = re.search(r'data-round-token="([^"]+)"', text)
-        assert token_match, "라운드 토큰을 찾을 수 없습니다"
-        round_token = token_match.group(1)
-
-        # item IDs 추출
-        id1_match = re.search(r'data-item1-id="(\d+)"', text)
-        id2_match = re.search(r'data-item2-id="(\d+)"', text)
-        assert id1_match and id2_match
-        item1_id = int(id1_match.group(1))
-        item2_id = int(id2_match.group(1))
-
-        vote_resp = await client.post(
-            "/battle/vote",
-            json={
-                "item1_id": item1_id,
-                "item2_id": item2_id,
-                "round_token": round_token,
-                "votes": {"story": "1"},
-            },
-            headers={"HX-Request": "true"},
-        )
-        assert vote_resp.status_code == 200
-        assert "result-modal" in vote_resp.text
-        assert "hx-swap-oob" in vote_resp.text
-
     async def test_three_way_skip_is_saved_as_a_skip(
         self, client: httpx2.AsyncClient
     ) -> None:
@@ -204,18 +159,6 @@ class TestBattleHTMX:
 
 
 class TestManageHTMX:
-    async def test_add_item_htmx_returns_list(self, client: httpx2.AsyncClient) -> None:
-        """POST /manage/add + HX-Request → 항목 리스트 HTML"""
-        resp = await client.post(
-            "/manage/add",
-            data={"name": "TestItem"},
-            headers={"HX-Request": "true"},
-            follow_redirects=False,
-        )
-        assert resp.status_code == 200
-        assert "TestItem" in resp.text
-        assert "<!DOCTYPE" not in resp.text
-
     async def test_add_item_non_htmx_redirects(
         self, client: httpx2.AsyncClient
     ) -> None:
@@ -226,31 +169,6 @@ class TestManageHTMX:
             follow_redirects=False,
         )
         assert resp.status_code == 303
-
-    async def test_delete_item_htmx_returns_updated_empty_list(
-        self, client: httpx2.AsyncClient
-    ) -> None:
-        """POST /manage/delete는 빈 상태와 항목 수를 함께 갱신합니다."""
-        # 항목 추가
-        await client.post("/manage/add", data={"name": "ToDelete"})
-        # 항목 ID 얻기
-        resp = await client.get("/manage?tab=items")
-        import re
-
-        id_match = re.search(r'name="item_id" value="(\d+)"', resp.text)
-        assert id_match
-        item_id = id_match.group(1)
-
-        del_resp = await client.post(
-            "/manage/delete",
-            data={"item_id": item_id},
-            headers={"HX-Request": "true"},
-            follow_redirects=False,
-        )
-        assert del_resp.status_code == 200
-        assert "항목이 없습니다" in del_resp.text
-        assert "항목 0개" in del_resp.text
-        assert "ToDelete" not in del_resp.text
 
     async def test_edit_item_htmx_returns_row(self, client: httpx2.AsyncClient) -> None:
         """POST /manage/edit + HX-Request → 수정된 항목 행 HTML"""

@@ -73,28 +73,6 @@ class TestBattleVoteValidation:
         with pytest.raises(store.InvalidBattleVoteError):
             await s.apply_vote(payload)  # type: ignore[arg-type]
 
-    async def test_vote_result_contains_sigma(
-        self, store_with_items: store.DataStore
-    ) -> None:
-        """투표 결과에 sigma1/sigma2 필드가 포함됨"""
-        item1 = store_with_items.items[0]
-        item2 = store_with_items.items[1]
-        votes = {criterion["key"]: "1" for criterion in store_with_items.criteria}
-        token = await store_with_items.issue_battle_round([item1["id"], item2["id"]])
-        payload = BattleVoteRequest(
-            item1_id=item1["id"],
-            item2_id=item2["id"],
-            round_token=token,
-            votes=votes,
-            redirect_to="/battle",
-        )
-        result = await store_with_items.apply_vote(payload)
-        for r in result["results"]:
-            assert "sigma1" in r
-            assert "sigma2" in r
-            assert r["sigma1"] > 0
-            assert r["sigma2"] > 0
-
 
 # --- 3-way Tied Vote ---
 

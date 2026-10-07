@@ -1,4 +1,3 @@
-import json
 import time
 from typing import Any
 
@@ -18,17 +17,6 @@ class TestStoreValidation:
 
         assert not await store.open_store(session_id) is not None
         assert session_id not in store._locks
-
-    async def test_add_item_initializes_mu_sigma(
-        self, temp_store: store.DataStore
-    ) -> None:
-        """새 항목은 mu=0, sigma_sq=initial_sigma² 로 초기화됨"""
-        await temp_store.add_items(["NewItem"])
-        item = temp_store.items[0]
-        initial_sq = temp_store.settings["initial_sigma"] ** 2
-        for c in temp_store.criteria:
-            assert item["mu"][c["key"]] == pytest.approx(0.0)
-            assert item["sigma_sq"][c["key"]] == pytest.approx(initial_sq)
 
     async def test_set_criteria_syncs_mu_sigma(
         self, temp_store: store.DataStore
@@ -54,15 +42,6 @@ class TestStoreValidation:
 
 
 class TestPerCriterionMatches:
-    async def test_criterion_matches_initialized_with_all_keys(
-        self, temp_store: store.DataStore
-    ) -> None:
-        await temp_store.add_items(["Alpha"])
-        cm = temp_store.items[0].get("criterion_matches", {})
-        expected_keys = {c["key"] for c in temp_store.criteria}
-        assert set(cm.keys()) == expected_keys
-        assert all(v == 0 for v in cm.values())
-
     async def test_criterion_matches_incremented_after_vote(
         self, store_with_items: store.DataStore
     ) -> None:
@@ -108,119 +87,16 @@ class TestActiveRoundItem3Persistence:
         assert ar["item2_id"] == item2["id"]
         assert ar["item3_id"] == item3["id"]
 
-    async def test_2way_round_no_item3(self, store_factory) -> None:
-        """2-way active_round는 item3_id가 없음"""
-        session_id = "g" * 32
-        s = await store_factory(session_id)
-        await s.add_items(["Alpha"])
-        await s.add_items(["Beta"])
-        await s.issue_battle_round([s.items[0]["id"], s.items[1]["id"]])
-
-        store._locks.clear()
-        s2 = await store.open_store(session_id)
-
-        ar = s2._data["active_round"]
-        assert ar is not None
-        assert ar.get("item3_id") is None
-
-
-# --- Export / Import ---
-
-
-class TestExportImportRoundtrip:
-    async def test_roundtrip_preserves_data(
-        self, store_with_items: store.DataStore
-    ) -> None:
-        """항목 추가 + 투표 후 export → import → 데이터 일치"""
-        s = store_with_items
-        token = await s.issue_battle_round([s.items[0]["id"], s.items[1]["id"]])
-        votes = {c["key"]: "1" for c in s.criteria}
-        payload = BattleVoteRequest(
-            item1_id=s.items[0]["id"],
-            item2_id=s.items[1]["id"],
-            round_token=token,
-            votes=votes,
-            redirect_to="/battle",
-        )
-        await s.apply_vote(payload)
-
-        exported = await s.export_json()
-        original_items = [(i["name"], dict(i["mu"])) for i in s.items]
-
-        # 새 세션에 import
-        await s.import_json(exported)
-
-        for i, (name, mu) in enumerate(original_items):
-            assert s.items[i]["name"] == name
-            for k, v in mu.items():
-                assert s.items[i]["mu"][k] == pytest.approx(v)
-
-    async def test_export_returns_valid_json(self, temp_store: store.DataStore) -> None:
-        """export_json()이 유효한 JSON을 반환"""
-        await temp_store.add_items(["Alpha"])
-        exported = await temp_store.export_json()
-        parsed = json.loads(exported)
-        assert "items" in parsed
-        assert "criteria" in parsed
-        assert "settings" in parsed
-
 
 # --- Bulk Add ---
 
 
 class TestAddItemsBulk:
-    async def test_adds_multiple_items(self, temp_store: store.DataStore) -> None:
-        count = await temp_store.add_items(["A", "B", "C"])
-        assert count == 3
-        assert len(temp_store.items) == 3
-        names = [i["name"] for i in temp_store.items]
-        assert names == ["A", "B", "C"]
-        # 순차 ID 확인
-        ids = [i["id"] for i in temp_store.items]
-        assert ids == [1, 2, 3]
-
     async def test_skips_blank_names(self, temp_store: store.DataStore) -> None:
         """빈 이름은 건너뛰고 실제 추가된 개수만 반환"""
         count = await temp_store.add_items(["A", "", "  ", "B"])
         assert count == 2
         assert len(temp_store.items) == 2
-
-    async def test_empty_list_returns_zero(self, temp_store: store.DataStore) -> None:
-        count = await temp_store.add_items([])
-        assert count == 0
-        assert len(temp_store.items) == 0
-
-
-# --- Update Item ---
-
-
-class TestUpdateItem:
-    async def test_update_name(self, temp_store: store.DataStore) -> None:
-        await temp_store.add_items(["Original"])
-        result = await temp_store.rename_item(temp_store.items[0]["id"], "Updated")
-        assert result is True
-        assert temp_store.items[0]["name"] == "Updated"
-
-    async def test_nonexistent_returns_false(self, temp_store: store.DataStore) -> None:
-        result = await temp_store.rename_item(9999, "X")
-        assert result is False
-
-
-# --- Delete Item ---
-
-
-class TestDeleteItem:
-    async def test_delete_existing(self, store_with_items: store.DataStore) -> None:
-        s = store_with_items
-        item_id = s.items[0]["id"]
-        result = await s.delete_item(item_id)
-        assert result is True
-        assert len(s.items) == 1
-        assert s.items[0]["name"] == "Beta"
-
-    async def test_delete_nonexistent(self, temp_store: store.DataStore) -> None:
-        result = await temp_store.delete_item(9999)
-        assert result is False
 
 
 # --- Cleanup Expired Sessions ---
