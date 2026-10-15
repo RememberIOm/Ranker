@@ -7,7 +7,6 @@
     <h1 class="flex items-center gap-2.5 font-display text-2xl font-extrabold tracking-tight sm:text-3xl">
       <span class="text-amber-500">{{ icon('trophy', 'w-7 h-7') }}</span> 랭킹
     </h1>
-    <p class="mt-1.5 text-sm text-zinc-600 dark:text-zinc-400">기준별로 정렬하거나 이름으로 찾을 수 있습니다.</p>
   </header>
 
   <form action="/ranking" method="get" class="mb-5 flex flex-wrap items-end gap-3">
@@ -18,7 +17,7 @@
     </select></label>
     <button type="submit" class="btn-primary">적용</button>
   </form>
-  <p class="mb-5 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">종합 점수는 기준별 점수를 가중치대로 평균한 값입니다. ±는 점수의 표준편차 추정치이고, 순위 옆 범위는 지금까지의 투표로 볼 때 90% 확률로 들어갈 순위입니다. 한 기준이라도 답한 대결이 5번 미만이면 ‘평가 부족’으로 표시합니다.{% if adjacent_confidence is not none %} 이웃한 두 항목의 순서가 맞을 확률은 평균 {{ (adjacent_confidence * 100) | round | int }}%입니다.{% endif %}</p>
+  <p class="mb-5 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">종합 점수는 기준별 점수에 가중치를 반영한 평균입니다. ±는 점수 오차 범위이고, 순위 옆 숫자는 90% 확률로 예상되는 순위 구간입니다. 한 기준이라도 투표가 5번 미만이면 ‘평가 부족’으로 표시합니다.{% if adjacent_confidence is not none %} 인접한 두 순위가 맞을 확률은 평균 {{ (adjacent_confidence * 100) | round | int }}%입니다.{% endif %}</p>
   <nav class="mb-6 flex gap-2 overflow-x-auto pb-1 scrollbar-hide" aria-label="랭킹 정렬">
     <a href="/ranking?sort_by=total&amp;q={{ q | default('') | urlencode }}&amp;filter={{ filter | default('all') }}"
        class="inline-flex min-h-11 shrink-0 items-center rounded-full px-4 text-sm font-bold transition {{ 'bg-violet-600 text-white shadow-sm' if sort_by == 'total' else 'border border-zinc-300 bg-white text-zinc-600 hover:border-violet-400 hover:text-violet-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-violet-500 dark:hover:text-violet-300' }}"
@@ -34,7 +33,7 @@
   <section class="card mb-6 p-4 sm:p-5">
     <h2 class="font-display text-sm font-bold tracking-wide text-zinc-700 uppercase dark:text-zinc-300">점수 분포 · {{ chart_data.category }}</h2>
     <div class="mt-3 h-52 sm:h-64">
-      <canvas id="distributionChart" role="img" aria-label="{{ chart_data.category }} 점수 분포 — 항목 {{ items | length }}개. 자세한 점수는 아래 표를 참고하세요."></canvas>
+      <canvas id="distributionChart" role="img" aria-label="{{ chart_data.category }} 점수 분포 (항목 {{ items | length }}개). 자세한 점수는 아래 표에 있습니다."></canvas>
     </div>
   </section>
   {% endif %}
@@ -86,7 +85,7 @@
           {% for c in criteria %}
           <td class="px-4 py-3 text-right tabular-nums">
             <span class="{{ 'font-bold text-' ~ c.color ~ '-600 dark:text-' ~ c.color ~ '-400' if sort_by == 'criterion:' ~ c.key else 'font-medium' }}">{{ item.scores[c.key].rating | round(1) }}</span>
-            <span title="표준편차 추정치" class="text-[10px] text-zinc-400 dark:text-zinc-500">&plusmn;{{ item.scores[c.key].sigma | round(0) | int }}</span>
+            <span title="점수 오차 범위 (표준편차)" class="text-[10px] text-zinc-400 dark:text-zinc-500">&plusmn;{{ item.scores[c.key].sigma | round(0) | int }}</span>
           </td>
           {% endfor %}
           <td class="px-4 py-3 text-right font-medium tabular-nums text-zinc-500 dark:text-zinc-400">{{ item.matches }}</td>
@@ -112,8 +111,8 @@
   </div>
   {% else %}
   <section class="card w-full px-5 py-12 text-center" role="status">
-    <p class="mb-4 text-zinc-500">{% if total_items | default(0) %}조건에 맞는 항목이 없습니다.{% else %}아직 등록한 항목이 없습니다.{% endif %}</p>
-    <a href="{{ '/ranking' if total_items | default(0) else '/manage?tab=items' }}" class="btn-primary">{{ '필터 초기화' if total_items | default(0) else '항목 추가하기' }}</a>
+    <p class="mb-4 text-zinc-500">{% if total_items | default(0) %}조건에 맞는 항목이 없습니다.{% else %}아직 추가한 항목이 없습니다.{% endif %}</p>
+    <a href="{{ '/ranking' if total_items | default(0) else '/manage?tab=items' }}" class="btn-primary">{{ '필터 초기화' if total_items | default(0) else '항목 추가' }}</a>
   </section>
   {% endif %}
 </div>

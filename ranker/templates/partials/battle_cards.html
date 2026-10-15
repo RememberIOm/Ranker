@@ -19,13 +19,13 @@
 </div>
 {% endif %}
 
-<h1 class="sr-only">{{ item1.name }} 대 {{ item2.name }} — 1대1 대결</h1>
+<h1 class="sr-only">{{ item1.name }} 대 {{ item2.name }} (1대1 대결)</h1>
 
 <header class="mb-6 text-center">
   <p aria-hidden="true" class="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-4 py-1.5 text-[11px] font-bold tracking-widest text-zinc-500 uppercase dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
     <span class="text-violet-600 dark:text-violet-400">대결</span>
     <span class="text-zinc-300 dark:text-zinc-600">&middot;</span>
-    <span>전체 기준</span>
+    <span>1대1</span>
   </p>
   <h2 class="mt-3 font-display text-xl font-bold sm:text-2xl">기준마다 더 나은 쪽을 고르세요</h2>
   <p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">{% if blind_mode %}점수와 순위는 저장한 뒤에 보입니다. {% endif %}잘 모르는 기준은 건너뛰어도 됩니다. Ctrl+Enter로 저장합니다.</p>
@@ -55,11 +55,11 @@
   <div class="criteria-card animate-slide-up" data-key="{{ c.key }}" style="animation-delay: {{ loop.index0 * 40 }}ms">
     <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
       <h3 class="text-lg font-bold text-{{ c.color }}-600 dark:text-{{ c.color }}-400">{{ c.label }}</h3>
-      <button type="button" id="btn-{{ c.key }}-skip" data-skip class="mode-chip" aria-pressed="false" data-battle="skip" data-key="{{ c.key }}">모르겠음 · 건너뛰기</button>
+      <button type="button" id="btn-{{ c.key }}-skip" data-skip class="mode-chip" aria-pressed="false" data-battle="skip" data-key="{{ c.key }}">건너뛰기</button>
     </div>
     {% if not blind_mode %}
     <div class="mb-3 flex h-2 w-full gap-px overflow-x-hidden rounded-full bg-zinc-100 dark:bg-zinc-800" role="img"
-         aria-label="{{ c.label }} 예상 승률 — {{ item1.name }} {{ c.probs.win_a }}%, 무승부 {{ c.probs.draw }}%, {{ item2.name }} {{ c.probs.win_b }}%">
+         aria-label="{{ c.label }} 예상 확률: {{ item1.name }} {{ c.probs.win_a }}%, 무승부 {{ c.probs.draw }}%, {{ item2.name }} {{ c.probs.win_b }}%">
       <div class="h-full rounded-l-full bg-violet-500" style="width: {{ c.probs.win_a }}%"></div>
       <div class="h-full bg-zinc-300 dark:bg-zinc-600" style="width: {{ c.probs.draw }}%"></div>
       <div class="h-full rounded-r-full bg-rose-500" style="width: {{ c.probs.win_b }}%"></div>
@@ -67,7 +67,7 @@
     {% endif %}
     <div class="grid grid-cols-[1fr_auto_1fr] gap-2">
       <button type="button" id="btn-{{ c.key }}-1" class="vote-btn" data-battle="vote" data-key="{{ c.key }}" data-choice="1"
-              aria-pressed="false" aria-label="{{ c.label }} — {{ item1.name }} 선택">
+              aria-pressed="false" aria-label="{{ c.label }}: {{ item1.name }} 선택">
         <span class="font-display text-xs font-extrabold text-violet-600 dark:text-violet-400" aria-hidden="true">A</span>
         {% if not blind_mode %}
         <span class="font-display text-lg font-bold tabular-nums">{{ c.r1 | round(0) | int }}<span class="ml-0.5 text-[11px] font-medium text-zinc-400">&plusmn;{{ c.sigma1 | round(0) | int }}</span></span>
@@ -75,12 +75,12 @@
         {% else %}<span class="text-sm font-semibold">선택</span>{% endif %}
       </button>
       <button type="button" id="btn-{{ c.key }}-draw" class="vote-btn min-w-24 sm:min-w-32" data-battle="vote" data-key="{{ c.key }}" data-choice="draw"
-              aria-pressed="false" aria-label="{{ c.label }} — 무승부 선택">
+              aria-pressed="false" aria-label="{{ c.label }}: 무승부 선택">
         <span class="text-base font-bold">무승부</span>
         {% if not blind_mode %}<span class="text-xs font-semibold text-zinc-500 tabular-nums dark:text-zinc-400">{{ c.probs.draw }}%</span>{% endif %}
       </button>
       <button type="button" id="btn-{{ c.key }}-2" class="vote-btn" data-battle="vote" data-key="{{ c.key }}" data-choice="2"
-              aria-pressed="false" aria-label="{{ c.label }} — {{ item2.name }} 선택">
+              aria-pressed="false" aria-label="{{ c.label }}: {{ item2.name }} 선택">
         <span class="font-display text-xs font-extrabold text-rose-500 dark:text-rose-400" aria-hidden="true">B</span>
         {% if not blind_mode %}
         <span class="font-display text-lg font-bold tabular-nums">{{ c.r2 | round(0) | int }}<span class="ml-0.5 text-[11px] font-medium text-zinc-400">&plusmn;{{ c.sigma2 | round(0) | int }}</span></span>
@@ -93,9 +93,9 @@
 </div>
 
 <div class="mt-4 flex flex-wrap justify-center gap-2">
-  <button type="button" class="mode-chip" data-battle="vote-all" data-choice="1">전부 A 선택</button>
-  <button type="button" class="mode-chip" data-battle="vote-all" data-choice="draw">전부 무승부</button>
-  <button type="button" class="mode-chip" data-battle="vote-all" data-choice="2">전부 B 선택</button>
+  <button type="button" class="mode-chip" data-battle="vote-all" data-choice="1">모두 A</button>
+  <button type="button" class="mode-chip" data-battle="vote-all" data-choice="draw">모두 무승부</button>
+  <button type="button" class="mode-chip" data-battle="vote-all" data-choice="2">모두 B</button>
   <button type="button" class="mode-chip" data-battle="clear">초기화</button>
 </div>
 
@@ -112,7 +112,7 @@
       </div>
       <div class="min-w-0 flex-1">
         <p id="progress-count" class="font-display text-sm font-extrabold tabular-nums">0/{{ criteria_info | length }}</p>
-        <p id="progress-label" class="truncate text-xs font-medium text-zinc-500 dark:text-zinc-400">기준마다 하나씩 고르세요</p>
+        <p id="progress-label" class="truncate text-xs font-medium text-zinc-500 dark:text-zinc-400">{{ criteria_info | length }}개 남음</p>
       </div>
       <button type="button" id="submit-btn" data-battle="submit" disabled class="btn-primary shrink-0 px-6 py-3">{{ icon('swords') }}<span>투표 저장</span></button>
     </div>

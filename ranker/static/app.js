@@ -111,7 +111,7 @@ async function fetchWithTimeout(url, options, timeoutMs) {
     return await fetch(url, Object.assign({}, options, { signal: controller.signal }));
   } catch (err) {
     if (err && err.name === 'AbortError') {
-      throw new Error('서버 응답이 늦습니다. 잠시 후 다시 시도해주세요.');
+      throw new Error('서버 응답이 늦습니다. 잠시 후 다시 시도하세요.');
     }
     throw err;
   } finally {
@@ -144,7 +144,7 @@ var pageActions = {
     } catch (error) {
       field.focus();
       field.select();
-      showToast('선택된 내용을 직접 복사해주세요.', 'info');
+      showToast('선택한 내용을 직접 복사하세요.', 'info');
     }
   }
 };
@@ -180,7 +180,7 @@ document.addEventListener('click', function (e) {
   }
   ['htmx:sendError', 'htmx:timeout'].forEach(function (name) {
     document.body.addEventListener(name, function () {
-      showToast('서버에 연결하지 못했습니다. 연결을 확인해주세요.', 'error', 5000);
+      showToast('서버에 연결하지 못했습니다. 네트워크를 확인하세요.', 'error', 5000);
     });
   });
   document.body.addEventListener('htmx:responseError', function (evt) {

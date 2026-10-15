@@ -153,7 +153,7 @@ async def test_capacity_error_explains_recovery_and_preserves_data(client, monke
     monkeypatch.setattr(database, "MAX_BACKUP_BYTES", 1)
     response = await client.post("/manage/add", data={"name": "저장 불가"})
     assert response.status_code == 409
-    assert "투표 기록을 정리" in response.text
+    assert "내역을 비우세요" in response.text
     monkeypatch.undo()
     export = (await client.get("/manage/export")).text
     assert "보존 항목" in export and "저장 불가" not in export
@@ -222,11 +222,11 @@ async def test_unlisted_ranking_can_be_kept(client):
     orphan = await create_store("b" * 32)
     client.cookies.set("session_id", orphan.session_id)
     page = await client.get("/collections")
-    assert "목록에 넣기" in page.text
+    assert "목록에 추가" in page.text
     response = await client.post("/collections/keep-current", data={"name": "옛 랭킹"})
     assert response.status_code == 303
     page = await client.get("/collections")
-    assert "옛 랭킹" in page.text and "목록에 넣기" not in page.text
+    assert "옛 랭킹" in page.text and "목록에 추가" not in page.text
 
 
 async def test_refresh_keeps_the_same_round(client):

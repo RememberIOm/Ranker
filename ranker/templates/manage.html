@@ -53,24 +53,22 @@
 
   {% elif tab == 'criteria' %}
   <section class="card animate-slide-up p-5 sm:p-6">
-    <h2 class="font-display text-base font-bold">평가 기준 편집</h2>
-    <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-400">가중치가 클수록 종합 점수에 많이 반영됩니다. 기준을 지우면 그 기준에 답한 기록도 함께 지워집니다.</p>
+    <h2 class="font-display text-base font-bold">평가 기준</h2>
+    <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-400">가중치가 클수록 종합 점수에 많이 반영됩니다. 기준을 삭제하면 그 기준의 투표 결과도 함께 삭제됩니다.</p>
     {% include "partials/manage_criteria_form.html" %}
   </section>
 
   {% elif tab == 'settings' %}
   <section class="card animate-slide-up p-5 sm:p-6">
     <h2 class="font-display text-base font-bold">대결 설정</h2>
-    <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-400">점수 계산과 표시 방식은 아래 고급 설정에 있습니다.</p>
 
     <form action="/manage/settings" method="post" hx-post="/manage/settings" hx-swap="none" class="mt-6 flex flex-col gap-8">
 
       <fieldset class="rounded-2xl border border-zinc-200 p-5 dark:border-zinc-800">
-        <legend class="px-2 font-display text-sm font-extrabold tracking-wide text-violet-600 uppercase dark:text-violet-400">기본 설정</legend>
 
         <div class="mt-4">
           <span class="field-label">비교 방식</span>
-          <span class="field-help block">3개 비교에서는 한 번에 최고와 최하를 고릅니다. 항목이 2개뿐이면 1대1로 진행합니다.</span>
+          <span class="field-help block">항목이 2개뿐이면 1대1로 진행합니다.</span>
           <div class="mt-2 grid gap-3 sm:grid-cols-2">
             <label class="cursor-pointer">
               <input type="radio" name="battle_mode" value="2way" class="peer sr-only" {% if settings.get('battle_mode', '2way') == '2way' %}checked{% endif %}>
@@ -92,7 +90,7 @@
         <div class="mt-5">
           <label class="flex cursor-pointer items-start gap-3">
             <input type="checkbox" name="blind_mode" {% if settings.get('blind_mode', true) %}checked{% endif %} class="mt-0.5 h-5 w-5 shrink-0 rounded accent-violet-600">
-            <span><span class="block text-sm font-semibold">블라인드 평가</span><span class="field-help mt-0.5 block">고르기 전에는 점수·순위·예상 확률을 숨깁니다. 점수는 저장한 뒤 결과 창에서 보입니다.</span></span>
+            <span><span class="block text-sm font-semibold">블라인드 평가</span><span class="field-help mt-0.5 block">투표하기 전에는 점수, 순위, 예상 확률을 숨깁니다.</span></span>
           </label>
         </div>
         <div class="mt-5">
@@ -116,15 +114,15 @@
 
       <details class="rounded-2xl border border-zinc-200 p-5 dark:border-zinc-800">
         <summary class="cursor-pointer font-bold">고급 설정: 점수 계산과 표시</summary>
-        <p class="my-4 text-sm text-zinc-500">초기 불확실성을 바꾸면 지금까지의 응답으로 점수를 다시 계산합니다. 표시 방식은 숫자만 바꾸고 순위에는 영향이 없습니다.</p>
+        <p class="my-4 text-sm text-zinc-500">초기 점수 변동 폭을 바꾸면 지금까지의 투표로 점수를 다시 계산합니다. 점수 표시 설정은 보이는 숫자만 바꿀 뿐 순위에는 영향이 없습니다.</p>
         <div class="flex flex-col gap-5">
       <fieldset class="rounded-2xl border border-zinc-200 p-5 dark:border-zinc-800">
-        <legend class="px-2 font-display text-sm font-extrabold tracking-wide text-violet-600 uppercase dark:text-violet-400">사전분포</legend>
-        <p class="text-xs text-zinc-500 dark:text-zinc-400">투표 전의 항목 점수를 얼마나 넓게 볼지 정합니다. 무승부가 나오는 빈도는 기준마다 응답에서 따로 추정합니다.</p>
+        <legend class="px-2 font-display text-sm font-extrabold tracking-wide text-violet-600 uppercase dark:text-violet-400">점수 계산</legend>
+        <p class="text-xs text-zinc-500 dark:text-zinc-400">투표가 적을 때 점수가 얼마나 크게 움직일지 정합니다.</p>
         <div class="mt-4">
           <label class="block">
-            <span class="field-label">초기 불확실성 <span class="font-normal text-zinc-500 dark:text-zinc-400">(σ)</span></span>
-            <span class="field-help block">클수록 적은 투표로도 점수 차이가 크게 벌어집니다.</span>
+            <span class="field-label">초기 점수 변동 폭 <span class="font-normal text-zinc-500 dark:text-zinc-400">(σ)</span></span>
+            <span class="field-help block">값이 클수록 적은 투표로도 점수 차이가 크게 벌어집니다.</span>
             <input type="number" name="initial_sigma" value="{{ settings.initial_sigma }}" step="0.1" min="0.1" max="10" inputmode="decimal" class="field-input max-w-48">
           </label>
           <p class="field-hint">보통 1.5~3</p>
@@ -138,7 +136,7 @@
           <div>
             <label class="block">
               <span class="field-label">중심점</span>
-              <span class="field-help block">평균적인 항목의 점수</span>
+              <span class="field-help block">기준이 되는 평균 점수</span>
               <input type="number" name="display_center" value="{{ settings.display_center }}" step="50" inputmode="decimal" class="field-input">
             </label>
             <p class="field-hint">기본값 1200</p>
@@ -163,19 +161,18 @@
   {% elif tab == 'data' %}
   <div class="grid gap-5 md:grid-cols-2">
     <section class="card animate-slide-up border-emerald-200 p-5 sm:p-6 dark:border-emerald-500/30">
-      <h2 class="flex items-center gap-2 font-display text-base font-bold text-emerald-700 dark:text-emerald-400">{{ icon('download') }} 백업</h2>
-      <p class="mt-2 text-sm text-zinc-600 dark:text-zinc-400">항목·기준·설정·투표 내역을 JSON 파일로 받습니다.</p>
-      <a href="/manage/export" class="btn-primary mt-5 bg-emerald-600 hover:bg-emerald-500">{{ icon('download') }} 백업 받기</a>
+      <h2 class="flex items-center gap-2 font-display text-base font-bold text-emerald-700 dark:text-emerald-400">{{ icon('download') }} 백업 받기</h2>
+      <p class="mt-2 text-sm text-zinc-600 dark:text-zinc-400">항목, 평가 기준, 설정, 투표 내역을 JSON 파일로 받습니다.</p>
+      <a href="/manage/export" class="btn-primary mt-5 bg-emerald-600 hover:bg-emerald-500">{{ icon('download') }} 파일 받기</a>
     </section>
 
     <section class="card animate-slide-up border-amber-200 p-5 sm:p-6 dark:border-amber-500/30" style="animation-delay: 60ms">
-      <h2 class="flex items-center gap-2 font-display text-base font-bold text-amber-700 dark:text-amber-400">{{ icon('upload') }} 백업 가져오기</h2>
-      <p class="mt-2 text-sm text-zinc-600 dark:text-zinc-400">파일을 검사한 뒤, 바뀔 내용을 먼저 보여줍니다.</p>
-      <p class="mt-2 flex items-center gap-1.5 text-sm font-bold text-amber-700 dark:text-amber-400">{{ icon('alert-triangle', 'w-4 h-4') }} 적용하면 지금 데이터가 파일 내용으로 바뀝니다.</p>
+      <h2 class="flex items-center gap-2 font-display text-base font-bold text-amber-700 dark:text-amber-400">{{ icon('upload') }} 백업 불러오기</h2>
+      <p class="mt-2 text-sm text-zinc-600 dark:text-zinc-400">파일을 확인한 뒤 바뀔 내용을 미리 보여줍니다.</p>
       <form id="import-form" action="/manage/import" method="post" enctype="multipart/form-data" class="mt-5 flex flex-col gap-3">
-        <input type="file" name="file" accept="application/json,.json" required aria-label="JSON 파일 선택"
+        <input type="file" name="file" accept="application/json,.json" required aria-label="백업 파일(JSON) 선택"
                class="field-input cursor-pointer py-2.5 file:mr-3 file:cursor-pointer file:rounded-lg file:border-0 file:bg-amber-100 file:px-3 file:py-1.5 file:text-xs file:font-bold file:text-amber-700 dark:file:bg-amber-500/20 dark:file:text-amber-300">
-        <button type="submit" class="btn-primary self-start bg-amber-600 hover:bg-amber-500">{{ icon('upload') }} 파일 검사</button>
+        <button type="submit" class="btn-primary self-start bg-amber-600 hover:bg-amber-500">{{ icon('upload') }} 파일 불러오기</button>
       </form>
     </section>
   </div>

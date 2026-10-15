@@ -150,14 +150,14 @@ class DataStore:
             )
         except ValidationError as exc:
             raise InvalidSessionDataError(
-                "저장된 랭킹을 읽을 수 없습니다. 백업 파일로 복구해주세요."
+                "저장된 랭킹을 읽을 수 없습니다. 백업 파일을 불러와 복구하세요."
             ) from exc
         return True
 
     async def _reload(self) -> None:
         if not await self._load():
             raise StaleSessionError(
-                "랭킹이 삭제되었습니다. 내 랭킹에서 다시 열어주세요."
+                "삭제된 랭킹입니다. 내 랭킹에서 다른 랭킹을 여세요."
             )
 
     async def _read_snapshot(self, db) -> bool:
@@ -230,7 +230,9 @@ class DataStore:
         ) as cursor:
             model = await cursor.fetchone()
         if model is None:
-            raise InvalidSessionDataError("보존된 순위 관측을 찾을 수 없습니다.")
+            raise InvalidSessionDataError(
+                "저장된 랭킹을 읽을 수 없습니다. 백업 파일을 불러와 복구하세요."
+            )
         data.update(json.loads(model["state"]))
         self._data = data
         return True
@@ -269,7 +271,7 @@ class DataStore:
                 "session_save_failed — session_id=%s: %s", self._session_id, exc
             )
             raise SessionSaveError(
-                "저장하지 못했습니다. 잠시 후 다시 시도해주세요."
+                "저장하지 못했습니다. 잠시 후 다시 시도하세요."
             ) from exc
         self._events = EventChanges()
 
@@ -459,11 +461,11 @@ class DataStore:
         """백업 형식 4를 검증하고 (현재 상태, 투표 기록)을 반환합니다."""
 
         def reject_constant(value: str):
-            raise InvalidSessionDataError(f"유한하지 않은 수치가 있습니다: {value}")
+            raise InvalidSessionDataError("백업 파일에 올바르지 않은 숫자가 있습니다.")
 
         parsed = json.loads(raw, parse_constant=reject_constant)
         if not isinstance(parsed, dict) or parsed.get("schema_version") != 4:
-            raise InvalidSessionDataError("백업 형식 4 파일만 가져올 수 있습니다.")
+            raise InvalidSessionDataError("형식 4 백업 파일만 불러올 수 있습니다.")
         backup = BackupModel.model_validate(parsed)
         data = SessionDataModel.model_validate(
             {
@@ -480,7 +482,7 @@ class DataStore:
         ).model_dump(mode="python")
         history = [event.model_dump(mode="python") for event in backup.history]
         if len({e["id"] for e in history}) != len(history):
-            raise InvalidSessionDataError("투표 기록 ID가 중복되었습니다.")
+            raise InvalidSessionDataError("백업 파일의 투표 내역이 올바르지 않습니다.")
         history.sort(key=lambda e: e["id"])
 
         item_ids = {item["id"] for item in data["items"]}
@@ -495,7 +497,7 @@ class DataStore:
                 continue
             if not set(ids) <= item_ids or set(payload["votes"]) != criterion_keys:
                 raise InvalidSessionDataError(
-                    "보관되지 않은 투표 기록이 현재 항목·기준과 맞지 않습니다."
+                    "백업 파일의 투표 내역이 올바르지 않습니다."
                 )
             if event["undone"]:
                 continue
@@ -527,9 +529,7 @@ class DataStore:
                 for item in data["items"]
             )
         ):
-            raise InvalidSessionDataError(
-                "취소할 수 있는 투표 기록이 보존된 관측 수보다 많습니다."
-            )
+            raise InvalidSessionDataError("백업 파일의 투표 내역이 올바르지 않습니다.")
         return data, history
 
     @staticmethod
@@ -585,8 +585,8 @@ class DataStore:
                 or row["created_at"] < time.time() - PENDING_IMPORT_TTL_SECONDS
             ):
                 raise StaleImportError(
-                    "미리보기 뒤에 랭킹이 바뀌었거나 미리보기 시간이 지났습니다. "
-                    "파일을 다시 선택해주세요."
+                    "확인하는 사이에 랭킹이 바뀌었거나 확인 시간이 지났습니다. "
+                    "파일을 다시 불러오세요."
                 )
             await self._replace_with(*self.parse_import(row["raw"]))
             await self._save_to_db()
@@ -613,7 +613,9 @@ class DataStore:
     async def issue_battle_round(self, ids: list[int]) -> str:
         """대결 라운드만 기록합니다. 나머지 상태는 다시 쓰지 않습니다."""
         if len(ids) not in (2, 3) or len(set(ids)) != len(ids):
-            raise BattleItemNotFoundError("대결 항목은 서로 다른 2~3개여야 합니다.")
+            raise BattleItemNotFoundError(
+                "대결 정보가 올바르지 않습니다. 새로고침한 뒤 다시 투표하세요."
+            )
         round_data = {
             "token": secrets.token_urlsafe(24),
             "item1_id": ids[0],
@@ -627,7 +629,7 @@ class DataStore:
                 await database.save_active_round(self._session_id, round_data)
             except LookupError as exc:
                 raise BattleItemNotFoundError(
-                    "대결 항목이 바뀌었습니다. 새로고침해주세요."
+                    "대결 항목이 바뀌었습니다. 새로고침하세요."
                 ) from exc
         self._data["active_round"] = round_data
         return round_data["token"]
@@ -640,7 +642,7 @@ class DataStore:
             or _vote_ids(active) != ids
         ):
             raise StaleBattleRoundError(
-                "이 대결은 이미 저장되었거나 바뀌었습니다. 새로고침하면 이어서 할 수 있습니다."
+                "이미 처리된 대결입니다. 새로고침하면 다음 대결로 넘어갑니다."
             )
 
     def _change_observation(self, key: str, ranking, amount: int) -> None:
@@ -649,13 +651,17 @@ class DataStore:
             if tuple(tuple(group) for group in row["groups"]) == ranking:
                 row["count"] += amount
                 if row["count"] < 0:
-                    raise InvalidSessionDataError("취소할 관측이 없습니다.")
+                    raise InvalidSessionDataError(
+                        "투표 내역과 점수 데이터가 맞지 않아 취소하지 못했습니다."
+                    )
                 if row["count"] == 0:
                     rows.remove(row)
                 break
         else:
             if amount < 0:
-                raise InvalidSessionDataError("취소할 관측이 없습니다.")
+                raise InvalidSessionDataError(
+                    "투표 내역과 점수 데이터가 맞지 않아 취소하지 못했습니다."
+                )
             rows.append({"groups": ranking, "count": amount})
         rows.sort(key=lambda row: tuple(tuple(g) for g in row["groups"]))
 
@@ -709,10 +715,14 @@ class DataStore:
         async with self._mutation():
             self._validate_active_round(payload, ids)
             if any(self.get_item(iid) is None for iid in ids):
-                raise BattleItemNotFoundError("대결 항목을 찾을 수 없습니다.")
+                raise BattleItemNotFoundError(
+                    "대결 정보가 올바르지 않습니다. 새로고침한 뒤 다시 투표하세요."
+                )
             keys = [c["key"] for c in self.criteria]
             if set(payload.votes) != set(keys):
-                raise InvalidBattleVoteError("모든 기준에 답하거나 건너뛰어야 합니다.")
+                raise InvalidBattleVoteError(
+                    "선택하지 않은 기준이 있습니다. 결과를 고르거나 건너뛰기를 누르세요."
+                )
             try:
                 rankings = {
                     key: ballot_ranking(ids, vote)
@@ -817,7 +827,7 @@ class DataStore:
             event = last[0]
             if expected_event_id is not None and event["id"] != expected_event_id:
                 raise StaleBattleRoundError(
-                    "이미 취소되었거나 투표 기록이 바뀌었습니다. 새로고침해주세요."
+                    "이미 취소되었거나 투표 내역이 바뀌었습니다. 새로고침하세요."
                 )
             ids = _vote_ids(event["payload"])
             answered = set()

@@ -61,17 +61,15 @@ async def read_backup_upload(file: UploadFile) -> str:
     """UTF-8 백업 파일을 한도 안에서 읽습니다."""
     raw = await file.read(MAX_BACKUP_BYTES + 1)
     if len(raw) > MAX_BACKUP_BYTES:
-        raise UploadTooLargeError("백업 파일은 64MB를 넘을 수 없습니다.")
+        raise UploadTooLargeError("64MB 이하의 백업 파일만 불러올 수 있습니다.")
     try:
         return raw.decode("utf-8")
     except UnicodeDecodeError as exc:
-        raise InvalidSessionDataError("UTF-8로 저장된 JSON 파일이 필요합니다.") from exc
+        raise InvalidSessionDataError("올바른 JSON 파일(UTF-8)이 아닙니다.") from exc
 
 
 def import_error_message(exc: Exception) -> str:
     """검증 실패 원인 중 사용자가 고칠 수 있는 설명만 보여줍니다."""
     if isinstance(exc, InvalidSessionDataError):
         return str(exc)
-    return (
-        "백업 파일을 읽을 수 없습니다. Ranker에서 내보낸 형식 4 JSON인지 확인해주세요."
-    )
+    return "백업 파일을 읽을 수 없습니다. Ranker에서 받은 백업 파일(형식 4)인지 확인하세요."

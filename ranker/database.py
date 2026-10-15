@@ -257,8 +257,8 @@ async def _check_backup_size(
         or core_bytes + event_bytes + 120 * count > MAX_BACKUP_BYTES
     ):
         raise BackupLimitError(
-            "백업 파일 한도(64MB 또는 투표 기록 10만 건)에 도달했습니다. "
-            "백업한 뒤 투표 기록을 정리해주세요."
+            "저장 한도(64MB 또는 투표 내역 10만 건)가 찼습니다. "
+            "백업을 받은 뒤 내역을 비우세요."
         )
 
 
@@ -281,7 +281,7 @@ async def save_session_data(
         revision = existing["revision"] if existing else None
         if revision != expected_revision:
             raise StaleSessionError(
-                "랭킹이 다른 곳에서 바뀌었거나 삭제되었습니다. 새로고침해주세요."
+                "다른 탭이나 기기에서 랭킹이 바뀌었거나 삭제되었습니다. 새로고침하세요."
             )
         new_revision = (revision or 0) + 1
         await db.execute(

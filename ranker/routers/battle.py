@@ -137,7 +137,7 @@ _EMPTY_NO_CRITERIA = {
     "title": "평가 기준이 없습니다",
     "description": "대결하려면 평가 기준이 하나 이상 있어야 합니다.",
     "link_url": "/manage?tab=criteria",
-    "link_text": "기준 추가하러 가기",
+    "link_text": "평가 기준 추가",
 }
 
 _EMPTY_NOT_ENOUGH = {
@@ -145,7 +145,7 @@ _EMPTY_NOT_ENOUGH = {
     "title": "항목이 부족합니다",
     "description": "대결하려면 항목이 {min_count}개 이상 있어야 합니다.",
     "link_url": "/manage?tab=items",
-    "link_text": "항목 추가하러 가기",
+    "link_text": "항목 추가",
 }
 
 
@@ -226,7 +226,7 @@ async def focus_battle(
         return templates.TemplateResponse(
             request,
             "error.html",
-            {"message": "이 항목은 삭제되었거나 다른 랭킹에 있습니다."},
+            {"message": "삭제되었거나 현재 랭킹에 없는 항목입니다."},
             status_code=404,
         )
     ctx, is_3way = await _pick_match(store, focus_id=item_id)

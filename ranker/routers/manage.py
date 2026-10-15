@@ -184,7 +184,7 @@ async def update_criteria(
     weights = form.getlist("weight")
 
     if not (len(keys) == len(labels) == len(colors) == len(weights)):
-        return _form_error(request, "폼 데이터가 올바르지 않습니다.")
+        return _form_error(request, "입력한 내용이 올바르지 않습니다. 다시 확인하세요.")
 
     used_keys: set[str] = set()
     new_criteria = []
@@ -198,12 +198,15 @@ async def update_criteria(
         if not key:
             key = _generate_key(lbl, used_keys)
         if key in used_keys:
-            return _form_error(request, f"중복된 key가 있습니다: '{key}'")
+            return _form_error(
+                request,
+                "같은 기준이 두 번 들어 있습니다. 새로고침한 뒤 다시 저장하세요.",
+            )
 
         try:
             weight_val = float(w) if w else 1.0
         except ValueError:
-            return _form_error(request, f"'{lbl}'의 가중치는 숫자여야 합니다.")
+            return _form_error(request, f"'{lbl}'의 가중치에는 숫자만 입력하세요.")
 
         used_keys.add(key)
         new_criteria.append(
@@ -218,8 +221,10 @@ async def update_criteria(
     try:
         for criterion in new_criteria:
             CriterionModel(**criterion)  # key 형식·weight 범위 검증
-    except ValidationError as exc:
-        return _form_error(request, f"기준 저장 실패: {exc.errors()[0]['msg']}")
+    except ValidationError:
+        return _form_error(
+            request, "평가 기준을 저장하지 못했습니다. 이름과 가중치를 확인하세요."
+        )
 
     await store.set_criteria(new_criteria)
 
@@ -230,7 +235,7 @@ async def update_criteria(
             {"criteria": store.criteria, "items": store.items, "update_counts": True},
         )
         response.headers["HX-Trigger"] = json.dumps(
-            {"showToast": {"message": "평가 기준이 저장되었습니다.", "type": "success"}}
+            {"showToast": {"message": "평가 기준을 저장했습니다.", "type": "success"}}
         )
         return response
     return RedirectResponse(url="/manage?tab=criteria", status_code=303)
@@ -282,15 +287,15 @@ async def update_settings(
         validated = SettingsModel(**{**store.settings, **patch}).model_dump(
             mode="python"
         )
-    except ValidationError as exc:
+    except ValidationError:
         return _form_error(
-            request, f"설정 값이 올바르지 않습니다: {exc.errors()[0]['msg']}"
+            request, "설정값이 올바르지 않습니다. 입력 범위를 확인하세요."
         )
 
     await store.update_settings(validated)
 
     if is_htmx(request):
-        return _htmx_toast("설정이 저장되었습니다.")
+        return _htmx_toast("설정을 저장했습니다.")
     return RedirectResponse(url="/manage?tab=settings", status_code=303)
 
 

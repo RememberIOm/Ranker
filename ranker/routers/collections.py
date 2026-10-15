@@ -66,7 +66,9 @@ async def keep_current(
     """목록에 없는 현재 랭킹을 내 목록에 넣습니다."""
     store = await get_session_store(request, request.cookies.get("session_id"))
     if store is None:
-        raise HTTPException(404, "열려 있는 랭킹이 없습니다.")
+        raise HTTPException(
+            404, "열려 있는 랭킹이 없습니다. 먼저 랭킹을 열거나 새로 만드세요."
+        )
     code = await ensure_library(request)
     await attach_board(code, store.session_id, name)
     response = RedirectResponse("/collections", status_code=303)
@@ -80,7 +82,7 @@ async def switch_collection(
 ) -> RedirectResponse:
     code = await get_library(request)
     if not code or not await owns_board(code, session_id):
-        raise HTTPException(404, "이 목록에서 랭킹을 찾을 수 없습니다.")
+        raise HTTPException(404, "목록에 없는 랭킹입니다.")
     response = RedirectResponse("/ranking", status_code=303)
     set_session_cookie(response, session_id)
     return response
@@ -94,14 +96,14 @@ async def rename_collection(
 ) -> RedirectResponse:
     code = await get_library(request)
     if not code or not name.strip():
-        raise HTTPException(400, "랭킹 이름을 입력해주세요.")
+        raise HTTPException(400, "랭킹 이름을 입력하세요.")
     async with transaction() as db:
         cursor = await db.execute(
             "UPDATE boards SET name=? WHERE session_id=? AND library_id=?",
             (name.strip(), session_id, library_id(code)),
         )
         if cursor.rowcount != 1:
-            raise HTTPException(404, "이 목록에서 랭킹을 찾을 수 없습니다.")
+            raise HTTPException(404, "목록에 없는 랭킹입니다.")
     return RedirectResponse("/collections", status_code=303)
 
 
@@ -109,7 +111,7 @@ async def rename_collection(
 async def recover_collections(code: str = Form(...)) -> RedirectResponse:
     code = code.strip()
     if not await library_exists(code):
-        raise HTTPException(400, "복구 코드가 맞지 않습니다. 다시 확인해주세요.")
+        raise HTTPException(400, "복구 코드가 맞지 않습니다. 다시 확인하세요.")
     response = RedirectResponse("/collections", status_code=303)
     set_library_cookie(response, code)
     delete_session_cookie(response)
@@ -122,7 +124,7 @@ async def delete_collection(
 ) -> RedirectResponse:
     code = await get_library(request)
     if not code or not await owns_board(code, session_id):
-        raise HTTPException(404, "이 목록에서 랭킹을 찾을 수 없습니다.")
+        raise HTTPException(404, "목록에 없는 랭킹입니다.")
     await delete_session(session_id)
     response = RedirectResponse("/collections", status_code=303)
     if request.cookies.get("session_id") == session_id:

@@ -143,7 +143,7 @@ async def test_import_rejects_missing_undoable_observations(store_with_items):
     before = await s.export_json()
     backup = json.loads(before)
     backup["observations"] = {}
-    with pytest.raises(InvalidSessionDataError, match="관측"):
+    with pytest.raises(InvalidSessionDataError, match="투표 내역이 올바르지"):
         await s.import_json(json.dumps(backup))
     assert await s.export_json() == before
 

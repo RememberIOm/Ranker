@@ -20,7 +20,7 @@ test('투표와 partial 교체, 건너뛰기, 실행 취소', async ({ page }) =
   page.on('pageerror', e => errors.push(e.message));
   await setup(page);
   const token = await page.locator('#battle-state').getAttribute('data-round-token');
-  await page.getByRole('button', { name: '전부 A 선택', exact: true }).click();
+  await page.getByRole('button', { name: '모두 A', exact: true }).click();
   await page.locator('#btn-story-skip').click();
   await page.locator('#submit-btn').click();
   await expect(page.locator('#result-modal')).toBeVisible();
@@ -37,7 +37,7 @@ test('투표와 partial 교체, 건너뛰기, 실행 취소', async ({ page }) =
 
 test('3way 최고만 선택은 꼴찌를 만들지 않고 명시적 동률로 제출', async ({ page }) => {
   await setup(page, true);
-  await page.getByRole('button', { name: '전부 A 최고만 선택' }).click();
+  await page.getByRole('button', { name: '모두 A 최고' }).click();
   await expect(page.locator('#submit-btn')).toBeDisabled();
   await expect(page.locator('.sel-worst')).toHaveCount(0);
   for (const key of ['story','visual','ost','voice','char','fun']) await page.locator(`#tied-btn-${key}`).click();
@@ -68,7 +68,7 @@ test('빈 상태, 새 항목 추가·삭제와 검색', async ({ page }) => {
 test('새 기준 key가 저장 응답에서 갱신됨', async ({ page }) => {
   await setup(page);
   await page.goto('/manage?tab=criteria');
-  await page.getByRole('button', { name: '+ 기준 추가' }).click();
+  await page.getByRole('button', { name: '기준 추가' }).click();
   const row = page.locator('#criteria-rows > div').last();
   await row.locator('input[name="label"]').fill('새 기준');
   await page.locator('#criteria-form button[type="submit"]').click();
@@ -99,8 +99,8 @@ test('백업 미리보기 후 교체', async ({ page }) => {
   await page.goto('/manage?tab=data');
   await page.locator('input[type="file"]').setInputFiles({ name: 'backup.json', mimeType: 'application/json', buffer: Buffer.from(backup) });
   await page.locator('#import-form button[type="submit"]').click();
-  await expect(page.getByRole('heading', { name: '가져오기 확인' })).toBeVisible();
-  await page.getByRole('button', { name: '파일 내용으로 교체' }).click();
+  await expect(page.getByRole('heading', { name: '백업 불러오기 확인' })).toBeVisible();
+  await page.getByRole('button', { name: '덮어쓰기' }).click();
   await expect(page).toHaveURL(/\/manage\?tab=data$/);
   const after = await (await page.request.get('/manage/export')).text();
   expect(after).not.toContain('나중에 추가한 항목');
@@ -152,7 +152,7 @@ test('비블라인드 확률과 설정에 삭제된 휴리스틱이 노출되지
 test('3way 건너뛰기는 저장되고 점수를 바꾸지 않음', async ({ page }) => {
   const errors = watchErrors(page);
   await setup(page, true);
-  await page.getByRole('button', { name: '전부 A 최고만 선택' }).click();
+  await page.getByRole('button', { name: '모두 A 최고' }).click();
   for (const key of ['visual','ost','voice','char','fun']) await page.locator(`#tied-btn-${key}`).click();
   await page.locator('#btn-story-skip').click();
   await expect(page.locator('#submit-btn')).toBeEnabled();

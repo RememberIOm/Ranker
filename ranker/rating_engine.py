@@ -24,6 +24,9 @@ ALGORITHM_VERSION = "gpl-map-v2"
 Ranking = tuple[tuple[int, ...], ...]
 
 
+_BAD_BALLOT = "대결 정보가 올바르지 않습니다. 새로고침한 뒤 다시 투표하세요."
+
+
 class FitConvergenceError(RuntimeError):
     """A fit must converge before replacing any saved rating."""
 
@@ -38,33 +41,33 @@ def canonical_ranking(groups: Iterable[Iterable[int]]) -> Ranking:
         or len(set(ids)) != len(ids)
         or any(type(i) is not int or not 0 < i <= 2**63 - 1 for i in ids)
     ):
-        raise ValueError("서로 다른 2~3개 항목의 완전 순위 또는 동률이 필요합니다.")
+        raise ValueError(_BAD_BALLOT)
     return result
 
 
 def ballot_ranking(ids: list[int], vote: str | dict[str, str]) -> Ranking | None:
     """Validate UI semantics, including callers that bypass request validation."""
     if len(ids) not in (2, 3) or len(set(ids)) != len(ids):
-        raise ValueError("대결 항목은 서로 달라야 합니다.")
+        raise ValueError(_BAD_BALLOT)
     if vote == "skip":
         return None
     if len(ids) == 2:
         a, b = ids
         choices = {"1": ((a,), (b,)), "2": ((b,), (a,)), "draw": ((a, b),)}
         if not isinstance(vote, str) or vote not in choices:
-            raise ValueError("알 수 없는 투표 값입니다.")
+            raise ValueError(_BAD_BALLOT)
         return canonical_ranking(choices[vote])
     if not isinstance(vote, dict):
         # Callers treat every malformed ballot as a validation error.
-        raise ValueError("3개 대결의 순위가 필요합니다.")  # noqa: TRY004
+        raise ValueError(_BAD_BALLOT)  # noqa: TRY004
     roles: dict[int, str] = {}
     for key, role in vote.items():
         try:
             iid = int(key)
         except TypeError, ValueError:
-            raise ValueError("숫자가 아닌 항목 ID입니다.") from None
+            raise ValueError(_BAD_BALLOT) from None
         if iid in roles or iid not in ids or role not in {"best", "worst", "tied"}:
-            raise ValueError("중복되거나 알 수 없는 항목·역할입니다.")
+            raise ValueError(_BAD_BALLOT)
         roles[iid] = role
     best = [i for i, role in roles.items() if role == "best"]
     worst = [i for i, role in roles.items() if role == "worst"]
@@ -78,7 +81,7 @@ def ballot_ranking(ids: list[int], vote: str | dict[str, str]) -> Ranking | None
         return canonical_ranking([tied, worst])
     if not best and not worst and len(tied) == 3:
         return canonical_ranking([tied])
-    raise ValueError("최고·최하 또는 명시적인 동률을 선택해주세요.")
+    raise ValueError("최하 항목이나 동률을 마저 고르세요.")
 
 
 @lru_cache(maxsize=2)
@@ -179,7 +182,7 @@ class Posterior:
             return splu(self.precision)
         except RuntimeError as exc:
             raise FitConvergenceError(
-                "결합 불확실성을 계산할 수 없습니다. 저장하지 않았습니다."
+                "점수를 계산하지 못해 저장하지 않았습니다."
             ) from exc
 
     def mean(self, iid: int) -> float:
@@ -270,7 +273,7 @@ def _newton(objective: RankingLikelihood, x: NDArray) -> tuple[NDArray, csc_matr
         else:
             break
         x, value, gradient = candidate, new_value, new_gradient
-    raise FitConvergenceError("평점 계산이 수렴하지 않았습니다. 저장하지 않았습니다.")
+    raise FitConvergenceError("점수를 계산하지 못해 저장하지 않았습니다.")
 
 
 def fit_rankings(
@@ -358,7 +361,7 @@ def predict_pairs(posterior: Posterior, pairs: list[tuple[int, int]]) -> NDArray
         max_subdivisions=2000,
     )
     if integral.status != "converged" or not np.isfinite(integral.estimate).all():
-        raise FitConvergenceError("예측 확률 적분이 수렴하지 않았습니다.")
+        raise FitConvergenceError("예상 확률을 계산하지 못했습니다.")
     result = np.maximum(integral.estimate, 0.0)
     return result / result.sum(axis=1, keepdims=True)
 

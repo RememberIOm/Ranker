@@ -318,7 +318,7 @@ class TestStorageRecovery:
         self, store_with_items: store.DataStore, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(database, "MAX_BACKUP_BYTES", 1)
-        with pytest.raises(store.BackupLimitError, match="백업 파일 한도"):
+        with pytest.raises(store.BackupLimitError, match="저장 한도"):
             await store_with_items.add_items(["Over capacity"])
         loaded = await store.open_store(store_with_items._session_id)
         assert [item["name"] for item in loaded.items] == ["Alpha", "Beta"]

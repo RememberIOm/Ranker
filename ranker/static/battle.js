@@ -188,7 +188,7 @@ function updateCardUI(key) {
     var btn = document.getElementById('btn-' + key + '-' + id);
     if (!btn) return;
     btn.classList.add(cls);
-    btn.setAttribute('aria-label', btn.dataset.label + ' — ' + ROLE_NAMES[role]);
+    btn.setAttribute('aria-label', btn.dataset.label + ': ' + ROLE_NAMES[role]);
     if (pressed) btn.setAttribute('aria-pressed', 'true');
     var badge = btn.querySelector('.role-icon');
     if (badge) {
@@ -238,10 +238,7 @@ function updateProgress() {
   if (count) count.textContent = done + '/' + total;
   var label = document.getElementById('progress-label');
   if (label) {
-    label.textContent = done === 0
-      ? (battleMode === '3way' ? '기준마다 최고와 최하를 고르세요' : '기준마다 하나씩 고르세요')
-      : done < total ? (total - done) + '개 남음'
-      : '모두 골랐습니다';
+    label.textContent = done < total ? (total - done) + '개 남음' : '모두 골랐습니다';
   }
   var bar = document.querySelector('[role="progressbar"]');
   if (bar) bar.setAttribute('aria-valuenow', String(done));
@@ -278,10 +275,10 @@ function serializeVotes() {
 function handleVoteError(status, data) {
   var detail = data && typeof data.detail === 'string' ? data.detail : '';
   if (status === 401 || status === 409) {
-    showToast(detail || '화면이 오래되었습니다. 새로고침해주세요.', 'warning', 7000);
+    showToast(detail || '화면이 최신 상태가 아닙니다. 새로고침하세요.', 'warning', 7000);
     return;
   }
-  showToast(detail || '투표를 저장하지 못했습니다. 다시 시도해주세요.', 'error', 5000);
+  showToast(detail || '투표를 저장하지 못했습니다. 다시 시도하세요.', 'error', 5000);
 }
 
 async function submitAllVotes() {
@@ -307,7 +304,7 @@ async function submitAllVotes() {
     }
     applyVoteResponse(await res.text());
   } catch (err) {
-    showToast((err && err.message) || '연결을 확인한 뒤 다시 시도해주세요.', 'error', 5000);
+    showToast((err && err.message) || '네트워크를 확인한 뒤 다시 시도하세요.', 'error', 5000);
   } finally {
     if (!document.getElementById('result-modal')) {
       isSubmitting = false;

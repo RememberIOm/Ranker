@@ -78,7 +78,7 @@ class TestBattleHTMX:
     async def test_result_modal_has_hold_button_when_auto_skip(
         self, client: httpx2.AsyncClient
     ) -> None:
-        """auto_skip 활성화 시 결과 모달이 "유지" 버튼과 노출된 auto-skip-area를 포함한다."""
+        """auto_skip 활성화 시 결과 모달이 "멈추기" 버튼과 노출된 auto-skip-area를 포함한다."""
         await _setup_battle(client)
         await client.post(
             "/manage/settings",
@@ -119,9 +119,9 @@ class TestBattleHTMX:
         click_area = re.search(r'<div id="click-skip-area"\s+class="([^"]*)"', body)
         assert click_area, "click-skip-area div를 찾을 수 없습니다"
         assert "hidden" in click_area.group(1)
-        # 유지 버튼이 존재해야 함
+        # 멈추기 버튼이 존재해야 함
         assert 'data-battle="keep-result"' in body
-        assert "유지" in body
+        assert "멈추기" in body
 
     async def test_result_modal_no_hold_button_when_manual(
         self, client: httpx2.AsyncClient

@@ -14,8 +14,7 @@
   </h1>
 
   <p class="animate-slide-up mt-6 text-base leading-relaxed text-zinc-600 sm:text-lg dark:text-zinc-400" style="animation-delay: 80ms">
-    두세 개씩 놓고 더 나은 쪽을 고르면 순위가 정해집니다.<br>
-    영화, 음식, 여행지처럼 무엇이든 비교할 수 있습니다.
+    두세 개씩 놓고 더 나은 쪽을 고르면 순위가 정해집니다.
   </p>
 
   {% if has_session %}
@@ -28,8 +27,8 @@
     </a>
   </div>
   <div class="animate-slide-up mt-8 flex items-center gap-4 text-sm" style="animation-delay: 240ms">
-    <a href="/manage" class="font-semibold text-violet-600 underline-offset-4 hover:underline dark:text-violet-400">항목·기준 관리 &rarr;</a>
-    <a href="/collections" class="font-semibold text-violet-600 underline-offset-4 hover:underline dark:text-violet-400">내 랭킹 &rarr;</a>
+    <a href="/manage" class="font-semibold text-violet-600 underline-offset-4 hover:underline dark:text-violet-400">항목·기준 관리</a>
+    <a href="/collections" class="font-semibold text-violet-600 underline-offset-4 hover:underline dark:text-violet-400">내 랭킹</a>
   </div>
 
   {% else %}
@@ -38,9 +37,9 @@
       <h2 class="flex items-center gap-2 font-display text-lg font-bold">
         <span class="text-violet-600 dark:text-violet-400">{{ icon('folder-open') }}</span> 백업 파일로 시작
       </h2>
-      <p class="mt-1.5 text-sm text-zinc-600 dark:text-zinc-400">Ranker에서 내보낸 JSON 파일을 올리면 이어서 할 수 있습니다.</p>
+      <p class="mt-1.5 text-sm text-zinc-600 dark:text-zinc-400">받아둔 백업 파일(JSON)을 올리면 이어서 쓸 수 있습니다.</p>
       <form action="/upload" method="post" enctype="multipart/form-data" data-busy-label="불러오는 중…" class="mt-4 flex flex-col gap-3">
-        <input type="file" name="file" accept="application/json,.json" required aria-label="JSON 파일 선택"
+        <input type="file" name="file" accept="application/json,.json" required aria-label="백업 파일(JSON) 선택"
                class="field-input cursor-pointer py-2.5 file:mr-3 file:cursor-pointer file:rounded-lg file:border-0 file:bg-violet-100 file:px-3 file:py-1.5 file:text-xs file:font-bold file:text-violet-700 dark:file:bg-violet-500/20 dark:file:text-violet-300">
         <button type="submit" class="btn-primary">
           {{ icon('upload') }} 불러오기
@@ -62,8 +61,7 @@
   </div>
 
   <p class="animate-fade-in mt-10 text-xs leading-relaxed text-zinc-500 dark:text-zinc-500" style="animation-delay: 320ms">
-    만든 랭킹은 ‘내 랭킹’ 목록에 남습니다.<br>
-    다른 브라우저에서는 복구 코드로 열고, 백업은 관리 → 데이터에서 받을 수 있습니다.
+    다른 브라우저에서는 복구 코드로 열 수 있습니다. 백업은 관리 메뉴의 데이터 탭에서 받으세요.
   </p>
   {% endif %}
 </section>

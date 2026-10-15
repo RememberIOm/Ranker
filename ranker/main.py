@@ -124,7 +124,7 @@ for _exc_type, _status in _ERROR_STATUS.items():
 @app.exception_handler(ValidationError)
 @app.exception_handler(RequestValidationError)
 async def validation_handler(request: Request, exc: Exception) -> Response:
-    return error_response(request, 422, "입력값의 길이, 개수 또는 범위를 확인해주세요.")
+    return error_response(request, 422, "입력한 값의 길이나 범위를 다시 확인하세요.")
 
 
 @app.exception_handler(StarletteHTTPException)
@@ -138,7 +138,7 @@ async def session_required_handler(request: Request, exc: RequiresSessionExcepti
         return Response(status_code=200, headers={"HX-Redirect": "/"})
     if wants_json(request):
         return JSONResponse(
-            {"detail": "열려 있는 랭킹이 없습니다. 내 랭킹에서 다시 열어주세요."},
+            {"detail": "열려 있는 랭킹이 없습니다. 내 랭킹에서 열거나 새로 만드세요."},
             status_code=401,
         )
     return RedirectResponse(url="/", status_code=303)
@@ -181,7 +181,9 @@ class SecurityMiddleware:
             await send(message)
 
         if scope["method"] not in {"GET", "HEAD", "OPTIONS"} and self._foreign(headers):
-            response = _plain_response(403, "이 사이트에서 직접 요청해주세요.")
+            response = _plain_response(
+                403, "잘못된 요청입니다. 페이지를 새로고침한 뒤 다시 시도하세요."
+            )
             return await response(scope, receive, send_with_headers)
         await self.app(scope, receive, send_with_headers)
 
@@ -216,7 +218,7 @@ class BodyLimitMiddleware:
         if scope["type"] != "http":
             return await self.app(scope, receive, send)
         limit = self.LARGE if scope["path"] in self.UPLOAD_PATHS else self.SMALL
-        too_large = _plain_response(413, "요청이 너무 큽니다.")
+        too_large = _plain_response(413, "보낸 데이터가 너무 큽니다.")
         length = dict(scope["headers"]).get(b"content-length")
         if length is not None and (not length.isdigit() or int(length) > limit):
             return await too_large(scope, receive, send)
@@ -321,7 +323,7 @@ async def upload_session(request: Request, file: UploadFile = File(...)):
     except (ValueError, ValidationError) as exc:
         return error_response(request, 400, import_error_message(exc))
     response = RedirectResponse(url="/battle", status_code=303)
-    store = await create_board(request, response, "가져온 랭킹")
+    store = await create_board(request, response, "불러온 랭킹")
     await store.import_json(raw)
     return response
 
