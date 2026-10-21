@@ -1,0 +1,71 @@
+# 출시 후 3일이 지난 버전만 받고, CI를 통과하면 dependabot-automerge.yml이 병합합니다.
+# 간접 의존성과 flyctl 버전은 lock-maintenance.yml이 갱신합니다.
+version: 2
+updates:
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 3
+    versioning-strategy: increase
+    groups:
+      python:
+        update-types: [minor, patch]
+    commit-message:
+      prefix: Chore
+
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 3
+    groups:
+      npm:
+        update-types: [minor, patch]
+    commit-message:
+      prefix: Chore
+
+  - package-ecosystem: docker
+    directory: /docker
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 3
+    ignore:
+      # Python 3.x → 3.y는 .python-version·requires-python과 함께 직접 올립니다.
+      - dependency-name: python
+        update-types: [version-update:semver-minor, version-update:semver-major]
+      # Node 메이저는 CI의 node-version과 함께 직접 올립니다.
+      - dependency-name: node
+        update-types: [version-update:semver-major]
+    groups:
+      docker:
+        patterns: ["*"]
+    commit-message:
+      prefix: Chore
+
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 3
+    ignore:
+      - dependency-name: node
+        update-types: [version-update:semver-major]
+    commit-message:
+      prefix: Chore
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 3
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: Chore

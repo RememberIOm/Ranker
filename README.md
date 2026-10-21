@@ -77,6 +77,8 @@ uv run pip-audit --skip-editable
 
 배포 이미지는 루트에서 `docker build -f docker/Dockerfile -t ranker .`로 빌드합니다. CI는 PR과 main 푸시에서 Ruff·pip-audit·npm audit·Python·JavaScript·브라우저 테스트를 돌리고, main에서 모두 통과하면 Fly.io에 배포합니다.
 
+의존성은 Dependabot이 직접 의존성·Docker 이미지·GitHub Actions를, `lock-maintenance.yml`이 lock 파일의 간접 의존성과 flyctl 버전을 매주 갱신합니다. 둘 다 출시 후 3일이 지난 버전만 받고, CI를 통과하면 자동으로 병합되어 배포됩니다. 이를 위해 `DEPS_TOKEN`(이 저장소의 Contents·Pull requests·Workflows 쓰기 권한을 가진 fine-grained 토큰)을 Actions secret과 Dependabot secret에 모두 등록해야 합니다. Python 마이너 버전과 Node 메이저 버전은 `.python-version`·CI 설정과 함께 직접 올립니다.
+
 ## 구조
 
 | 경로 | 역할 |

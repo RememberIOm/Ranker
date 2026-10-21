@@ -1,0 +1,46 @@
+# Dependabot은 직접 의존성만 올리므로 lock 파일의 간접 의존성과 flyctl 버전은 여기서 매주 갱신합니다.
+# Dependabot과 같이 출시 후 3일이 지난 버전만 받습니다.
+# DEPS_TOKEN으로 푸시해야 PR에서 CI가 돌고, 병합 후 배포가 실행됩니다.
+name: Lock maintenance
+on:
+  schedule:
+    - cron: '0 18 * * 0'  # 월요일 03:00 KST
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.DEPS_TOKEN }}
+      BRANCH: deps/lock-maintenance
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          token: ${{ secrets.DEPS_TOKEN }}
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
+        with:
+          node-version: '26'
+      # 두 번째 uv lock은 버전을 그대로 두고 exclude-newer 옵션만 lock 파일에서 지웁니다.
+      - run: |
+          uv lock --upgrade --exclude-newer "3 days"
+          uv lock
+      - run: npm update --before "$(date -u -d '3 days ago' +%F)" --ignore-scripts
+      - run: |
+          cutoff=$(date -u -d '3 days ago' +%FT%TZ)
+          fly=$(gh api "repos/superfly/flyctl/releases?per_page=100" --jq "[.[] | select(.prerelease | not) | select(.published_at < \"$cutoff\")][0].tag_name | ltrimstr(\"v\")")
+          test -n "$fly"
+          sed -i "s/^\( *version: \).*/\1$fly/" .github/workflows/fly-deploy.yml
+      - run: |
+          git diff --quiet && exit 0
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git switch -C "$BRANCH"
+          git commit -am "Chore: lock 파일의 간접 의존성과 flyctl 갱신"
+          git push -f origin "$BRANCH"
+          if [ "$(gh pr view "$BRANCH" --json state --jq .state 2>/dev/null)" != OPEN ]; then
+            gh pr create --head "$BRANCH" --fill
+          fi
+          gh pr merge "$BRANCH" --auto --squash

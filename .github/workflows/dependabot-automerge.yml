@@ -1,0 +1,16 @@
+# Dependabot PR에 자동 병합을 걸어 둡니다. 실제 병합은 main의 필수 검사(Run tests)가 통과한 뒤에 일어납니다.
+# GITHUB_TOKEN으로 병합하면 main 푸시가 배포 워크플로를 실행하지 않으므로 DEPS_TOKEN(Dependabot secret)을 씁니다.
+name: Dependabot auto-merge
+on: pull_request
+
+permissions: {}
+
+jobs:
+  automerge:
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.DEPS_TOKEN }}
