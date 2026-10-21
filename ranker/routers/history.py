@@ -1,17 +1,17 @@
 """투표 기록 조회, 취소와 현재 설정으로 다시 계산."""
 
 from datetime import UTC, datetime
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
-from ranker.deps import require_store
-from ranker.store import DataStore
+from ranker.deps import StoreDep
 from ranker.template_env import templates
 
 router = APIRouter(prefix="/history", tags=["history"])
 
-_ROLES = {"best": "최고", "worst": "최하", "tied": "동률"}
+_ROLES = frozendict(best="최고", worst="최하", tied="동률")
 
 
 def _summaries(event: dict) -> list[str]:
@@ -37,7 +37,7 @@ def _summaries(event: dict) -> list[str]:
 
 @router.get("", response_class=HTMLResponse)
 async def history_page(
-    request: Request, page: int = 1, store: DataStore = Depends(require_store)
+    request: Request, store: StoreDep, page: int = 1
 ) -> HTMLResponse:
     result = await store.history_page(page)
     events = [
@@ -57,20 +57,18 @@ async def history_page(
 
 
 @router.post("/undo")
-async def undo_vote(
-    event_id: int = Form(...), store: DataStore = Depends(require_store)
-) -> Response:
+async def undo_vote(event_id: Annotated[int, Form()], store: StoreDep) -> Response:
     await store.undo_last_vote(expected_event_id=event_id)
     return RedirectResponse("/history", status_code=303)
 
 
 @router.post("/recalculate")
-async def recalculate(store: DataStore = Depends(require_store)) -> Response:
+async def recalculate(store: StoreDep) -> Response:
     await store.recalculate_ratings()
     return RedirectResponse("/ranking", status_code=303)
 
 
 @router.post("/clear")
-async def clear_history(store: DataStore = Depends(require_store)) -> Response:
+async def clear_history(store: StoreDep) -> Response:
     await store.clear_history()
     return RedirectResponse("/history", status_code=303)

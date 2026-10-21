@@ -14,7 +14,7 @@ from ranker.deps import create_session_id
 from ranker.store import DataStore, create_store
 
 COOKIE_NAME = "ranker_library"
-CODE_PATTERN = re.compile(r"^[A-Za-z0-9_-]{43}$")
+CODE_PATTERN = re.compile(r"[A-Za-z0-9_-]{43}")
 
 
 def library_id(code: str) -> str:

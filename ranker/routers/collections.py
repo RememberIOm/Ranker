@@ -1,5 +1,7 @@
 """이름 있는 랭킹의 생성, 전환, 복구."""
 
+from typing import Annotated
+
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
@@ -52,7 +54,7 @@ async def list_collections(request: Request) -> HTMLResponse:
 
 @router.post("/create")
 async def create_collection(
-    request: Request, name: str = Form("새 랭킹", max_length=100)
+    request: Request, name: Annotated[str, Form(max_length=100)] = "새 랭킹"
 ) -> RedirectResponse:
     response = RedirectResponse("/manage", status_code=303)
     await create_board(request, response, name)
@@ -61,7 +63,7 @@ async def create_collection(
 
 @router.post("/keep-current")
 async def keep_current(
-    request: Request, name: str = Form("내 랭킹", max_length=100)
+    request: Request, name: Annotated[str, Form(max_length=100)] = "내 랭킹"
 ) -> RedirectResponse:
     """목록에 없는 현재 랭킹을 내 목록에 넣습니다."""
     store = await get_session_store(request, request.cookies.get("session_id"))
@@ -78,7 +80,7 @@ async def keep_current(
 
 @router.post("/switch")
 async def switch_collection(
-    request: Request, session_id: str = Form(...)
+    request: Request, session_id: Annotated[str, Form()]
 ) -> RedirectResponse:
     code = await get_library(request)
     if not code or not await owns_board(code, session_id):
@@ -91,8 +93,8 @@ async def switch_collection(
 @router.post("/rename")
 async def rename_collection(
     request: Request,
-    session_id: str = Form(...),
-    name: str = Form(..., min_length=1, max_length=100),
+    session_id: Annotated[str, Form()],
+    name: Annotated[str, Form(min_length=1, max_length=100)],
 ) -> RedirectResponse:
     code = await get_library(request)
     if not code or not name.strip():
@@ -108,7 +110,7 @@ async def rename_collection(
 
 
 @router.post("/recover")
-async def recover_collections(code: str = Form(...)) -> RedirectResponse:
+async def recover_collections(code: Annotated[str, Form()]) -> RedirectResponse:
     code = code.strip()
     if not await library_exists(code):
         raise HTTPException(400, "복구 코드가 맞지 않습니다. 다시 확인하세요.")
@@ -120,7 +122,7 @@ async def recover_collections(code: str = Form(...)) -> RedirectResponse:
 
 @router.post("/delete")
 async def delete_collection(
-    request: Request, session_id: str = Form(...)
+    request: Request, session_id: Annotated[str, Form()]
 ) -> RedirectResponse:
     code = await get_library(request)
     if not code or not await owns_board(code, session_id):

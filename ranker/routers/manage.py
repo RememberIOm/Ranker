@@ -6,17 +6,18 @@ import hashlib
 import json
 import re
 import unicodedata
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
+from fastapi import APIRouter, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from pydantic import ValidationError
 
 from ranker.deps import (
+    StoreDep,
     UploadTooLargeError,
     import_error_message,
     is_htmx,
     read_backup_upload,
-    require_store,
 )
 from ranker.schemas import CriterionModel, SettingsModel, safe_relative_path
 from ranker.store import DataStore
@@ -33,7 +34,7 @@ def _safe_redirect(url: str, fallback: str) -> str:
         return fallback
 
 
-_VALID_TABS = {"items", "criteria", "settings", "data"}
+_VALID_TABS = frozenset({"items", "criteria", "settings", "data"})
 
 
 def _sorted_items(store: DataStore) -> list:
@@ -60,7 +61,7 @@ def _form_error(request: Request, message: str) -> HTMLResponse:
 
 @router.get("", response_class=HTMLResponse)
 async def manage_page(
-    request: Request, tab: str = "items", store: DataStore = Depends(require_store)
+    request: Request, store: StoreDep, tab: str = "items"
 ) -> HTMLResponse:
     if tab not in _VALID_TABS:
         tab = "items"
@@ -80,7 +81,7 @@ async def manage_page(
 
 @router.post("/add")
 async def add_item(
-    request: Request, name: str = Form(...), store: DataStore = Depends(require_store)
+    request: Request, name: Annotated[str, Form()], store: StoreDep
 ) -> Response:
     await store.add_items([name])
 
@@ -99,7 +100,7 @@ async def add_item(
 
 @router.post("/add-bulk")
 async def add_items_bulk(
-    request: Request, names: str = Form(...), store: DataStore = Depends(require_store)
+    request: Request, names: Annotated[str, Form()], store: StoreDep
 ) -> Response:
     """줄바꿈으로 구분된 이름 목록을 한번에 추가합니다."""
     await store.add_items(names.splitlines())
@@ -120,9 +121,9 @@ async def add_items_bulk(
 @router.post("/delete")
 async def delete_item(
     request: Request,
-    item_id: int = Form(...),
-    redirect_url: str = Form("/manage?tab=items"),
-    store: DataStore = Depends(require_store),
+    item_id: Annotated[int, Form()],
+    store: StoreDep,
+    redirect_url: Annotated[str, Form()] = "/manage?tab=items",
 ) -> Response:
     await store.delete_item(item_id)
 
@@ -144,10 +145,10 @@ async def delete_item(
 @router.post("/edit")
 async def edit_item(
     request: Request,
-    item_id: int = Form(...),
-    new_name: str = Form(...),
-    redirect_url: str = Form("/manage?tab=items"),
-    store: DataStore = Depends(require_store),
+    item_id: Annotated[int, Form()],
+    new_name: Annotated[str, Form()],
+    store: StoreDep,
+    redirect_url: Annotated[str, Form()] = "/manage?tab=items",
 ) -> Response:
     if new_name.strip():
         await store.rename_item(item_id, new_name)
@@ -171,9 +172,7 @@ async def edit_item(
 
 
 @router.post("/criteria")
-async def update_criteria(
-    request: Request, store: DataStore = Depends(require_store)
-) -> Response:
+async def update_criteria(request: Request, store: StoreDep) -> Response:
     """평가 기준을 폼 데이터로 일괄 교체합니다. key가 비어있으면 자동 생성합니다."""
 
     form = await request.form()
@@ -271,9 +270,7 @@ _NUMERIC_SETTINGS_FIELDS = (
 
 
 @router.post("/settings")
-async def update_settings(
-    request: Request, store: DataStore = Depends(require_store)
-) -> Response:
+async def update_settings(request: Request, store: StoreDep) -> Response:
     form = await request.form()
 
     # 형변환·범위 검증은 SettingsModel에 위임 — 잘못된 값은 400으로 응답
@@ -303,7 +300,7 @@ async def update_settings(
 
 
 @router.get("/export")
-async def export_data(store: DataStore = Depends(require_store)) -> Response:
+async def export_data(store: StoreDep) -> Response:
     return Response(
         content=await store.export_json(),
         media_type="application/json",
@@ -314,8 +311,8 @@ async def export_data(store: DataStore = Depends(require_store)) -> Response:
 @router.post("/import")
 async def import_data(
     request: Request,
-    file: UploadFile = File(...),
-    store: DataStore = Depends(require_store),
+    file: Annotated[UploadFile, File()],
+    store: StoreDep,
 ) -> Response:
     """백업을 검증해 서버에 잠시 보관하고, 교체될 내용을 먼저 보여줍니다."""
     try:
@@ -336,7 +333,7 @@ async def import_data(
 
 
 @router.post("/import/confirm")
-async def confirm_import(store: DataStore = Depends(require_store)) -> Response:
+async def confirm_import(store: StoreDep) -> Response:
     await store.apply_staged_import()
     return RedirectResponse(url="/manage?tab=data", status_code=303)
 

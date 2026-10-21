@@ -10,6 +10,8 @@ from pydantic import (
     model_validator,
 )
 
+from ranker.rating_engine import ballot_ranking, canonical_ranking
+
 MAX_BACKUP_BYTES = 64 * 1024 * 1024
 MAX_HISTORY_EVENTS = 100_000
 MAX_ID = 2**63 - 1
@@ -152,8 +154,6 @@ class ObservationModel(BaseModel):
     @field_validator("groups")
     @classmethod
     def validate_groups(cls, groups):
-        from ranker.rating_engine import canonical_ranking
-
         return canonical_ranking(groups)
 
 
@@ -236,11 +236,10 @@ class SessionDataModel(BaseModel):
                     )
 
         used = item_ids | {
-            i
+            *group
             for rows in self.observations.values()
             for row in rows
             for group in row.groups
-            for i in group
         }
         if used and self.next_item_id <= max(used):
             raise ValueError("next_item_id는 사용된 항목 ID보다 커야 합니다.")
@@ -305,8 +304,6 @@ class VotePayloadModel(BaseModel):
 
     @model_validator(mode="after")
     def validate_ballots(self) -> VotePayloadModel:
-        from ranker.rating_engine import ballot_ranking
-
         for vote in self.votes.values():
             ballot_ranking(self.ids, vote)
         return self

@@ -3,13 +3,14 @@
 
 import re
 import uuid
+from typing import Annotated
 
-from fastapi import Cookie, Request, UploadFile
+from fastapi import Cookie, Depends, Request, UploadFile
 
 from ranker.schemas import MAX_BACKUP_BYTES
 from ranker.store import DataStore, InvalidSessionDataError, open_store
 
-_SESSION_ID_RE = re.compile(r"^[0-9a-f]{32}$")
+_SESSION_ID_RE = re.compile(r"[0-9a-f]{32}")
 
 
 def is_htmx(request: Request) -> bool:
@@ -30,7 +31,7 @@ def create_session_id() -> str:
 
 async def get_session_store(
     request: Request,
-    session_id: str | None = Cookie(default=None),
+    session_id: Annotated[str | None, Cookie()] = None,
 ) -> DataStore | None:
     """쿠키의 랭킹을 엽니다. 없거나 손상되었으면 None입니다.
 
@@ -49,12 +50,15 @@ async def get_session_store(
 
 async def require_store(
     request: Request,
-    session_id: str | None = Cookie(default=None),
+    session_id: Annotated[str | None, Cookie()] = None,
 ) -> DataStore:
     store = await get_session_store(request, session_id)
     if store is None:
         raise RequiresSessionException()
     return store
+
+
+StoreDep = Annotated[DataStore, Depends(require_store)]
 
 
 async def read_backup_upload(file: UploadFile) -> str:

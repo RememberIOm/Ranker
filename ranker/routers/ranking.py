@@ -4,10 +4,10 @@ import asyncio
 import math
 from typing import Any
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
-from ranker.deps import require_store
+from ranker.deps import StoreDep
 from ranker.services import (
     composite_rating,
     display_rating,
@@ -78,28 +78,28 @@ def histogram(scores: list[float]) -> dict[str, list]:
     }
 
 
-_CHART_COLORS = {
-    "red": "#ef4444",
-    "orange": "#f97316",
-    "yellow": "#eab308",
-    "green": "#22c55e",
-    "teal": "#14b8a6",
-    "cyan": "#06b6d4",
-    "blue": "#3b82f6",
-    "indigo": "#6366f1",
-    "purple": "#a855f7",
-    "pink": "#ec4899",
-    "gray": "#71717a",
-}
+_CHART_COLORS = frozendict(
+    red="#ef4444",
+    orange="#f97316",
+    yellow="#eab308",
+    green="#22c55e",
+    teal="#14b8a6",
+    cyan="#06b6d4",
+    blue="#3b82f6",
+    indigo="#6366f1",
+    purple="#a855f7",
+    pink="#ec4899",
+    gray="#71717a",
+)
 
 
 @router.get("", response_class=HTMLResponse)
 async def get_ranking(
     request: Request,
+    store: StoreDep,
     sort_by: str = "total",
     q: str = "",
     filter: str = "all",
-    store: DataStore = Depends(require_store),
 ) -> HTMLResponse:
     selected = next(
         (c for c in store.criteria if sort_by == "criterion:" + c["key"]), None

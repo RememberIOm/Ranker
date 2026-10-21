@@ -4,6 +4,7 @@
 import asyncio
 import logging
 from contextlib import asynccontextmanager
+from typing import Annotated
 from urllib.parse import urlsplit
 
 from fastapi import FastAPI, File, Request, UploadFile
@@ -313,7 +314,7 @@ async def start_new_session(request: Request):
 
 
 @app.post("/upload")
-async def upload_session(request: Request, file: UploadFile = File(...)):
+async def upload_session(request: Request, file: Annotated[UploadFile, File()]):
     """백업 파일로 새 랭킹을 만듭니다."""
     try:
         raw = await read_backup_upload(file)

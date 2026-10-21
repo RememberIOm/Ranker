@@ -29,11 +29,3 @@ cache_dir = ".cache/pytest"
 
 [tool.ruff]
 cache-dir = ".cache/ruff"
-
-[tool.ruff.lint.flake8-bugbear]
-extend-immutable-calls = [
-    "fastapi.Cookie",
-    "fastapi.Depends",
-    "fastapi.File",
-    "fastapi.Form",
-]

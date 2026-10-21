@@ -7,10 +7,10 @@ import logging
 import re
 from typing import Any
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, Response
 
-from ranker.deps import is_htmx, require_store
+from ranker.deps import StoreDep, is_htmx
 from ranker.schemas import BattleVoteRequest, ThreeWayBattleVoteRequest
 from ranker.services import (
     display_rating,
@@ -27,7 +27,7 @@ logger = logging.getLogger("ranker.battle")
 
 router = APIRouter(prefix="/battle", tags=["battle"])
 
-_FOCUS_RE = re.compile(r"^/battle/focus/(\d+)$")
+_FOCUS_RE = re.compile(r"/battle/focus/(\d+)")
 
 
 def _build_battle_context(
@@ -132,21 +132,21 @@ def _build_3way_context(
     }
 
 
-_EMPTY_NO_CRITERIA = {
-    "icon": "📐",
-    "title": "평가 기준이 없습니다",
-    "description": "대결하려면 평가 기준이 하나 이상 있어야 합니다.",
-    "link_url": "/manage?tab=criteria",
-    "link_text": "평가 기준 추가",
-}
+_EMPTY_NO_CRITERIA = frozendict(
+    icon="📐",
+    title="평가 기준이 없습니다",
+    description="대결하려면 평가 기준이 하나 이상 있어야 합니다.",
+    link_url="/manage?tab=criteria",
+    link_text="평가 기준 추가",
+)
 
-_EMPTY_NOT_ENOUGH = {
-    "icon": "📭",
-    "title": "항목이 부족합니다",
-    "description": "대결하려면 항목이 {min_count}개 이상 있어야 합니다.",
-    "link_url": "/manage?tab=items",
-    "link_text": "항목 추가",
-}
+_EMPTY_NOT_ENOUGH = frozendict(
+    icon="📭",
+    title="항목이 부족합니다",
+    description="대결하려면 항목이 2개 이상 있어야 합니다.",
+    link_url="/manage?tab=items",
+    link_text="항목 추가",
+)
 
 
 def _battle_template(
@@ -196,31 +196,25 @@ async def _pick_match(
 
 
 @router.get("", response_class=HTMLResponse)
-async def get_battle(
-    request: Request, store: DataStore = Depends(require_store)
-) -> HTMLResponse:
+async def get_battle(request: Request, store: StoreDep) -> HTMLResponse:
     if not store.criteria:
         return templates.TemplateResponse(
-            request, "battle_empty.html", _EMPTY_NO_CRITERIA
+            request, "battle_empty.html", dict(_EMPTY_NO_CRITERIA)
         )
 
     ctx, is_3way = await _pick_match(store)
     if ctx is None:
-        empty_ctx = {
-            **_EMPTY_NOT_ENOUGH,
-            "description": _EMPTY_NOT_ENOUGH["description"].format(min_count=2),
-        }
-        return templates.TemplateResponse(request, "battle_empty.html", empty_ctx)
+        return templates.TemplateResponse(
+            request, "battle_empty.html", dict(_EMPTY_NOT_ENOUGH)
+        )
     return _battle_template(request, ctx, is_3way=is_3way)
 
 
 @router.get("/focus/{item_id}", response_class=HTMLResponse)
-async def focus_battle(
-    item_id: int, request: Request, store: DataStore = Depends(require_store)
-) -> Response:
+async def focus_battle(item_id: int, request: Request, store: StoreDep) -> Response:
     if not store.criteria:
         return templates.TemplateResponse(
-            request, "battle_empty.html", _EMPTY_NO_CRITERIA
+            request, "battle_empty.html", dict(_EMPTY_NO_CRITERIA)
         )
     if not store.get_item(item_id):
         return templates.TemplateResponse(
@@ -231,18 +225,16 @@ async def focus_battle(
         )
     ctx, is_3way = await _pick_match(store, focus_id=item_id)
     if ctx is None:
-        empty_ctx = {
-            **_EMPTY_NOT_ENOUGH,
-            "description": _EMPTY_NOT_ENOUGH["description"].format(min_count=2),
-        }
-        return templates.TemplateResponse(request, "battle_empty.html", empty_ctx)
+        return templates.TemplateResponse(
+            request, "battle_empty.html", dict(_EMPTY_NOT_ENOUGH)
+        )
     return _battle_template(request, ctx, is_3way=is_3way)
 
 
 def _parse_focus_id(redirect_to: str | None) -> int | None:
     if not redirect_to:
         return None
-    m = _FOCUS_RE.match(redirect_to)
+    m = _FOCUS_RE.fullmatch(redirect_to)
     return int(m.group(1)) if m else None
 
 
@@ -283,14 +275,10 @@ async def _vote_response(
 
 
 @router.post("/vote")
-async def vote(
-    payload: BattleVoteRequest, store: DataStore = Depends(require_store)
-) -> Response:
+async def vote(payload: BattleVoteRequest, store: StoreDep) -> Response:
     return await _vote_response(store, payload)
 
 
 @router.post("/vote/3way")
-async def vote_3way(
-    payload: ThreeWayBattleVoteRequest, store: DataStore = Depends(require_store)
-) -> Response:
+async def vote_3way(payload: ThreeWayBattleVoteRequest, store: StoreDep) -> Response:
     return await _vote_response(store, payload)

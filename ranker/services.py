@@ -1,19 +1,17 @@
 """Display and matchmaking based on the fitted joint ranking model."""
 
-from __future__ import annotations
-
 import math
 import random
 from itertools import combinations
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import numpy as np
 from scipy.special import roots_legendre
 
 from ranker.rating_engine import expected_information, predict_pair
 
-if TYPE_CHECKING:
-    from ranker.store import DataStore
+# ranker.store가 이 모듈을 import하므로 타입 힌트용 이름은 늦게 불러옵니다.
+lazy from ranker.store import DataStore
 
 
 def display_rating(store: DataStore, mu: float) -> float:

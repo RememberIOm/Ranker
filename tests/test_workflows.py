@@ -6,6 +6,7 @@ import httpx2
 import pytest
 
 from ranker.main import app
+from ranker.routers import battle
 from ranker.routers.ranking import histogram, ranking_rows
 from ranker.store import open_store
 
@@ -168,8 +169,6 @@ async def test_long_name_rejected_without_breaking_existing_board(client):
 
 
 async def test_focus_label_follows_item_after_position_shuffle(client, monkeypatch):
-    from ranker.routers import battle
-
     await client.post("/manage/add-bulk", data={"names": "Alpha\nBeta"})
     monkeypatch.setattr(
         battle,
@@ -228,6 +227,17 @@ async def test_unlisted_ranking_can_be_kept(client):
     assert response.status_code == 303
     page = await client.get("/collections")
     assert "옛 랭킹" in page.text and "목록에 추가" not in page.text
+
+
+async def test_empty_battle_pages_leave_shared_guidance_unchanged(client):
+    response = await client.get("/battle")
+    assert "항목이 2개 이상" in response.text
+    await client.post("/manage/criteria", data={})
+    for url in ("/battle", "/battle/focus/1"):
+        response = await client.get(url)
+        assert response.status_code == 200 and "평가 기준이 없습니다" in response.text
+    # Starlette writes the request into the context it is given.
+    assert "request" not in battle._EMPTY_NO_CRITERIA
 
 
 async def test_refresh_keeps_the_same_round(client):

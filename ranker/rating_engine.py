@@ -16,7 +16,7 @@ from itertools import combinations
 import numpy as np
 from numpy.typing import NDArray
 from scipy.integrate import cubature
-from scipy.sparse import coo_matrix, csc_matrix, diags
+from scipy.sparse import coo_array, csc_array, diags_array
 from scipy.sparse.linalg import splu
 from scipy.special import logsumexp, softmax
 
@@ -33,7 +33,7 @@ class FitConvergenceError(RuntimeError):
 
 def canonical_ranking(groups: Iterable[Iterable[int]]) -> Ranking:
     result = tuple(tuple(sorted(group)) for group in groups)
-    ids = [i for group in result for i in group]
+    ids = [*group for group in result]
     if (
         not result
         or any(not group for group in result)
@@ -102,14 +102,14 @@ class RankingLikelihood:
 
     def __init__(self, observations: list[tuple[Ranking, int]], prior_variance: float):
         self.item_ids = sorted(
-            {i for groups, _ in observations for group in groups for i in group}
+            {*group for groups, _ in observations for group in groups}
         )
         index = {iid: i for i, iid in enumerate(self.item_ids)}
         n = len(index)
         self.prior_precision = np.array([1 / prior_variance] * n + [1.0, 1.0])
         stages = []
         for groups, count in observations:
-            remaining = sorted(i for group in groups for i in group)
+            remaining = sorted(*group for group in groups)
             for group in groups:
                 if len(remaining) == 1:
                     break
@@ -148,7 +148,7 @@ class RankingLikelihood:
         value += np.dot(self.counts, logsumexp(scores, axis=1) - observed)
         return float(value), gradient
 
-    def precision(self, x: NDArray) -> csc_matrix:
+    def precision(self, x: NDArray) -> csc_array:
         _, probs = self._probabilities(x)
         average = np.einsum("so,sod->sd", probs, self.features)
         blocks = (
@@ -157,10 +157,10 @@ class RankingLikelihood:
         ) * self.counts[:, None, None]
         rows = np.broadcast_to(self.indices[:, :, None], blocks.shape).ravel()
         cols = np.broadcast_to(self.indices[:, None, :], blocks.shape).ravel()
-        result = coo_matrix(
+        result = coo_array(
             (blocks.ravel(), (rows, cols)), shape=(len(x), len(x))
         ).tocsc()
-        result += diags(self.prior_precision, format="csc")
+        result += diags_array(self.prior_precision, format="csc")
         result.eliminate_zeros()
         return result
 
@@ -169,7 +169,7 @@ class RankingLikelihood:
 class Posterior:
     item_ids: tuple[int, ...]
     location: NDArray
-    precision: csc_matrix
+    precision: csc_array
     prior_variance: float
 
     @cached_property
@@ -241,14 +241,14 @@ class Posterior:
         return cls(
             tuple(state["item_ids"]),
             np.array(state["location"]),
-            coo_matrix(
+            coo_array(
                 (state["values"], (state["rows"], state["cols"])), shape=(n, n)
             ).tocsc(),
             state["prior_variance"],
         )
 
 
-def _newton(objective: RankingLikelihood, x: NDArray) -> tuple[NDArray, csc_matrix]:
+def _newton(objective: RankingLikelihood, x: NDArray) -> tuple[NDArray, csc_array]:
     """Damped Newton with the exact sparse Hessian of the strictly convex objective.
 
     Stops when the Newton decrement, an affine-invariant estimate of the remaining
@@ -300,7 +300,7 @@ def ranking_probability(
     mus: dict[int, float], log_ties: tuple[float, float], ranking: Ranking
 ) -> float:
     ranking = canonical_ranking(ranking)
-    remaining = sorted(i for group in ranking for i in group)
+    remaining = sorted(*group for group in ranking)
     logp = 0.0
     for group in ranking:
         if len(remaining) == 1:
@@ -324,7 +324,7 @@ def predict_pairs(posterior: Posterior, pairs: list[tuple[int, int]]) -> NDArray
         return np.empty((0, 3))
     if any(a == b for a, b in pairs):
         raise ValueError("서로 다른 항목을 비교해야 합니다.")
-    ids = sorted({i for pair in pairs for i in pair})
+    ids = sorted({*pair for pair in pairs})
     index = {iid: i for i, iid in enumerate(ids)}
     covariance = posterior.covariance(ids)
     a = np.array([index[pair[0]] for pair in pairs])
