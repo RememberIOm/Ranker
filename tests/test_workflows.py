@@ -220,6 +220,7 @@ async def test_unlisted_ranking_can_be_kept(client):
     from ranker.store import create_store
 
     orphan = await create_store("b" * 32)
+    client.cookies.delete("session_id")
     client.cookies.set("session_id", orphan.session_id)
     page = await client.get("/collections")
     assert "목록에 추가" in page.text

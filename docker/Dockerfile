@@ -1,5 +1,5 @@
 # ── Stage 1: CSS 빌드 ──────────────────────────────────────────
-FROM node:26.10.0-alpine@sha256:0b36e8c136b94cd4fcf02188228e76c31ad5872eef3fec8cbd2eee500cfd9e80 AS css-builder
+FROM node:26.12.0-alpine@sha256:6f08a523443ddedf52941874c203475b0ad503e859ad70cb26ab8be9a517dbd5 AS css-builder
 WORKDIR /build
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
@@ -9,9 +9,9 @@ COPY ranker/static/*.js ranker/static/
 RUN npm run build:css
 
 # ── Stage 2: Python 런타임 ─────────────────────────────────────
-FROM python:3.14.7-slim@sha256:caaf356f40667c496d405780745b9ac25771c189a51dfcc42430d531ea09f8a2
+FROM python:3.15.0-slim@sha256:f2dbcc4d0a7ff47b0f35724b56f778ccf0460eb119542f15444ab61ddc416435
 
-COPY --from=ghcr.io/astral-sh/uv:0.12.18@sha256:3adc3706091ce7c2fe595e669628caedd6d951551b92b258b7e7dbe06d9440bc /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.13.4@sha256:9f130421e930bfbdc563c00740466603f8723158e90297d07957c2294640262b /uv /uvx /bin/
 
 WORKDIR /app
 

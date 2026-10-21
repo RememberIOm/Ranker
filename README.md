@@ -45,7 +45,7 @@
 
 ## 개발
 
-Python 3.14, FastAPI, Jinja2, SQLite(aiosqlite), HTMX, Tailwind CSS를 씁니다. 의존성은 `uv.lock`과 `package-lock.json`에 고정되어 있습니다.
+Python 3.15, FastAPI, Jinja2, SQLite(aiosqlite), HTMX, Tailwind CSS를 씁니다. 의존성은 `uv.lock`과 `package-lock.json`에 고정되어 있습니다.
 
 ```bash
 uv sync --frozen --extra dev
