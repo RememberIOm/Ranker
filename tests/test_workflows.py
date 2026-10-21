@@ -135,8 +135,8 @@ async def test_criteria_response_contains_persistent_id(client):
 
 
 async def test_native_backup_over_one_megabyte_can_be_restored(client):
-    for batch in range(2):
-        names = "\n".join(f"{batch}-{i} " + "긴이름" * 30 for i in range(1100))
+    for batch in range(3):
+        names = "\n".join(f"{batch}-{i} " + "긴이름" * 50 for i in range(500))
         response = await client.post("/manage/add-bulk", data={"names": names})
         assert response.status_code == 303
     raw = (await client.get("/manage/export")).text
@@ -144,7 +144,7 @@ async def test_native_backup_over_one_megabyte_can_be_restored(client):
     assert (await _stage(client, raw)).status_code == 200
     response = await client.post("/manage/import/confirm")
     assert response.status_code == 303
-    assert len(json.loads((await client.get("/manage/export")).text)["items"]) == 2200
+    assert len(json.loads((await client.get("/manage/export")).text)["items"]) == 1500
 
 
 async def test_capacity_error_explains_recovery_and_preserves_data(client, monkeypatch):

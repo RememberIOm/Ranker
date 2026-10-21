@@ -5,6 +5,7 @@ from pydantic import ValidationError
 
 from ranker import store
 from ranker.schemas import BattleVoteRequest, ThreeWayBattleVoteRequest
+from tests.numerics import approx_items
 
 
 class TestBattleVoteValidation:
@@ -375,12 +376,12 @@ class TestVoteHistory:
         first = deepcopy(session.items)
         await self._vote(session, three_way=three_way)
         await session.undo_last_vote(expected_event_id=2)
-        assert session.items == first
+        assert session.items == approx_items(first)
         replay = await session.recalculate_ratings()
         assert replay["responses"] == len(session.criteria)
-        assert session.items == first
+        assert session.items == approx_items(first)
         await session.undo_last_vote(expected_event_id=1)
-        assert session.items == baseline
+        assert session.items == approx_items(baseline)
         with pytest.raises(store.StaleBattleRoundError):
             await session.undo_last_vote()
 
@@ -422,7 +423,7 @@ class TestVoteHistory:
         result = await session.recalculate_ratings({"display_center": 1500})
         assert result["responses"] == len(session.criteria)
         assert session.settings["display_center"] == 1500
-        assert session.items == expected
+        assert session.items == approx_items(expected)
 
     @pytest.mark.parametrize("three_way", [False, True])
     async def test_result_matches_final_refitted_rating(
@@ -455,9 +456,9 @@ class TestVoteHistory:
         expected = deepcopy(session.items)
         await session.clear_history()
         assert (await session.history_events()) == []
-        assert session.items == expected
+        assert session.items == approx_items(expected)
         await session.recalculate_ratings()
-        assert session.items == expected
+        assert session.items == approx_items(expected)
 
     async def test_archived_votes_survive_structure_change_and_export(
         self, store_with_items: store.DataStore

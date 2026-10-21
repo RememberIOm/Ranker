@@ -17,8 +17,6 @@ from itertools import groupby
 from typing import Any
 from weakref import WeakValueDictionary
 
-from pydantic import ValidationError
-
 from ranker import database
 from ranker.database import (
     BackupLimitError,
@@ -27,11 +25,18 @@ from ranker.database import (
     StaleSessionError,
     transaction,
 )
-from ranker.rating_engine import Posterior, ballot_ranking, fit_rankings
+from ranker.rating_engine import (
+    Posterior,
+    ballot_ranking,
+    fit_rankings,
+    restore_posterior,
+)
 from ranker.schemas import (
+    MAX_ITEMS,
     BackupModel,
     BattleVoteRequest,
     SessionDataModel,
+    SettingsModel,
     ThreeWayBattleVoteRequest,
     VotePayloadModel,
 )
@@ -43,6 +48,7 @@ __all__ = [
     "DataStore",
     "InvalidBattleVoteError",
     "InvalidSessionDataError",
+    "ItemLimitError",
     "SessionSaveError",
     "StaleBattleRoundError",
     "StaleImportError",
@@ -58,6 +64,9 @@ logger = logging.getLogger("ranker.store")
 # 내 랭킹 목록에 없는 세션의 만료 시간 (7일)
 SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_SECONDS", str(7 * 24 * 60 * 60)))
 PENDING_IMPORT_TTL_SECONDS = 3600
+# 항목 1,500개면 기준 하나의 Cholesky 인자가 18MiB입니다. 512MB VM에서 기준이
+# 많아도 넘치지 않도록 요청마다 이 크기까지만 인자를 보관합니다.
+POSTERIOR_CACHE_BYTES = 128 * 2**20
 BACKUP_SCHEMA_VERSION = 4
 
 # asyncio.Lock은 실행 중인 이벤트 루프 안에서 생성해야 하므로 lazy init합니다.
@@ -83,6 +92,10 @@ class InvalidSessionDataError(ValueError):
 
 class StaleImportError(RuntimeError):
     """미리보기 뒤에 랭킹이 바뀌었거나 미리보기가 만료되었습니다."""
+
+
+class ItemLimitError(ValueError):
+    """항목 수 상한을 넘습니다."""
 
 
 def _get_lock(session_id: str) -> asyncio.Lock:
@@ -130,7 +143,10 @@ class DataStore:
     # --- Loading and saving ---
 
     async def _load(self, *, touch: bool = False) -> bool:
-        """같은 커넥션의 쓰기 중간 상태를 읽지 않도록 트랜잭션 안에서 읽습니다."""
+        """같은 커넥션의 쓰기 중간 상태를 읽지 않도록 트랜잭션 안에서 읽습니다.
+
+        저장할 때마다 검증하므로 읽을 때는 다시 검증하지 않습니다.
+        """
         self._posterior_cache.clear()
         self._events = EventChanges()
         async with transaction() as db:
@@ -142,23 +158,40 @@ class DataStore:
                     "UPDATE sessions SET last_accessed = ? WHERE id = ? AND last_accessed < ?",
                     (now, self._session_id, now - 300),
                 )
-        if not found:
-            return False
-        try:
-            self._data = SessionDataModel.model_validate(self._data).model_dump(
-                mode="python"
-            )
-        except ValidationError as exc:
-            raise InvalidSessionDataError(
-                "저장된 랭킹을 읽을 수 없습니다. 백업 파일을 불러와 복구하세요."
-            ) from exc
-        return True
+        return found
 
     async def _reload(self) -> None:
         if not await self._load():
             raise StaleSessionError(
                 "삭제된 랭킹입니다. 내 랭킹에서 다른 랭킹을 여세요."
             )
+
+    async def _refresh(self) -> None:
+        """다른 요청이 저장했을 때만 다시 읽습니다.
+
+        대결 라운드는 revision을 올리지 않으므로 따로 읽습니다.
+        """
+        async with transaction() as db:
+            async with db.execute(
+                "SELECT revision FROM sessions WHERE id = ?", (self._session_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+            current = row is not None and row["revision"] == self._revision
+            if current:
+                self._data["active_round"] = await self._read_active_round(db)
+        if not current:
+            await self._reload()
+
+    async def _read_active_round(self, db) -> dict[str, Any] | None:
+        async with db.execute(
+            "SELECT token, item1_id, item2_id, item3_id, issued_at "
+            "FROM active_rounds WHERE session_id = ?",
+            (self._session_id,),
+        ) as cursor:
+            active = await cursor.fetchone()
+        if active is None:
+            return None
+        return {key: value for key, value in dict(active).items() if value is not None}
 
     async def _read_snapshot(self, db) -> bool:
         sid = (self._session_id,)
@@ -174,7 +207,7 @@ class DataStore:
         data: dict[str, Any] = {
             "settings": json.loads(row["settings"]),
             "next_item_id": row["next_item_id"],
-            "active_round": None,
+            "active_round": await self._read_active_round(db),
         }
         async with db.execute(
             "SELECT key, label, color, weight, battles, draws "
@@ -208,16 +241,6 @@ class DataStore:
                 }
             )
         async with db.execute(
-            "SELECT token, item1_id, item2_id, item3_id, issued_at "
-            "FROM active_rounds WHERE session_id = ?",
-            sid,
-        ) as cursor:
-            active = await cursor.fetchone()
-        if active:
-            data["active_round"] = {
-                key: value for key, value in dict(active).items() if value is not None
-            }
-        async with db.execute(
             "SELECT event FROM vote_events WHERE session_id = ? AND undone = 0 "
             "ORDER BY id DESC LIMIT 5",
             sid,
@@ -238,9 +261,12 @@ class DataStore:
         return True
 
     def _core(self) -> dict[str, Any]:
-        """백업에 들어가는 현재 상태. 평점 모형은 관측에서 다시 계산합니다."""
+        """백업에 들어가는 현재 상태. 평점 모형은 관측에서 다시 계산합니다.
+
+        곧바로 직렬화하는 용도라 복사하지 않습니다.
+        """
         return {
-            key: deepcopy(self._data[key])
+            key: self._data[key]
             for key in (
                 "settings",
                 "criteria",
@@ -279,7 +305,7 @@ class DataStore:
     async def _mutation(self) -> AsyncIterator[None]:
         """세션 락 안에서 최신 상태를 읽고, 실패하면 저장 전 상태로 되돌립니다."""
         async with _get_lock(self._session_id):
-            await self._reload()
+            await self._refresh()
             try:
                 yield
             except BaseException:
@@ -321,12 +347,32 @@ class DataStore:
     def posterior(self, key: str) -> Posterior:
         if key not in self._posterior_cache:
             state = self._data["posteriors"].get(key)
-            self._posterior_cache[key] = (
-                Posterior.from_dict(state)
-                if state
-                else fit_rankings([], initial_sigma=self.settings["initial_sigma"])
-            )
+            if state is None:
+                posterior = fit_rankings(
+                    [], initial_sigma=self.settings["initial_sigma"]
+                )
+            else:
+                rows = self._data["observations"].get(key, [])
+                try:
+                    posterior = restore_posterior(
+                        state,
+                        [row["groups"] for row in rows],
+                        counts=[row["count"] for row in rows],
+                    )
+                except ValueError as exc:
+                    raise InvalidSessionDataError(
+                        "저장된 랭킹을 읽을 수 없습니다. 백업 파일을 불러와 복구하세요."
+                    ) from exc
+            self._cache_posterior(key, posterior)
+            return posterior
         return self._posterior_cache[key]
+
+    def _cache_posterior(self, key: str, posterior: Posterior) -> None:
+        """한도 안에서만 보관합니다. 넘는 기준은 쓸 때마다 다시 만듭니다."""
+        self._posterior_cache.pop(key, None)
+        used = sum(p.factor.nbytes for p in self._posterior_cache.values())
+        if used + posterior.factor.nbytes <= POSTERIOR_CACHE_BYTES:
+            self._posterior_cache[key] = posterior
 
     async def history_events(self) -> list[dict[str, Any]]:
         return await database.fetch_events(self._session_id)
@@ -354,14 +400,17 @@ class DataStore:
     async def update_settings(self, patch: dict[str, Any]) -> None:
         async with self._mutation():
             previous_sigma = self.settings["initial_sigma"]
-            self._data["settings"].update(patch)
-            self._data = SessionDataModel.model_validate(self._data).model_dump(
-                mode="python"
-            )
+            self._update_settings(patch)
             if self.settings["initial_sigma"] != previous_sigma:
                 await self._refit({c["key"] for c in self.criteria})
             self._data["active_round"] = None
             await self._save_to_db()
+
+    def _update_settings(self, patch: dict[str, Any]) -> None:
+        """다시 계산하기 전에 설정값을 검증합니다."""
+        self._data["settings"] = SettingsModel.model_validate(
+            {**self.settings, **patch}
+        ).model_dump(mode="python")
 
     async def set_criteria(self, criteria: list[dict[str, Any]]) -> None:
         """평가 기준 전체 교체. 같은 key의 통계와 관측은 유지합니다."""
@@ -417,6 +466,10 @@ class DataStore:
         if not names:
             return 0
         async with self._mutation():
+            if len(self.items) + len(names) > MAX_ITEMS:
+                raise ItemLimitError(
+                    f"항목은 랭킹마다 {MAX_ITEMS:,}개까지 넣을 수 있습니다."
+                )
             self.items.extend(self._new_item(name) for name in names)
             self._data["active_round"] = None
             await self._save_to_db()
@@ -446,7 +499,7 @@ class DataStore:
 
     async def export_json(self) -> str:
         async with _get_lock(self._session_id):
-            await self._reload()
+            await self._refresh()
             history = await database.fetch_events(self._session_id)
         return _dumps(
             {
@@ -671,23 +724,24 @@ class DataStore:
         observations = {
             key: deepcopy(self._data["observations"].get(key, [])) for key in keys
         }
+        starts = {key: self._data["posteriors"].get(key) for key in keys}
 
-        def calculate():
-            fitted = {}
-            for key in sorted(keys):
-                rows = observations[key]
-                posterior = fit_rankings(
-                    [row["groups"] for row in rows],
-                    counts=[row["count"] for row in rows],
-                    initial_sigma=sigma,
-                )
-                fitted[key] = posterior, posterior.marginal_variances()
-            return fitted
+        def calculate(key: str) -> tuple[Posterior, dict[int, float]]:
+            rows = observations[key]
+            posterior = fit_rankings(
+                [row["groups"] for row in rows],
+                counts=[row["count"] for row in rows],
+                initial_sigma=sigma,
+                start=starts[key],
+            )
+            return posterior, posterior.marginal_variances()
 
-        fitted = await asyncio.to_thread(calculate)
-        for key, (posterior, variances) in fitted.items():
+        # 기준 하나씩 적합해 Cholesky 인자가 한꺼번에 쌓이지 않게 합니다.
+        # 중간에 실패하면 _mutation이 저장된 상태로 되돌립니다.
+        for key in sorted(keys):
+            posterior, variances = await asyncio.to_thread(calculate, key)
             self._data["posteriors"][key] = posterior.to_dict()
-            self._posterior_cache[key] = posterior
+            self._cache_posterior(key, posterior)
             counts: Counter = Counter()
             draws = 0
             rows = observations[key]
@@ -851,10 +905,7 @@ class DataStore:
     ) -> dict[str, Any]:
         """보관된 기록을 포함한 모든 순위 응답을 현재 설정으로 다시 적합합니다."""
         async with self._mutation():
-            self._data["settings"].update(settings_patch or {})
-            self._data = SessionDataModel.model_validate(self._data).model_dump(
-                mode="python"
-            )
+            self._update_settings(settings_patch or {})
             await self._refit({c["key"] for c in self.criteria})
             self._data["active_round"] = None
             await self._save_to_db()

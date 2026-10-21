@@ -229,13 +229,13 @@ def rank_uncertainty(
     draws = np.zeros((samples, len(ids)))
     for criterion in criteria:
         posterior = store.posterior(criterion["key"])
-        covariance = posterior.covariance(ids)[: len(ids), : len(ids)]
-        mean = np.array([posterior.mean(iid) for iid in ids])
-        # Cholesky of the marginal covariance; jitter guards rounding only.
-        factor = np.linalg.cholesky(covariance + 1e-12 * np.eye(len(ids)))
-        noise = rng.standard_normal((samples, len(ids))) @ factor.T
-        draws += criterion["weight"] / total_weight * (mean + noise)
-    ranks = np.argsort(np.argsort(-draws, axis=1), axis=1) + 1
+        draws += (
+            criterion["weight"] / total_weight * posterior.sample(ids, samples, rng)
+        )
+    ranks = np.empty((samples, len(ids)), dtype=int)
+    np.put_along_axis(
+        ranks, np.argsort(-draws, axis=1), np.arange(1, len(ids) + 1), axis=1
+    )
     low, high = np.percentile(ranks, [5, 95], axis=0, method="nearest")
     order = np.argsort(-draws.mean(axis=0))
     adjacent = (draws[:, order[:-1]] > draws[:, order[1:]]).mean(axis=0)

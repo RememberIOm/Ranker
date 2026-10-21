@@ -91,9 +91,7 @@ def test_likelihood_derivatives_and_expected_information():
     ).ravel()
     np.testing.assert_allclose(gradient, numeric_grad, atol=1e-6)
     numeric_hessian = approx_derivative(lambda y: objective.value_gradient(y)[1], x)
-    np.testing.assert_allclose(
-        objective.precision(x).toarray(), numeric_hessian, atol=1e-6
-    )
+    np.testing.assert_allclose(objective.precision(x), numeric_hessian, atol=1e-6)
     info = expected_information(x[None, :], 3)[0]
     assert np.linalg.eigvalsh(info).min() > -1e-10
     np.testing.assert_allclose(info @ np.array([1, 1, 1, 0, 0]), 0, atol=1e-10)
@@ -171,6 +169,6 @@ def test_fit_converges_when_counts_scale_the_objective(seed):
         aggregated[ranking] += count
     objective = RankingLikelihood(sorted(aggregated.items()), 4.0)
     value, gradient = objective.value_gradient(fit.location)
-    step = np.linalg.solve(fit.precision.toarray(), gradient)
+    step = np.linalg.solve(objective.precision(fit.location), gradient)
     # The Newton decrement estimates the remaining objective gap.
     assert gradient @ step <= 1e-12 * value

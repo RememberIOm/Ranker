@@ -8,6 +8,12 @@ function watchErrors(page) {
   return errors;
 }
 
+// 다른 적합에서 출발한 재계산은 비트 단위가 아니라 반올림 오차 안에서 같습니다.
+function approxItems(items) {
+  const close = scores => Object.fromEntries(Object.entries(scores).map(([k, v]) => [k, expect.closeTo(v, 9)]));
+  return items.map(item => ({ ...item, mu: close(item.mu), sigma_sq: close(item.sigma_sq) }));
+}
+
 async function setup(page, threeWay = false) {
   await page.request.post('/start');
   await page.request.post('/manage/add-bulk', { form: { names: 'Alpha\nBeta\nGamma' } });
@@ -123,7 +129,7 @@ test('새 모델의 동률 응답은 한 건이며 기록 정리 후에도 다�
   await page.locator('[data-confirm-ok]').click();
   await expect(page).toHaveURL(/\/ranking$/);
   const after = await (await page.request.get('/manage/export')).json();
-  expect(after.items).toEqual(before.items);
+  expect(after.items).toEqual(approxItems(before.items));
   expect(after.history).toHaveLength(0);
   expect(after.observations).toEqual(before.observations);
 });

@@ -337,11 +337,11 @@ class TestStorageRecovery:
     async def test_bulk_over_item_limit_is_rejected_before_database_write(
         self, store_with_items: store.DataStore
     ) -> None:
-        from pydantic import ValidationError
+        from ranker.schemas import MAX_ITEMS
 
         session = store_with_items
-        with pytest.raises(ValidationError):
-            await session.add_items([f"Item {index}" for index in range(10_001)])
+        with pytest.raises(store.ItemLimitError):
+            await session.add_items([f"Item {index}" for index in range(MAX_ITEMS - 1)])
         reloaded = await store.open_store(session._session_id)
         assert len(reloaded.items) == 2
 

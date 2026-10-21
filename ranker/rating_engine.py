@@ -16,8 +16,7 @@ from itertools import combinations
 import numpy as np
 from numpy.typing import NDArray
 from scipy.integrate import cubature
-from scipy.sparse import coo_array, csc_array, diags_array
-from scipy.sparse.linalg import splu
+from scipy.linalg import LinAlgError, cho_factor, cho_solve, solve_triangular
 from scipy.special import logsumexp, softmax
 
 ALGORITHM_VERSION = "gpl-map-v2"
@@ -148,42 +147,35 @@ class RankingLikelihood:
         value += np.dot(self.counts, logsumexp(scores, axis=1) - observed)
         return float(value), gradient
 
-    def precision(self, x: NDArray) -> csc_array:
+    def precision(self, x: NDArray) -> NDArray:
+        """Dense Hessian. Random ballots link items so widely that a sparse
+        factorization fills in 40-75% of the matrix and only adds overhead."""
         _, probs = self._probabilities(x)
         average = np.einsum("so,sod->sd", probs, self.features)
         blocks = (
             np.einsum("so,soi,soj->sij", probs, self.features, self.features)
             - np.einsum("si,sj->sij", average, average)
         ) * self.counts[:, None, None]
-        rows = np.broadcast_to(self.indices[:, :, None], blocks.shape).ravel()
-        cols = np.broadcast_to(self.indices[:, None, :], blocks.shape).ravel()
-        result = coo_array(
-            (blocks.ravel(), (rows, cols)), shape=(len(x), len(x))
-        ).tocsc()
-        result += diags_array(self.prior_precision, format="csc")
-        result.eliminate_zeros()
+        rows = np.broadcast_to(self.indices[:, :, None], blocks.shape)
+        cols = np.broadcast_to(self.indices[:, None, :], blocks.shape)
+        result = np.diag(self.prior_precision)
+        np.add.at(result, (rows, cols), blocks)
         return result
 
 
 @dataclass
 class Posterior:
+    """Laplace approximation. `factor` is the lower Cholesky factor of the
+    precision; only its lower triangle is meaningful."""
+
     item_ids: tuple[int, ...]
     location: NDArray
-    precision: csc_array
+    factor: NDArray
     prior_variance: float
 
     @cached_property
     def index(self) -> dict[int, int]:
         return {iid: i for i, iid in enumerate(self.item_ids)}
-
-    @cached_property
-    def factor(self):
-        try:
-            return splu(self.precision)
-        except RuntimeError as exc:
-            raise FitConvergenceError(
-                "점수를 계산하지 못해 저장하지 않았습니다."
-            ) from exc
 
     def mean(self, iid: int) -> float:
         return float(self.location[self.index[iid]]) if iid in self.index else 0.0
@@ -201,7 +193,7 @@ class Posterior:
         known = [(row, idx) for row, idx in enumerate(indices) if idx is not None]
         rhs = np.zeros((n + 2, len(known)))
         rhs[[idx for _, idx in known], np.arange(len(known))] = 1
-        solved = self.factor.solve(rhs)
+        solved = cho_solve((self.factor, True), rhs)
         result = np.zeros((len(ids) + 2, len(ids) + 2))
         rows, cols = zip(*known)
         result[np.ix_(rows, rows)] = solved[list(cols), :]
@@ -211,58 +203,78 @@ class Posterior:
         return (result + result.T) / 2
 
     def marginal_variances(self) -> dict[int, float]:
-        # Bounded RHS memory even when many observed items are present.
-        values = {}
-        n = len(self.item_ids)
-        for start in range(0, n, 64):
-            stop = min(start + 64, n)
-            rhs = np.zeros((n + 2, stop - start))
+        # With precision = LLᵀ, the covariance diagonal is the column norms of L⁻¹.
+        # Column blocks keep the temporaries far below one n×n array.
+        size = len(self.location)
+        variances = np.empty(size)
+        for start in range(0, size, 256):
+            stop = min(start + 256, size)
+            rhs = np.zeros((size, stop - start))
             rhs[np.arange(start, stop), np.arange(stop - start)] = 1
-            solved = self.factor.solve(rhs)
-            for j, idx in enumerate(range(start, stop)):
-                values[self.item_ids[idx]] = float(solved[idx, j])
-        return values
+            block = solve_triangular(self.factor, rhs, lower=True)
+            variances[start:stop] = np.einsum("ij,ij->j", block, block)
+        return dict(zip(self.item_ids, variances[:-2].tolist()))
+
+    def sample(self, ids: list[int], samples: int, rng: np.random.Generator) -> NDArray:
+        """Joint draws of the requested skills, shaped (samples, len(ids)).
+
+        location + L⁻ᵀz has covariance (LLᵀ)⁻¹, so the dense covariance is never
+        formed. Unobserved items keep independent prior draws.
+        """
+        noise = rng.standard_normal((len(self.location), samples))
+        joint = self.location[:, None] + solve_triangular(
+            self.factor, noise, lower=True, trans="T"
+        )
+        draws = rng.standard_normal((samples, len(ids))) * math.sqrt(
+            self.prior_variance
+        )
+        for col, iid in enumerate(ids):
+            if iid in self.index:
+                draws[:, col] = joint[self.index[iid]]
+        return draws
 
     def to_dict(self) -> dict:
-        coo = self.precision.tocoo()
+        """The factor is not saved; restore_posterior rebuilds it."""
         return {
             "algorithm_version": ALGORITHM_VERSION,
             "item_ids": list(self.item_ids),
             "location": self.location.tolist(),
             "prior_variance": self.prior_variance,
-            "rows": coo.row.tolist(),
-            "cols": coo.col.tolist(),
-            "values": coo.data.tolist(),
         }
 
-    @classmethod
-    def from_dict(cls, state: dict) -> Posterior:
-        n = len(state["location"])
-        return cls(
-            tuple(state["item_ids"]),
-            np.array(state["location"]),
-            coo_array(
-                (state["values"], (state["rows"], state["cols"])), shape=(n, n)
-            ).tocsc(),
-            state["prior_variance"],
-        )
+
+def _cholesky(precision: NDArray) -> NDArray | None:
+    """Lower factor, overwriting the precision so one n×n array stays alive."""
+    try:
+        return cho_factor(precision, lower=True, overwrite_a=True)[0]
+    except LinAlgError, ValueError:
+        return None
 
 
-def _newton(objective: RankingLikelihood, x: NDArray) -> tuple[NDArray, csc_array]:
-    """Damped Newton with the exact sparse Hessian of the strictly convex objective.
+def _newton(objective: RankingLikelihood, x: NDArray) -> tuple[NDArray, NDArray]:
+    """Damped Newton with the exact Hessian of the strictly convex objective.
 
-    Stops when the Newton decrement, an affine-invariant estimate of the remaining
-    objective gap, is negligible. Absolute gradient thresholds grow with counts.
+    Returns the optimum and the Cholesky factor of its precision. Stops when the
+    Newton decrement, an affine-invariant estimate of the remaining objective gap,
+    is negligible. Absolute gradient thresholds grow with counts.
     """
     value, gradient = objective.value_gradient(x)
     for _ in range(100):
-        precision = objective.precision(x)
-        step = splu(precision).solve(-gradient)
+        factor = _cholesky(objective.precision(x))
+        if factor is None:
+            break
+        step = cho_solve((factor, True), -gradient)
         decrement = float(-gradient @ step)
         if not math.isfinite(decrement):
             break
         if decrement <= 1e-13 * max(1.0, abs(value)):
-            return x, precision
+            # The last step squares the remaining error, so warm and cold starts
+            # land on the same optimum up to rounding.
+            x = x + step
+            factor = _cholesky(objective.precision(x))
+            if factor is None:
+                break
+            return x, factor
         scale = 1.0
         while scale > 1e-12:
             candidate = x + scale * step
@@ -276,14 +288,9 @@ def _newton(objective: RankingLikelihood, x: NDArray) -> tuple[NDArray, csc_arra
     raise FitConvergenceError("점수를 계산하지 못해 저장하지 않았습니다.")
 
 
-def fit_rankings(
-    rankings: Iterable[Ranking],
-    *,
-    counts: Iterable[int] | None = None,
-    initial_sigma: float = 2.0,
-) -> Posterior:
-    if not math.isfinite(initial_sigma) or not 0.1 <= initial_sigma <= 10:
-        raise ValueError("초기 표준편차는 0.1~10이어야 합니다.")
+def _objective(
+    rankings: Iterable[Ranking], counts: Iterable[int] | None, prior_variance: float
+) -> RankingLikelihood:
     groups = [canonical_ranking(r) for r in rankings]
     weights = list(counts) if counts is not None else [1] * len(groups)
     if len(weights) != len(groups) or any(type(w) is not int or w < 1 for w in weights):
@@ -291,9 +298,44 @@ def fit_rankings(
     aggregated = Counter()
     for ranking, count in zip(groups, weights, strict=True):
         aggregated[ranking] += count
-    objective = RankingLikelihood(sorted(aggregated.items()), initial_sigma**2)
-    x, precision = _newton(objective, np.zeros(len(objective.item_ids) + 2))
-    return Posterior(tuple(objective.item_ids), x, precision, initial_sigma**2)
+    return RankingLikelihood(sorted(aggregated.items()), prior_variance)
+
+
+def fit_rankings(
+    rankings: Iterable[Ranking],
+    *,
+    counts: Iterable[int] | None = None,
+    initial_sigma: float = 2.0,
+    start: dict | None = None,
+) -> Posterior:
+    """MAP fit. `start` is a previous fit's saved state; after one added or
+    removed ballot its location is about three Newton steps from the optimum."""
+    if not math.isfinite(initial_sigma) or not 0.1 <= initial_sigma <= 10:
+        raise ValueError("초기 표준편차는 0.1~10이어야 합니다.")
+    objective = _objective(rankings, counts, initial_sigma**2)
+    x = np.zeros(len(objective.item_ids) + 2)
+    if start is not None:
+        previous = dict(zip(start["item_ids"], start["location"]))
+        x[:-2] = [previous.get(iid, 0.0) for iid in objective.item_ids]
+        x[-2:] = start["location"][-2:]
+    x, factor = _newton(objective, x)
+    return Posterior(tuple(objective.item_ids), x, factor, initial_sigma**2)
+
+
+def restore_posterior(
+    state: dict, rankings: Iterable[Ranking], *, counts: Iterable[int]
+) -> Posterior:
+    """Rebuild a saved fit; the precision is the exact Hessian at its location."""
+    objective = _objective(rankings, counts, state["prior_variance"])
+    if objective.item_ids != list(state["item_ids"]):
+        raise ValueError("평점 모형과 관측의 항목이 다릅니다.")
+    location = np.array(state["location"])
+    factor = _cholesky(objective.precision(location))
+    if factor is None:
+        raise FitConvergenceError("점수를 계산하지 못해 저장하지 않았습니다.")
+    return Posterior(
+        tuple(objective.item_ids), location, factor, state["prior_variance"]
+    )
 
 
 def ranking_probability(

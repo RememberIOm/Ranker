@@ -15,6 +15,8 @@ from ranker.rating_engine import ballot_ranking, canonical_ranking
 MAX_BACKUP_BYTES = 64 * 1024 * 1024
 MAX_HISTORY_EVENTS = 100_000
 MAX_ID = 2**63 - 1
+# Each criterion factors a dense matrix over every item it has seen.
+MAX_ITEMS = 1_500
 
 
 VoteChoice = Literal["1", "2", "draw", "skip"]
@@ -158,26 +160,18 @@ class ObservationModel(BaseModel):
 
 
 class PosteriorModel(BaseModel):
-    """Database cache, rebuilt from observations on backup import."""
+    """Database cache of the MAP location, rebuilt from observations on import."""
 
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
     algorithm_version: Literal["gpl-map-v2"]
     item_ids: list[int]
     location: list[float]
     prior_variance: float = Field(ge=0.01, le=100)
-    rows: list[int]
-    cols: list[int]
-    values: list[float]
 
     @model_validator(mode="after")
     def validate_shape(self):
         n = len(self.item_ids) + 2
-        if (
-            len(self.location) != n
-            or len(set(self.item_ids)) != n - 2
-            or not len(self.rows) == len(self.cols) == len(self.values)
-            or any(i < 0 or i >= n for i in self.rows + self.cols)
-        ):
+        if len(self.location) != n or len(set(self.item_ids)) != n - 2:
             raise ValueError("평점 모형의 차원이 올바르지 않습니다.")
         return self
 
@@ -189,7 +183,7 @@ class SessionDataModel(BaseModel):
     criteria: list[CriterionModel] = Field(
         default_factory=_default_criteria, max_length=64
     )
-    items: list[ItemModel] = Field(default_factory=list, max_length=10_000)
+    items: list[ItemModel] = Field(default_factory=list, max_length=MAX_ITEMS)
     active_round: ActiveRoundModel | None = None
     observations: dict[str, list[ObservationModel]] = Field(default_factory=dict)
     exposures: dict[str, Annotated[int, Field(ge=0, le=2**63 - 1)]] = Field(

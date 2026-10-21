@@ -17,6 +17,7 @@ from ranker.services import (
     get_match_triple,
 )
 from ranker.store import InvalidSessionDataError, open_store
+from tests.numerics import approx_items
 
 
 async def vote(session, a=1, b=2, winner="1", c=None):
@@ -42,12 +43,14 @@ async def test_corpus_survives_compaction_addition_and_prior_change(store_with_i
     assert (await s.history_events()) == []
     await s.add_items(["New"])
     await s.recalculate_ratings()
-    assert s.items[:2] == before
+    assert s.items[:2] == approx_items(before)
     assert s.items[2]["mu"]["story"] == 0
     await s.update_settings({"initial_sigma": 3})
     reference = fit_rankings([((1,), (2,)), ((2,), (1,))], initial_sigma=3)
     np.testing.assert_allclose(
-        s.posterior("story").covariance([1, 2]), reference.covariance([1, 2])
+        s.posterior("story").covariance([1, 2]),
+        reference.covariance([1, 2]),
+        atol=1e-12,
     )
     assert s.items[2]["sigma_sq"]["story"] == 9
     await s.import_json(await s.export_json())
@@ -65,11 +68,13 @@ async def test_undo_restores_nonparticipants_and_joint_covariance(
     await vote(s, a=1, b=3, winner="2")
     assert s.get_item(2)["mu"]["story"] != before[1]["mu"]["story"]
     await s.undo_last_vote()
-    assert s.items == before
-    np.testing.assert_allclose(s.posterior("story").covariance([1, 2, 3]), covariance)
+    assert s.items == approx_items(before)
+    np.testing.assert_allclose(
+        s.posterior("story").covariance([1, 2, 3]), covariance, atol=1e-12
+    )
     reloaded = await open_store(s._session_id)
     np.testing.assert_allclose(
-        reloaded.posterior("story").covariance([1, 2, 3]), covariance
+        reloaded.posterior("story").covariance([1, 2, 3]), covariance, atol=1e-12
     )
 
 
@@ -82,10 +87,10 @@ async def test_deleted_opponents_remain_latent_and_ids_are_not_reused(store_with
     await s.add_items(["New"])
     assert s.items[-1]["id"] == 3
     await s.recalculate_ratings()
-    assert s.items[0]["mu"]["story"] == score
+    assert s.items[0]["mu"]["story"] == pytest.approx(score, rel=1e-9)
     assert s.posterior("story").item_ids == (1, 2)
     await s.import_json(await s.export_json())
-    assert s.items[0]["mu"]["story"] == score
+    assert s.items[0]["mu"]["story"] == pytest.approx(score, rel=1e-9)
 
 
 async def test_removed_criterion_cannot_resurrect_observations(store_with_items):
@@ -294,3 +299,23 @@ async def test_item_deleted_before_any_vote_keeps_its_id(store_with_items):
     await s.import_json(await s.export_json())
     await s.add_items(["After import"])
     assert s.items[-1]["id"] == 5
+
+
+async def test_posteriors_beyond_the_cache_budget_are_rebuilt(
+    store_with_three_items, monkeypatch
+):
+    from ranker import store
+
+    s = store_with_three_items
+    await vote(s)
+    covariance = s.posterior("story").covariance([1, 2, 3])
+    monkeypatch.setattr(store, "POSTERIOR_CACHE_BYTES", 0)
+    uncached = await open_store(s._session_id)
+    np.testing.assert_allclose(
+        uncached.posterior("story").covariance([1, 2, 3]), covariance, atol=1e-12
+    )
+    await vote(uncached, a=2, b=3)
+    assert all(get_match_pair(uncached))
+    assert not uncached._posterior_cache
+    await s.recalculate_ratings()
+    assert s.items == approx_items(uncached.items)
