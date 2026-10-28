@@ -1,8 +1,8 @@
 # Dependabot은 FROM만 읽으므로 uv 이미지를 별도 단계로 둡니다.
-FROM ghcr.io/astral-sh/uv:0.13.4@sha256:9f130421e930bfbdc563c00740466603f8723158e90297d07957c2294640262b AS uv
+FROM ghcr.io/astral-sh/uv:0.13.6@sha256:af22a52f5eafef3d78e551599d405c02df61919d18028f0cea8eda93bc9986d0 AS uv
 
 # ── Stage 1: CSS 빌드 ──────────────────────────────────────────
-FROM node:26.12.0-alpine@sha256:6f08a523443ddedf52941874c203475b0ad503e859ad70cb26ab8be9a517dbd5 AS css-builder
+FROM node:26.12.1-alpine@sha256:40cd011b55415bc894e45b02fdd5a5dfde056921b7d23a64c74f80497af48797 AS css-builder
 WORKDIR /build
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
@@ -12,7 +12,7 @@ COPY ranker/static/*.js ranker/static/
 RUN npm run build:css
 
 # ── Stage 2: Python 런타임 ─────────────────────────────────────
-FROM python:3.15.0-slim@sha256:f2dbcc4d0a7ff47b0f35724b56f778ccf0460eb119542f15444ab61ddc416435
+FROM python:3.15.0-slim@sha256:f5b92f2a669a4c347044f29367f31983280b648250ca94dea66f98c53bc87e58
 
 COPY --from=uv /uv /uvx /bin/
 
