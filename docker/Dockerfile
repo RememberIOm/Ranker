@@ -1,8 +1,8 @@
 # Dependabot은 FROM만 읽으므로 uv 이미지를 별도 단계로 둡니다.
-FROM ghcr.io/astral-sh/uv:0.13.6@sha256:af22a52f5eafef3d78e551599d405c02df61919d18028f0cea8eda93bc9986d0 AS uv
+FROM ghcr.io/astral-sh/uv:0.13.7@sha256:96f40d3904aad8d0bd010539001d36c8e2188b981e1334471a90c4a1d93bb490 AS uv
 
 # ── Stage 1: CSS 빌드 ──────────────────────────────────────────
-FROM node:26.12.1-alpine@sha256:40cd011b55415bc894e45b02fdd5a5dfde056921b7d23a64c74f80497af48797 AS css-builder
+FROM node:26.13.0-alpine@sha256:c6ad9e9c1d80f6eb607c26b4b0a132ff7a2344fad1c78ea3baa2a7d4c8de6d94 AS css-builder
 WORKDIR /build
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
