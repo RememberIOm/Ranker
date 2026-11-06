@@ -15,7 +15,7 @@ from pathlib import Path
 import numpy as np
 
 from ranker.rating_engine import ALGORITHM_VERSION, fit_rankings
-from ranker.services import candidate_utilities, get_match_pair, get_match_triple
+from ranker.services import candidate_utilities, select_match
 from scripts.evaluate_algorithm import SimulationStore
 
 
@@ -52,7 +52,7 @@ def run():
         store, fit_seconds = make_store(n, ballots, 3, 42)
         random.seed(42)
         start = time.perf_counter()
-        get_match_triple(store)
+        select_match(store, 3)
         result["runtime"].append(
             {
                 "items": n,
@@ -82,8 +82,9 @@ def run():
                 for start in range(0, len(candidates), 64)
             )
             random.seed(seed + 80)
-            picker = get_match_pair if mode == 2 else get_match_triple
-            selected = tuple(sorted(item["id"] - 1 for item in picker(store)))
+            selected = tuple(
+                sorted(item["id"] - 1 for item in select_match(store, mode))
+            )
             chosen = float(candidate_utilities(store, store.items, [selected])[0])
             ratios.append(chosen / best)
         result["search_quality"].append(

@@ -1,9 +1,8 @@
-# main.py
-# 앱 구성, 수명주기, 공통 HTTP 처리.
+"""앱 구성, 수명주기, 오류 응답, ASGI 미들웨어, 첫 화면."""
 
 import asyncio
 import logging
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from typing import Annotated
 from urllib.parse import urlsplit
 
@@ -16,7 +15,7 @@ from starlette.datastructures import MutableHeaders
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from ranker.boards import create_board
-from ranker.cookies import delete_session_cookie, session_cookie_header
+from ranker.cookies import session_cookie_header
 from ranker.database import close_db, init_db
 from ranker.deps import (
     RequiresSessionException,
@@ -41,7 +40,6 @@ from ranker.store import (
     StaleImportError,
     StaleSessionError,
     cleanup_pending_imports,
-    delete_session,
 )
 from ranker.template_env import PACKAGE_DIR, templates
 
@@ -69,10 +67,8 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         task.cancel()
-        try:
+        with suppress(asyncio.CancelledError):
             await task
-        except asyncio.CancelledError:
-            pass
         await close_db()
 
 
@@ -152,10 +148,6 @@ async def session_required_handler(request: Request, exc: RequiresSessionExcepti
 # --- ASGI middleware ---
 
 
-def _plain_response(status: int, message: str) -> Response:
-    return JSONResponse({"detail": message}, status_code=status)
-
-
 class SecurityMiddleware:
     """외부 출처의 쓰기 요청을 거절하고 보안 헤더를 붙입니다."""
 
@@ -186,8 +178,11 @@ class SecurityMiddleware:
             await send(message)
 
         if scope["method"] not in {"GET", "HEAD", "OPTIONS"} and self._foreign(headers):
-            response = _plain_response(
-                403, "잘못된 요청입니다. 페이지를 새로고침한 뒤 다시 시도하세요."
+            response = JSONResponse(
+                {
+                    "detail": "잘못된 요청입니다. 페이지를 새로고침한 뒤 다시 시도하세요."
+                },
+                status_code=403,
             )
             return await response(scope, receive, send_with_headers)
         await self.app(scope, receive, send_with_headers)
@@ -223,7 +218,9 @@ class BodyLimitMiddleware:
         if scope["type"] != "http":
             return await self.app(scope, receive, send)
         limit = self.LARGE if scope["path"] in self.UPLOAD_PATHS else self.SMALL
-        too_large = _plain_response(413, "보낸 데이터가 너무 큽니다.")
+        too_large = JSONResponse(
+            {"detail": "보낸 데이터가 너무 큽니다."}, status_code=413
+        )
         length = dict(scope["headers"]).get(b"content-length")
         if length is not None and (not length.isdigit() or int(length) > limit):
             return await too_large(scope, receive, send)
@@ -330,16 +327,4 @@ async def upload_session(request: Request, file: Annotated[UploadFile, File()]):
     response = RedirectResponse(url="/battle", status_code=303)
     store = await create_board(request, response, "불러온 랭킹")
     await store.import_json(raw)
-    return response
-
-
-@app.post("/end-session")
-async def end_session(request: Request):
-    """현재 랭킹을 삭제하고 쿠키를 지웁니다."""
-    store = await get_session_store(request, request.cookies.get("session_id"))
-    if store:
-        await delete_session(store.session_id)
-        request.state.session_id = None
-    response = RedirectResponse(url="/", status_code=303)
-    delete_session_cookie(response)
     return response

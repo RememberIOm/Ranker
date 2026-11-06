@@ -1,6 +1,4 @@
-# routers/battle.py
-# 모든 평가 기준을 한 라운드에서 비교하고 결과와 다음 대결을 반환합니다.
-# 세션별 DataStore를 사용하여 멀티유저를 지원합니다.
+"""대결 화면과 투표 저장. 한 라운드에서 모든 기준을 비교하고 결과와 다음 대결을 돌려줍니다."""
 
 import asyncio
 import logging
@@ -16,9 +14,8 @@ from ranker.services import (
     display_rating,
     display_uncertainty,
     get_item_ranks,
-    get_match_pair,
     get_match_probabilities,
-    get_match_triple,
+    select_match,
 )
 from ranker.store import DataStore
 from ranker.template_env import templates
@@ -29,103 +26,55 @@ router = APIRouter(prefix="/battle", tags=["battle"])
 
 _FOCUS_RE = re.compile(r"/battle/focus/(\d+)")
 
+_CARDS = frozendict(
+    {2: "partials/battle_cards.html", 3: "partials/battle_3way_cards.html"}
+)
 
-def _build_battle_context(
+
+def _battle_context(
     store: DataStore,
-    item1: dict[str, Any],
-    item2: dict[str, Any],
+    items: list[dict[str, Any]],
     round_token: str,
-    *,
-    focus_mode: bool = False,
-    focus_id: int | None = None,
+    focus_id: int | None,
 ) -> dict[str, Any]:
-    """배틀 페이지 템플릿 컨텍스트를 구성합니다."""
+    """대결 카드 템플릿 컨텍스트. 1대1은 블라인드가 아니면 예상 확률도 넣습니다."""
+    blind = store.settings["blind_mode"]
     criteria_info = []
     for c in store.criteria:
-        mu1, sq1 = item1["mu"][c["key"]], item1["sigma_sq"][c["key"]]
-        mu2, sq2 = item2["mu"][c["key"]], item2["sigma_sq"][c["key"]]
-        probs = (
-            get_match_probabilities(store, c["key"], item1["id"], item2["id"])
-            if not store.settings["blind_mode"]
-            else None
-        )
-        criteria_info.append(
-            {
-                **c,
-                "r1": round(display_rating(store, mu1), 1),
-                "r2": round(display_rating(store, mu2), 1),
-                "sigma1": round(display_uncertainty(store, sq1), 1),
-                "sigma2": round(display_uncertainty(store, sq2), 1),
-                "probs": probs,
-            }
-        )
-
-    # 순위 계산 (한 번의 정렬로 두 항목 조회)
-    ranks, total = get_item_ranks(store)
-
-    return {
-        "item1": item1,
-        "item2": item2,
-        "rank1": ranks.get(item1["id"], total),
-        "rank2": ranks.get(item2["id"], total),
-        "total_items": total,
-        "criteria_info": criteria_info,
-        "focus_mode": focus_mode,
-        "focus_id": focus_id,
-        "focus_name": store.get_item(focus_id)["name"] if focus_id else "",
-        "round_token": round_token,
-        "blind_mode": store.settings["blind_mode"],
-    }
-
-
-def _build_3way_context(
-    store: DataStore,
-    item1: dict[str, Any],
-    item2: dict[str, Any],
-    item3: dict[str, Any],
-    round_token: str,
-    *,
-    focus_mode: bool = False,
-    focus_id: int | None = None,
-) -> dict[str, Any]:
-    """3-way 배틀 페이지 템플릿 컨텍스트를 구성합니다."""
-    criteria_info = []
-    for c in store.criteria:
-        item_data = []
-        for item in (item1, item2, item3):
-            mu, sq = item["mu"][c["key"]], item["sigma_sq"][c["key"]]
-            item_data.append(
+        key = c["key"]
+        info = {
+            **c,
+            "item_ratings": [
                 {
                     "id": item["id"],
-                    "r": round(display_rating(store, mu), 1),
-                    "sigma": round(display_uncertainty(store, sq), 1),
+                    "r": round(display_rating(store, item["mu"][key]), 1),
+                    "sigma": round(
+                        display_uncertainty(store, item["sigma_sq"][key]), 1
+                    ),
                 }
+                for item in items
+            ],
+        }
+        if len(items) == 2 and not blind:
+            info["probs"] = get_match_probabilities(
+                store, key, items[0]["id"], items[1]["id"]
             )
-
-        criteria_info.append(
-            {
-                **c,
-                "item_ratings": item_data,
-            }
-        )
+        criteria_info.append(info)
 
     ranks, total = get_item_ranks(store)
-
-    return {
-        "item1": item1,
-        "item2": item2,
-        "item3": item3,
-        "rank1": ranks.get(item1["id"], total),
-        "rank2": ranks.get(item2["id"], total),
-        "rank3": ranks.get(item3["id"], total),
-        "total_items": total,
+    ctx = {
+        "cards": _CARDS[len(items)],
         "criteria_info": criteria_info,
-        "focus_mode": focus_mode,
+        "total_items": total,
         "focus_id": focus_id,
         "focus_name": store.get_item(focus_id)["name"] if focus_id else "",
         "round_token": round_token,
-        "blind_mode": store.settings["blind_mode"],
+        "blind_mode": blind,
     }
+    for index, item in enumerate(items, 1):
+        ctx[f"item{index}"] = item
+        ctx[f"rank{index}"] = ranks[item["id"]]
+    return ctx
 
 
 _EMPTY_NO_CRITERIA = frozendict(
@@ -145,27 +94,13 @@ _EMPTY_NOT_ENOUGH = frozendict(
 )
 
 
-def _battle_template(
-    request: Request, ctx: dict[str, Any], *, is_3way: bool
-) -> HTMLResponse:
-    """배틀 모드에 따라 적절한 full-page 또는 partial 템플릿을 반환합니다."""
-    if is_3way:
-        full, partial = "battle_3way.html", "partials/battle_3way_cards.html"
-    else:
-        full, partial = "battle.html", "partials/battle_cards.html"
-
-    if is_htmx(request):
-        return templates.TemplateResponse(request, partial, ctx)
-    return templates.TemplateResponse(request, full, ctx)
-
-
 async def _pick_match(
     store: DataStore, focus_id: int | None = None
-) -> tuple[dict[str, Any] | None, bool]:
+) -> dict[str, Any] | None:
     """진행 중인 대결이 조건에 맞으면 이어서 보여주고, 아니면 새로 고릅니다.
 
     3개 비교 모드에서 항목이 3개 미만이면 1대1로 진행합니다.
-    Returns (ctx, is_3way). 대결을 만들 수 없으면 (None, False).
+    대결을 만들 수 없으면 None입니다.
     """
     three_way = store.settings["battle_mode"] == "3way" and len(store.items) >= 3
     size = 3 if three_way else 2
@@ -173,58 +108,46 @@ async def _pick_match(
     if reused:
         token, items = reused
     else:
-        select = get_match_triple if three_way else get_match_pair
-        items = await asyncio.to_thread(select, store, focus_id=focus_id)
-        if not all(items):
-            return None, False
-        token = await store.issue_battle_round([item["id"] for item in items])
-        items = [store.get_item(item["id"]) for item in items]
-    build = _build_3way_context if three_way else _build_battle_context
-    ctx = await asyncio.to_thread(
-        build,
-        store,
-        *items,
-        token,
-        focus_mode=focus_id is not None,
-        focus_id=focus_id,
-    )
-    return ctx, three_way
+        selected = await asyncio.to_thread(select_match, store, size, focus_id)
+        if selected is None:
+            return None
+        token = await store.issue_battle_round([item["id"] for item in selected])
+        items = [store.get_item(item["id"]) for item in selected]
+    return await asyncio.to_thread(_battle_context, store, items, token, focus_id)
 
 
-@router.get("", response_class=HTMLResponse)
-async def get_battle(request: Request, store: StoreDep) -> HTMLResponse:
+async def _battle_page(
+    request: Request, store: DataStore, focus_id: int | None = None
+) -> HTMLResponse:
+    """HTMX 요청에는 대결 카드만, 그 밖에는 전체 페이지를 돌려줍니다."""
     if not store.criteria:
         return templates.TemplateResponse(
             request, "battle_empty.html", dict(_EMPTY_NO_CRITERIA)
         )
-
-    ctx, is_3way = await _pick_match(store)
+    ctx = await _pick_match(store, focus_id)
     if ctx is None:
         return templates.TemplateResponse(
             request, "battle_empty.html", dict(_EMPTY_NOT_ENOUGH)
         )
-    return _battle_template(request, ctx, is_3way=is_3way)
+    template = ctx["cards"] if is_htmx(request) else "battle.html"
+    return templates.TemplateResponse(request, template, ctx)
+
+
+@router.get("", response_class=HTMLResponse)
+async def get_battle(request: Request, store: StoreDep) -> HTMLResponse:
+    return await _battle_page(request, store)
 
 
 @router.get("/focus/{item_id}", response_class=HTMLResponse)
 async def focus_battle(item_id: int, request: Request, store: StoreDep) -> Response:
-    if not store.criteria:
-        return templates.TemplateResponse(
-            request, "battle_empty.html", dict(_EMPTY_NO_CRITERIA)
-        )
-    if not store.get_item(item_id):
+    if store.criteria and not store.get_item(item_id):
         return templates.TemplateResponse(
             request,
             "error.html",
             {"message": "삭제되었거나 현재 랭킹에 없는 항목입니다."},
             status_code=404,
         )
-    ctx, is_3way = await _pick_match(store, focus_id=item_id)
-    if ctx is None:
-        return templates.TemplateResponse(
-            request, "battle_empty.html", dict(_EMPTY_NOT_ENOUGH)
-        )
-    return _battle_template(request, ctx, is_3way=is_3way)
+    return await _battle_page(request, store, item_id)
 
 
 def _parse_focus_id(redirect_to: str | None) -> int | None:
@@ -237,16 +160,13 @@ def _parse_focus_id(redirect_to: str | None) -> int | None:
 async def _render_next_battle(store: DataStore, redirect_to: str | None) -> str:
     """다음 대결 카드를 렌더링합니다. 실패하면 빈 문자열을 돌려 새로고침하게 합니다."""
     try:
-        ctx, is_3way = await _pick_match(store, focus_id=_parse_focus_id(redirect_to))
+        ctx = await _pick_match(store, focus_id=_parse_focus_id(redirect_to))
     except Exception:
         logger.exception("next_battle_render_failed")
         return ""
     if ctx is None:
         return ""
-    partial = (
-        "partials/battle_3way_cards.html" if is_3way else "partials/battle_cards.html"
-    )
-    return templates.env.get_template(partial).render(**ctx)
+    return templates.env.get_template(ctx["cards"]).render(**ctx)
 
 
 async def _vote_response(

@@ -6,10 +6,13 @@ import re
 import httpx2
 import pytest
 
+from ranker.database import fetch_events, transaction
 from ranker.main import app
+from ranker.rating_engine import FitConvergenceError
 from ranker.routers import battle
 from ranker.routers.ranking import histogram, ranking_rows
-from ranker.store import open_store
+from ranker.store import cleanup_pending_imports, open_store
+from tests.helpers import vote
 
 
 @pytest.fixture
@@ -149,10 +152,8 @@ async def test_native_backup_over_one_megabyte_can_be_restored(client):
 
 
 async def test_capacity_error_explains_recovery_and_preserves_data(client, monkeypatch):
-    from ranker import database
-
     await client.post("/manage/add", data={"name": "보존 항목"})
-    monkeypatch.setattr(database, "MAX_BACKUP_BYTES", 1)
+    monkeypatch.setattr("ranker.database.MAX_BACKUP_BYTES", 1)
     response = await client.post("/manage/add", data={"name": "저장 불가"})
     assert response.status_code == 422
     assert "내역을 비우세요" in response.text
@@ -173,8 +174,8 @@ async def test_focus_label_follows_item_after_position_shuffle(client, monkeypat
     await client.post("/manage/add-bulk", data={"names": "Alpha\nBeta"})
     monkeypatch.setattr(
         battle,
-        "get_match_pair",
-        lambda store, focus_id=None: (store.items[1], store.items[0]),
+        "select_match",
+        lambda store, size, focus_id=None: (store.items[1], store.items[0]),
     )
     response = await client.get("/battle/focus/1")
     assert response.status_code == 200
@@ -262,21 +263,10 @@ async def test_form_errors_render_a_page_and_scripts_get_json(client):
 
 
 async def test_history_is_paginated(client):
-    from ranker.schemas import BattleVoteRequest
-
     await client.post("/manage/add-bulk", data={"names": "Alpha\nBeta"})
     store = await open_store(client.cookies.get("session_id"))
-    keys = [c["key"] for c in store.criteria]
     for _ in range(55):
-        token = await store.issue_battle_round([1, 2])
-        await store.apply_vote(
-            BattleVoteRequest(
-                item1_id=1,
-                item2_id=2,
-                round_token=token,
-                votes=dict.fromkeys(keys, "1"),
-            )
-        )
+        await vote(store)
     first = (await client.get("/history")).text
     assert "1 / 2" in first and first.count('<li class="card p-5') == 50
     second = (await client.get("/history?page=2")).text
@@ -324,7 +314,7 @@ async def test_undo_form_from_before_a_history_clear_cannot_undo_a_newer_vote(cl
         assert (await _vote_on_page(client, page)).status_code == 200
     assert (await client.post("/history/undo", data=stale_form)).status_code == 409
     store = await open_store(client.cookies.get("session_id"))
-    assert not any(event["undone"] for event in await store.history_events())
+    assert not any(event["undone"] for event in await fetch_events(store.session_id))
 
 
 async def test_open_battle_survives_changes_that_keep_its_ballot_valid(client):
@@ -370,9 +360,6 @@ async def test_ballot_the_ranking_no_longer_accepts_asks_for_reload(client):
 
 
 async def test_emptying_an_old_library_keeps_its_recovery_code(client):
-    from ranker.database import transaction
-    from ranker.store import cleanup_pending_imports
-
     code = client.cookies.get("ranker_library")
     session_id = client.cookies.get("session_id")
     await client.post("/collections/delete", data={"session_id": session_id})
@@ -385,9 +372,6 @@ async def test_emptying_an_old_library_keeps_its_recovery_code(client):
 
 
 async def test_failed_import_apply_can_be_retried(client, monkeypatch):
-    from ranker import store
-    from ranker.rating_engine import FitConvergenceError
-
     await client.post("/manage/add-bulk", data={"names": "Alpha\nBeta"})
     raw = (await client.get("/manage/export")).text
     await client.post("/manage/add", data={"name": "새 항목"})
@@ -396,7 +380,7 @@ async def test_failed_import_apply_can_be_retried(client, monkeypatch):
     def fail(*args, **kwargs):
         raise FitConvergenceError("수렴하지 않았습니다.")
 
-    monkeypatch.setattr(store, "fit_rankings", fail)
+    monkeypatch.setattr("ranker.store.fit_rankings", fail)
     assert (await client.post("/manage/import/confirm")).status_code == 503
     monkeypatch.undo()
     assert (await client.post("/manage/import/confirm")).status_code == 303

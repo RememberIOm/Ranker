@@ -21,7 +21,7 @@ import numpy as np
 from scipy.special import expit, softmax
 
 from ranker.rating_engine import ALGORITHM_VERSION, fit_rankings, predict_pairs
-from ranker.services import get_match_pair, get_match_triple
+from ranker.services import select_match
 
 
 class SimulationStore:
@@ -235,8 +235,7 @@ def evaluate(seed, scenario, mode, ballots, policy):
         elif policy == "diagonal_reference":
             selected = reference_match(store, mode)
         else:
-            picker = get_match_pair if mode == 2 else get_match_triple
-            selected = tuple(sorted(item["id"] for item in picker(store)))
+            selected = tuple(sorted(item["id"] for item in select_match(store, mode)))
         store.match_seconds += time.perf_counter() - start
         recent_pairs = {
             frozenset(pair)

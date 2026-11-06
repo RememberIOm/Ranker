@@ -9,6 +9,7 @@ import numpy as np
 from scipy.special import roots_legendre
 
 from ranker.rating_engine import expected_information, predict_pair
+from ranker.schemas import vote_ids
 
 # ranker.store가 이 모듈을 import하므로 타입 힌트용 이름은 늦게 불러옵니다.
 lazy from ranker.store import DataStore
@@ -117,9 +118,10 @@ def candidate_utilities(
     return scores / (size - 1)
 
 
-def _select_match(
-    store: DataStore, size: int, focus_id: int | None
+def select_match(
+    store: DataStore, size: int, focus_id: int | None = None
 ) -> tuple[dict, ...] | None:
+    """size개 항목의 대결을 고릅니다. 고를 수 없으면 None입니다."""
     if len(store.items) < size:
         return None
     focus = store.get_item(focus_id) if focus_id is not None else None
@@ -142,12 +144,9 @@ def _select_match(
         recent.append(store.active_round)
     recent_pairs = set()
     for payload in recent:
-        ids = [
-            payload[k]
-            for k in ("item1_id", "item2_id", "item3_id")
-            if payload.get(k) is not None
-        ]
-        recent_pairs.update(frozenset(pair) for pair in combinations(ids, 2))
+        recent_pairs.update(
+            frozenset(pair) for pair in combinations(vote_ids(payload), 2)
+        )
     repeats = [
         sum(
             frozenset((pool[i]["id"], pool[j]["id"])) in recent_pairs
@@ -167,20 +166,6 @@ def _select_match(
     return tuple(selected)
 
 
-def get_match_pair(
-    store: DataStore, focus_id: int | None = None
-) -> tuple[dict | None, dict | None]:
-    selected = _select_match(store, 2, focus_id)
-    return selected if selected else (None, None)
-
-
-def get_match_triple(
-    store: DataStore, focus_id: int | None = None
-) -> tuple[dict | None, dict | None, dict | None]:
-    selected = _select_match(store, 3, focus_id)
-    return selected if selected else (None, None, None)
-
-
 def get_item_ranks(store: DataStore) -> tuple[dict[int, int], int]:
     scores = sorted(
         ((composite_rating(store, item), item["id"]) for item in store.items),
@@ -196,11 +181,6 @@ def get_item_ranks(store: DataStore) -> tuple[dict[int, int], int]:
         ranks[iid] = rank
         previous = score
     return ranks, len(scores)
-
-
-def get_item_rank(store: DataStore, item_id: int) -> tuple[int, int]:
-    ranks, total = get_item_ranks(store)
-    return ranks.get(item_id, total), total
 
 
 # Dense joint sampling is O(n^3); beyond this the page shows point ranks only.

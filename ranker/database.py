@@ -1,5 +1,4 @@
-# database.py
-# SQLite 데이터베이스 초기화, 커넥션 관리를 담당합니다.
+"""SQLite 스키마, 공유 커넥션과 트랜잭션, 랭킹 상태와 투표 기록의 저장."""
 
 import asyncio
 import json
@@ -12,7 +11,7 @@ from typing import Any
 
 import aiosqlite
 
-from ranker.schemas import MAX_BACKUP_BYTES, MAX_HISTORY_EVENTS
+from ranker.schemas import MAX_BACKUP_BYTES, MAX_HISTORY_EVENTS, vote_ids
 
 DB_PATH: Path = Path(os.getenv("DATABASE_PATH", "./data/ranker.db"))
 
@@ -423,11 +422,7 @@ async def save_active_round(session_id: str, active_round: dict[str, Any]) -> No
     A round is not ranking data, so it neither bumps the revision nor discards
     a staged import. Every mutation rereads the latest round under the lock.
     """
-    ids = [
-        active_round[key]
-        for key in ("item1_id", "item2_id", "item3_id")
-        if active_round.get(key) is not None
-    ]
+    ids = vote_ids(active_round)
     async with transaction() as db:
         async with db.execute(
             f"SELECT COUNT(*) FROM items WHERE session_id = ? AND id IN ({', '.join('?' for _ in ids)})",

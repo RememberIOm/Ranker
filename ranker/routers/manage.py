@@ -1,6 +1,4 @@
-# routers/manage.py
-# 관리 페이지: 항목 CRUD, 대량 추가, 평가 기준 편집, 평점 설정, JSON Import/Export
-# 세션별 DataStore를 사용합니다.
+"""관리 화면: 항목 추가·편집·삭제, 평가 기준, 설정, 백업 내보내기와 불러오기."""
 
 import hashlib
 import json
@@ -41,22 +39,40 @@ def _sorted_items(store: DataStore) -> list:
     return sorted(store.items, key=lambda x: x["name"])
 
 
-def _htmx_toast(message: str, toast_type: str = "success") -> HTMLResponse:
-    """HX-Trigger 헤더로 토스트를 트리거하는 빈 응답을 반환합니다."""
-    resp = HTMLResponse("")
-    resp.headers["HX-Trigger"] = json.dumps(
+def _toast(response: Response, message: str, toast_type: str = "success") -> Response:
+    """HX-Trigger 헤더로 app.js의 토스트를 띄웁니다."""
+    response.headers["HX-Trigger"] = json.dumps(
         {"showToast": {"message": message, "type": toast_type}}
     )
-    return resp
+    return response
 
 
-def _form_error(request: Request, message: str) -> HTMLResponse:
+def _form_error(request: Request, message: str) -> Response:
     """폼 검증 실패 응답 — HTMX면 에러 토스트, 아니면 400."""
     if is_htmx(request):
-        response = _htmx_toast(message, "error")
+        response = _toast(HTMLResponse(""), message, "error")
         response.headers["HX-Reswap"] = "none"
         return response
     return HTMLResponse(message, status_code=400)
+
+
+def _item_list_response(
+    request: Request, store: DataStore, redirect_url: str = "/manage?tab=items"
+) -> Response:
+    """HTMX면 항목 목록 조각을, 폼 제출이면 관리 화면으로 돌려보냅니다."""
+    if is_htmx(request):
+        return templates.TemplateResponse(
+            request,
+            "partials/manage_item_list.html",
+            {
+                "items": _sorted_items(store),
+                "criteria": store.criteria,
+                "update_counts": True,
+            },
+        )
+    return RedirectResponse(
+        url=_safe_redirect(redirect_url, "/manage?tab=items"), status_code=303
+    )
 
 
 @router.get("", response_class=HTMLResponse)
@@ -84,18 +100,7 @@ async def add_item(
     request: Request, name: Annotated[str, Form()], store: StoreDep
 ) -> Response:
     await store.add_items([name])
-
-    if is_htmx(request):
-        return templates.TemplateResponse(
-            request,
-            "partials/manage_item_list.html",
-            {
-                "items": _sorted_items(store),
-                "criteria": store.criteria,
-                "update_counts": True,
-            },
-        )
-    return RedirectResponse(url="/manage?tab=items", status_code=303)
+    return _item_list_response(request, store)
 
 
 @router.post("/add-bulk")
@@ -104,18 +109,7 @@ async def add_items_bulk(
 ) -> Response:
     """줄바꿈으로 구분된 이름 목록을 한번에 추가합니다."""
     await store.add_items(names.splitlines())
-
-    if is_htmx(request):
-        return templates.TemplateResponse(
-            request,
-            "partials/manage_item_list.html",
-            {
-                "items": _sorted_items(store),
-                "criteria": store.criteria,
-                "update_counts": True,
-            },
-        )
-    return RedirectResponse(url="/manage?tab=items", status_code=303)
+    return _item_list_response(request, store)
 
 
 @router.post("/delete")
@@ -126,20 +120,7 @@ async def delete_item(
     redirect_url: Annotated[str, Form()] = "/manage?tab=items",
 ) -> Response:
     await store.delete_item(item_id)
-
-    if is_htmx(request):
-        return templates.TemplateResponse(
-            request,
-            "partials/manage_item_list.html",
-            {
-                "items": _sorted_items(store),
-                "criteria": store.criteria,
-                "update_counts": True,
-            },
-        )
-    return RedirectResponse(
-        url=_safe_redirect(redirect_url, "/manage?tab=items"), status_code=303
-    )
+    return _item_list_response(request, store, redirect_url)
 
 
 @router.post("/edit")
@@ -152,20 +133,7 @@ async def edit_item(
 ) -> Response:
     if new_name.strip():
         await store.rename_item(item_id, new_name)
-
-    if is_htmx(request):
-        return templates.TemplateResponse(
-            request,
-            "partials/manage_item_list.html",
-            {
-                "items": _sorted_items(store),
-                "criteria": store.criteria,
-                "update_counts": True,
-            },
-        )
-    return RedirectResponse(
-        url=_safe_redirect(redirect_url, "/manage?tab=items"), status_code=303
-    )
+    return _item_list_response(request, store, redirect_url)
 
 
 # --- Criteria ---
@@ -233,10 +201,7 @@ async def update_criteria(request: Request, store: StoreDep) -> Response:
             "partials/manage_criteria_form.html",
             {"criteria": store.criteria, "items": store.items, "update_counts": True},
         )
-        response.headers["HX-Trigger"] = json.dumps(
-            {"showToast": {"message": "평가 기준을 저장했습니다.", "type": "success"}}
-        )
-        return response
+        return _toast(response, "평가 기준을 저장했습니다.")
     return RedirectResponse(url="/manage?tab=criteria", status_code=303)
 
 
@@ -292,7 +257,7 @@ async def update_settings(request: Request, store: StoreDep) -> Response:
     await store.update_settings(validated)
 
     if is_htmx(request):
-        return _htmx_toast("설정을 저장했습니다.")
+        return _toast(HTMLResponse(""), "설정을 저장했습니다.")
     return RedirectResponse(url="/manage?tab=settings", status_code=303)
 
 

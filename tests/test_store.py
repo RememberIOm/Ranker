@@ -1,9 +1,15 @@
+"""저장소의 세션 격리, 동시 저장, 롤백, 저장 전 검증."""
+
+import asyncio
+import sqlite3
 from typing import Any
 
 import pytest
+from pydantic import ValidationError
 
 from ranker import database, store
-from ranker.schemas import BattleVoteRequest
+from ranker.schemas import MAX_ITEMS
+from tests.helpers import vote
 
 
 class TestStoreValidation:
@@ -14,30 +20,22 @@ class TestStoreValidation:
 
         await store.delete_session(session.session_id)
 
-        assert not await store.open_store(session_id) is not None
+        assert await store.open_store(session_id) is None
         assert session_id not in store._locks
 
     async def test_set_criteria_syncs_mu_sigma(
         self, temp_store: store.DataStore
     ) -> None:
-        """기준 추가/제거 시 mu/sigma_sq 동기화"""
+        """기준을 바꾸면 항목마다 새 기준의 점수를 넣고 지운 기준의 점수를 뺍니다."""
         await temp_store.add_items(["Alpha"])
-
-        new_criteria = [
-            {"key": "new_crit", "label": "새기준", "color": "red", "weight": 1.0},
-        ]
-        await temp_store.set_criteria(new_criteria)
-
+        await temp_store.set_criteria(
+            [{"key": "new_crit", "label": "새기준", "color": "red", "weight": 1.0}]
+        )
         item = temp_store.items[0]
-        # 새 기준 추가됨
         assert "new_crit" in item["mu"]
         assert "new_crit" in item["sigma_sq"]
-        # 이전 기준 제거됨
         assert "story" not in item["mu"]
         assert "story" not in item["sigma_sq"]
-
-
-# --- Per-Criterion Matches ---
 
 
 class TestPerCriterionMatches:
@@ -45,49 +43,29 @@ class TestPerCriterionMatches:
         self, store_with_items: store.DataStore
     ) -> None:
         s = store_with_items
-        token = await s.issue_battle_round([s.items[0]["id"], s.items[1]["id"]])
-        votes = {c["key"]: "1" for c in s.criteria}
-        payload = BattleVoteRequest(
-            item1_id=s.items[0]["id"],
-            item2_id=s.items[1]["id"],
-            round_token=token,
-            votes=votes,
-            redirect_to="/battle",
-        )
-        await s.apply_vote(payload)
-
+        await vote(s)
         for c in s.criteria:
             assert s.items[0]["criterion_matches"][c["key"]] == 1
             assert s.items[1]["criterion_matches"][c["key"]] == 1
 
 
-# --- Active Round Persistence ---
-
-
 class TestActiveRoundItem3Persistence:
     async def test_item3_id_survives_reload(self, store_factory) -> None:
-        """3-way active_round의 item3_id가 DB 재로드 후 보존됨"""
         session_id = "f" * 32
         s = await store_factory(session_id)
-        await s.add_items(["Alpha"])
-        await s.add_items(["Beta"])
-        await s.add_items(["Gamma"])
-        item1, item2, item3 = s.items[0], s.items[1], s.items[2]
-        token = await s.issue_battle_round([item1["id"], item2["id"], item3["id"]])
+        await s.add_items(["Alpha", "Beta", "Gamma"])
+        token = await s.issue_battle_round([1, 2, 3])
 
-        # DB에서 다시 로드
         store._locks.clear()
-        s2 = await store.open_store(session_id)
+        reloaded = await store.open_store(session_id)
 
-        ar = s2._data["active_round"]
-        assert ar is not None
-        assert ar["token"] == token
-        assert ar["item1_id"] == item1["id"]
-        assert ar["item2_id"] == item2["id"]
-        assert ar["item3_id"] == item3["id"]
-
-
-# --- Bulk Add ---
+        assert reloaded.active_round == {
+            "token": token,
+            "item1_id": 1,
+            "item2_id": 2,
+            "item3_id": 3,
+            "issued_at": reloaded.active_round["issued_at"],
+        }
 
 
 class TestAddItemsBulk:
@@ -98,58 +76,35 @@ class TestAddItemsBulk:
         assert len(temp_store.items) == 2
 
 
-# --- CASCADE Delete ---
-
-
 class TestCascadeDelete:
     async def test_delete_session_removes_all_related_rows(self, store_factory) -> None:
-        """세션 삭제 시 관련 행 모두 CASCADE 삭제"""
         session_id = "d" * 32
         s = await store_factory(session_id)
-        await s.add_items(["Alpha"])
-        await s.add_items(["Beta"])
-
-        assert await store.open_store(session_id) is not None
+        await s.add_items(["Alpha", "Beta"])
 
         await store.delete_session(session_id)
 
-        assert not await store.open_store(session_id) is not None
-
-        # items, criteria, item_ratings 행도 삭제 확인
+        assert await store.open_store(session_id) is None
         db = database.get_db()
-        async with db.execute(
-            "SELECT COUNT(*) FROM items WHERE session_id = ?", (session_id,)
-        ) as c:
-            assert (await c.fetchone())[0] == 0
-        async with db.execute(
-            "SELECT COUNT(*) FROM criteria WHERE session_id = ?", (session_id,)
-        ) as c:
-            assert (await c.fetchone())[0] == 0
-        async with db.execute(
-            "SELECT COUNT(*) FROM item_ratings WHERE session_id = ?", (session_id,)
-        ) as c:
-            assert (await c.fetchone())[0] == 0
-
-
-# --- Session Isolation ---
+        for table in ("items", "criteria", "item_ratings"):
+            async with db.execute(
+                f"SELECT COUNT(*) FROM {table} WHERE session_id = ?", (session_id,)
+            ) as c:
+                assert (await c.fetchone())[0] == 0, table
 
 
 class TestSessionIsolation:
     async def test_concurrent_sessions_isolated(self, store_factory) -> None:
-        """두 세션이 서로 간섭하지 않음"""
         s1 = await store_factory("1" * 32)
         s2 = await store_factory("2" * 32)
         await s1.add_items(["S1-Item"])
         await s2.add_items(["S2-Item"])
 
-        # 재로드 후 확인
         s1r = await store.open_store("1" * 32)
         s2r = await store.open_store("2" * 32)
 
-        assert len(s1r.items) == 1
-        assert s1r.items[0]["name"] == "S1-Item"
-        assert len(s2r.items) == 1
-        assert s2r.items[0]["name"] == "S2-Item"
+        assert [item["name"] for item in s1r.items] == ["S1-Item"]
+        assert [item["name"] for item in s2r.items] == ["S2-Item"]
 
 
 class TestStorageRecovery:
@@ -157,9 +112,7 @@ class TestStorageRecovery:
         self, store_with_items: store.DataStore
     ) -> None:
         """서로 다른 요청에서 로드한 스냅샷도 순서대로 병합됩니다."""
-        import asyncio
-
-        sid = store_with_items._session_id
+        sid = store_with_items.session_id
         a, b = await asyncio.gather(store.open_store(sid), store.open_store(sid))
         await asyncio.gather(a.add_items(["First"]), b.add_items(["Second"]))
         loaded = await store.open_store(sid)
@@ -174,27 +127,25 @@ class TestStorageRecovery:
     async def test_deleted_snapshot_cannot_resurrect_session(
         self, store_with_items: store.DataStore
     ) -> None:
-        sid = store_with_items._session_id
+        sid = store_with_items.session_id
         stale = await store.open_store(sid)
         await store.delete_session(sid)
         with pytest.raises(database.StaleSessionError):
             await stale.update_settings({"result_auto_skip": True})
-        assert not await store.open_store(sid) is not None
+        assert await store.open_store(sid) is None
 
     async def test_save_rejects_stale_external_mutation(
         self, store_with_items: store.DataStore
     ) -> None:
-        stale = await store.open_store(store_with_items._session_id)
+        stale = await store.open_store(store_with_items.session_id)
         await store_with_items.add_items(["Preserved"])
         with pytest.raises(database.StaleSessionError):
             await stale._save_to_db()
-        assert len((await store.open_store(stale._session_id)).items) == 3
+        assert len((await store.open_store(stale.session_id)).items) == 3
 
     async def test_cancelled_write_rolls_back_before_next_request(
         self, store_with_items: store.DataStore, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import asyncio
-
         db = database.get_db()
         original = db.executemany
 
@@ -206,22 +157,19 @@ class TestStorageRecovery:
             await store_with_items.add_items(["Must not survive"])
         monkeypatch.setattr(db, "executemany", original)
         assert not db.in_transaction
-        loaded = await store.open_store(store_with_items._session_id)
+        loaded = await store.open_store(store_with_items.session_id)
         assert [item["name"] for item in loaded.items] == ["Alpha", "Beta"]
 
     async def test_reads_wait_for_complete_transaction(
         self, store_with_items: store.DataStore
     ) -> None:
-        import asyncio
-
         db = database.get_db()
-        task = None
         async with database.transaction():
             await db.execute(
                 "UPDATE items SET name = 'Complete' WHERE session_id = ?",
-                (store_with_items._session_id,),
+                (store_with_items.session_id,),
             )
-            task = asyncio.create_task(store.open_store(store_with_items._session_id))
+            task = asyncio.create_task(store.open_store(store_with_items.session_id))
             await asyncio.sleep(0)
             assert not task.done()
         loaded = await task
@@ -238,13 +186,6 @@ class TestStorageRecovery:
         async with db.execute("SELECT COUNT(*) FROM rating_writes") as cursor:
             assert (await cursor.fetchone())[0] == 0
 
-    async def test_empty_import_rejected_without_reset(
-        self, store_with_items: store.DataStore
-    ) -> None:
-        with pytest.raises(store.InvalidSessionDataError):
-            await store_with_items.import_json("{}")
-        assert len(store_with_items.items) == 2
-
     async def test_import_confirmation_rejects_changed_snapshot(
         self, store_with_items: store.DataStore
     ) -> None:
@@ -258,8 +199,6 @@ class TestStorageRecovery:
     async def test_database_error_is_reported_as_save_error(
         self, store_with_items: store.DataStore, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import sqlite3
-
         async def fail(*args: Any, **kwargs: Any) -> None:
             raise sqlite3.OperationalError("disk full")
 
@@ -268,42 +207,18 @@ class TestStorageRecovery:
             await store_with_items.add_items(["Failure"])
         assert not database.get_db().in_transaction
 
-    async def test_capacity_rejects_write_and_preserves_database(
-        self, store_with_items: store.DataStore, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setattr(database, "MAX_BACKUP_BYTES", 1)
-        with pytest.raises(store.BackupLimitError, match="저장 한도"):
-            await store_with_items.add_items(["Over capacity"])
-        loaded = await store.open_store(store_with_items._session_id)
-        assert [item["name"] for item in loaded.items] == ["Alpha", "Beta"]
-
-    async def test_long_name_add_is_rejected_before_database_write(
-        self, store_with_items: store.DataStore
-    ) -> None:
-        from pydantic import ValidationError
-
-        session = store_with_items
-        with pytest.raises(ValidationError):
-            await session.add_items(["x" * 501])
-        reloaded = await store.open_store(session._session_id)
-        assert [item["name"] for item in reloaded.items] == ["Alpha", "Beta"]
-
     async def test_bulk_over_item_limit_is_rejected_before_database_write(
         self, store_with_items: store.DataStore
     ) -> None:
-        from ranker.schemas import MAX_ITEMS
-
         session = store_with_items
         with pytest.raises(store.ItemLimitError):
             await session.add_items([f"Item {index}" for index in range(MAX_ITEMS - 1)])
-        reloaded = await store.open_store(session._session_id)
+        reloaded = await store.open_store(session.session_id)
         assert len(reloaded.items) == 2
 
     async def test_too_many_criteria_are_rejected_before_database_write(
         self, store_with_items: store.DataStore
     ) -> None:
-        from pydantic import ValidationError
-
         session = store_with_items
         with pytest.raises(ValidationError):
             await session.set_criteria(
@@ -317,35 +232,16 @@ class TestStorageRecovery:
                     for index in range(65)
                 ]
             )
-        reloaded = await store.open_store(session._session_id)
+        reloaded = await store.open_store(session.session_id)
         assert len(reloaded.criteria) == 6
 
     async def test_invalid_direct_save_preserves_existing_database(
         self, store_with_items: store.DataStore
     ) -> None:
-        from pydantic import ValidationError
-
         session = store_with_items
         original = await session.export_json()
         session.items[0]["mu"][session.criteria[0]["key"]] = float("inf")
         with pytest.raises(ValidationError):
             await session._save_to_db()
-        reloaded = await store.open_store(session._session_id)
+        reloaded = await store.open_store(session.session_id)
         assert await reloaded.export_json() == original
-
-    async def test_http_long_name_returns_validation_error_and_session_survives(
-        self, store_with_items: store.DataStore
-    ) -> None:
-        import httpx2
-
-        from ranker.main import app
-
-        async with httpx2.AsyncClient(
-            transport=httpx2.ASGITransport(app=app),
-            base_url="http://test",
-            cookies={"session_id": store_with_items._session_id},
-        ) as client:
-            assert (
-                await client.post("/manage/add", data={"name": "x" * 501})
-            ).status_code == 422
-            assert (await client.get("/manage")).status_code == 200

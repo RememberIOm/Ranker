@@ -1,6 +1,4 @@
-# store.py
-# 세션 기반 SQLite 데이터 저장소 — 각 사용자가 독립된 데이터를 운용합니다.
-# 투표 기록은 요청마다 불러오지 않고, 내역·취소·백업에서만 읽습니다.
+"""랭킹 하나의 상태와 변경. 투표 기록은 요청마다 읽지 않고 내역·취소·백업에서만 읽습니다."""
 
 import asyncio
 import json
@@ -38,6 +36,7 @@ from ranker.schemas import (
     SettingsModel,
     ThreeWayBattleVoteRequest,
     VotePayloadModel,
+    vote_ids,
 )
 from ranker.services import display_rating, display_uncertainty
 
@@ -65,6 +64,15 @@ PENDING_IMPORT_TTL_SECONDS = 3600
 # 많아도 넘치지 않도록 요청마다 이 크기까지만 인자를 보관합니다.
 POSTERIOR_CACHE_BYTES = 128 * 2**20
 BACKUP_SCHEMA_VERSION = 4
+# 백업에 그대로 들어가는 상태. 평점 모형은 관측에서 다시 계산합니다.
+_BACKUP_KEYS = (
+    "settings",
+    "criteria",
+    "items",
+    "next_item_id",
+    "observations",
+    "exposures",
+)
 
 # asyncio.Lock은 실행 중인 이벤트 루프 안에서 생성해야 하므로 lazy init합니다.
 # 세션 락과 DB 커넥션은 단일 uvicorn 워커에서 사용합니다.
@@ -101,14 +109,6 @@ def _get_lock(session_id: str) -> asyncio.Lock:
         lock = asyncio.Lock()
         _locks[session_id] = lock
     return lock
-
-
-def _vote_ids(payload: dict[str, Any]) -> list[int]:
-    return [
-        payload[key]
-        for key in ("item1_id", "item2_id", "item3_id")
-        if payload.get(key) is not None
-    ]
 
 
 def _dumps(value: Any) -> str:
@@ -255,21 +255,8 @@ class DataStore:
         return True
 
     def _core(self) -> dict[str, Any]:
-        """백업에 들어가는 현재 상태. 평점 모형은 관측에서 다시 계산합니다.
-
-        곧바로 직렬화하는 용도라 복사하지 않습니다.
-        """
-        return {
-            key: self._data[key]
-            for key in (
-                "settings",
-                "criteria",
-                "items",
-                "next_item_id",
-                "observations",
-                "exposures",
-            )
-        }
+        """백업에 들어가는 현재 상태. 곧바로 직렬화하는 용도라 복사하지 않습니다."""
+        return {key: self._data[key] for key in _BACKUP_KEYS}
 
     async def _save_to_db(self, board: tuple[str, str] | None = None) -> None:
         """검증한 상태와 투표 기록 변경을 단일 트랜잭션으로 기록합니다."""
@@ -367,9 +354,6 @@ class DataStore:
         used = sum(p.factor.nbytes for p in self._posterior_cache.values())
         if used + posterior.factor.nbytes <= POSTERIOR_CACHE_BYTES:
             self._posterior_cache[key] = posterior
-
-    async def history_events(self) -> list[dict[str, Any]]:
-        return await database.fetch_events(self._session_id)
 
     async def history_page(self, page: int, size: int = 50) -> dict[str, Any]:
         total = await database.count_events(self._session_id)
@@ -485,7 +469,7 @@ class DataStore:
                 return False
             self._data["items"] = [i for i in self.items if i["id"] != item_id]
             active = self._data["active_round"]
-            if active and item_id in _vote_ids(active):
+            if active and item_id in vote_ids(active):
                 self._data["active_round"] = None
             self._events.archive_all = True
             await self._save_to_db()
@@ -513,21 +497,14 @@ class DataStore:
             raise InvalidSessionDataError("백업 파일에 올바르지 않은 숫자가 있습니다.")
 
         parsed = json.loads(raw, parse_constant=reject_constant)
-        if not isinstance(parsed, dict) or parsed.get("schema_version") != 4:
+        if (
+            not isinstance(parsed, dict)
+            or parsed.get("schema_version") != BACKUP_SCHEMA_VERSION
+        ):
             raise InvalidSessionDataError("형식 4 백업 파일만 불러올 수 있습니다.")
         backup = BackupModel.model_validate(parsed)
         data = SessionDataModel.model_validate(
-            {
-                key: parsed[key]
-                for key in (
-                    "settings",
-                    "criteria",
-                    "items",
-                    "next_item_id",
-                    "observations",
-                    "exposures",
-                )
-            }
+            {key: parsed[key] for key in _BACKUP_KEYS}
         ).model_dump(mode="python")
         history = [event.model_dump(mode="python") for event in backup.history]
         if len({e["id"] for e in history}) != len(history):
@@ -541,7 +518,7 @@ class DataStore:
         active_item_ballots: Counter = Counter()
         for event in history:
             payload = event["payload"]
-            ids = _vote_ids(payload)
+            ids = vote_ids(payload)
             if event["archived"]:
                 continue
             if not set(ids) <= item_ids or set(payload["votes"]) != criterion_keys:
@@ -648,7 +625,7 @@ class DataStore:
         active = self._data["active_round"]
         if not active:
             return None
-        ids = _vote_ids(active)
+        ids = vote_ids(active)
         items = [self.get_item(iid) for iid in ids]
         if (
             len(ids) != size
@@ -687,7 +664,7 @@ class DataStore:
         if (
             not active
             or active["token"] != payload.round_token
-            or _vote_ids(active) != ids
+            or vote_ids(active) != ids
         ):
             raise StaleBattleRoundError(
                 "이미 처리된 대결입니다. 새로고침하면 다음 대결로 넘어갑니다."
@@ -811,7 +788,7 @@ class DataStore:
             self._data["active_round"] = None
             await self._save_to_db()
             self._recent = [stored, *self._recent][:5]
-        response = {"results": results, "total_items": len(self.items)}
+        response = {"results": results}
         for index, iid in enumerate(ids, 1):
             response[f"a{index}_id"] = iid
             response[f"a{index}_name"] = self.get_item(iid)["name"]
@@ -825,35 +802,34 @@ class DataStore:
             return {**result, "skipped": True}
 
         def change(iid: int) -> tuple[float, float, float]:
+            """표시 점수, 변화량, 불확실성을 화면 단위로 반올림합니다."""
             item = self.get_item(iid)
-            old_r = display_rating(self, old[iid][key])
-            new_r = display_rating(self, item["mu"][key])
+            old_r = round(display_rating(self, old[iid][key]), 1)
+            new_r = round(display_rating(self, item["mu"][key]), 1)
             sigma = display_uncertainty(self, item["sigma_sq"][key])
-            return round(old_r, 1), round(new_r, 1), round(sigma, 1)
+            return new_r, round(new_r - old_r, 1), round(sigma, 1)
 
         if len(ids) == 2:
             result["winner"] = votes[key]
             for index, iid in enumerate(ids, 1):
-                old_r, new_r, sigma = change(iid)
+                new_r, diff, sigma = change(iid)
                 result |= {
-                    f"old_r{index}": old_r,
                     f"new_r{index}": new_r,
-                    f"diff_r{index}": round(new_r - old_r, 1),
+                    f"diff_r{index}": diff,
                     f"sigma{index}": sigma,
                 }
             return result
         result |= {
             "best_id": ranking[0][0] if len(ranking[0]) == 1 else None,
             "worst_id": ranking[-1][0] if len(ranking[-1]) == 1 else None,
-            "middle_id": ranking[1][0] if len(ranking) == 3 else None,
             "ratings": {},
             "diffs": {},
             "sigmas": {},
         }
         for iid in ids:
-            old_r, new_r, sigma = change(iid)
+            new_r, diff, sigma = change(iid)
             result["ratings"][str(iid)] = new_r
-            result["diffs"][str(iid)] = round(new_r - old_r, 1)
+            result["diffs"][str(iid)] = diff
             result["sigmas"][str(iid)] = sigma
         return result
 
@@ -875,7 +851,7 @@ class DataStore:
             if not last:
                 raise StaleBattleRoundError("취소할 투표가 없습니다.")
             event = last[0]
-            ids = _vote_ids(event["payload"])
+            ids = vote_ids(event["payload"])
             answered = set()
             for key, vote in event["payload"]["votes"].items():
                 self._data["exposures"][key] -= 1

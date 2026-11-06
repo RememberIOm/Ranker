@@ -6,14 +6,32 @@ from itertools import pairwise, permutations
 
 import numpy as np
 import pytest
+from scipy.special import logsumexp, roots_hermitenorm, softmax
 
 from ranker.rating_engine import (
     RankingLikelihood,
+    canonical_ranking,
+    choice_features,
     expected_information,
     fit_rankings,
     predict_pair,
-    ranking_probability,
 )
+
+
+def ranking_probability(mus, log_ties, ranking):
+    """One ballot's probability, stage by stage, as an oracle for the vectorized fit."""
+    ranking = canonical_ranking(ranking)
+    remaining = sorted(*group for group in ranking)
+    logp = 0.0
+    for group in ranking:
+        if len(remaining) == 1:
+            break
+        subsets, features = choice_features(len(remaining))
+        scores = features @ np.array([mus[i] for i in remaining] + list(log_ties))
+        selected = subsets.index(tuple(remaining.index(i) for i in group))
+        logp += scores[selected] - logsumexp(scores)
+        remaining = [i for i in remaining if i not in group]
+    return float(np.exp(logp))
 
 
 def approx_derivative(function, x):
@@ -142,8 +160,6 @@ def test_full_ballot_fisher_matches_all_thirteen_score_outer_products():
 
 @pytest.mark.parametrize("sigma", [0.1, 2.0, 10.0])
 def test_adaptive_prediction_against_independent_high_order_gaussian_quadrature(sigma):
-    from scipy.special import roots_hermitenorm, softmax
-
     z, w = roots_hermitenorm(1024 if sigma == 10 else 128)
     w /= np.sqrt(2 * np.pi)
     d = np.broadcast_to(np.sqrt(2) * sigma * z[:, None], (len(z), len(z)))

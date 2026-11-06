@@ -338,23 +338,6 @@ def restore_posterior(
     )
 
 
-def ranking_probability(
-    mus: dict[int, float], log_ties: tuple[float, float], ranking: Ranking
-) -> float:
-    ranking = canonical_ranking(ranking)
-    remaining = sorted(*group for group in ranking)
-    logp = 0.0
-    for group in ranking:
-        if len(remaining) == 1:
-            break
-        subsets, features = choice_features(len(remaining))
-        scores = features @ np.array([mus[i] for i in remaining] + list(log_ties))
-        selected = subsets.index(tuple(remaining.index(i) for i in group))
-        logp += scores[selected] - logsumexp(scores)
-        remaining = [i for i in remaining if i not in group]
-    return float(np.exp(logp))
-
-
 def predict_pairs(posterior: Posterior, pairs: list[tuple[int, int]]) -> NDArray:
     """Adaptive joint-Laplace predictive integration for one or more pairs.
 

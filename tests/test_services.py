@@ -1,3 +1,5 @@
+"""표시 점수의 가중 평균과 공동 순위."""
+
 import pytest
 
 from ranker import store
@@ -10,8 +12,7 @@ from ranker.services import (
 
 class TestCompositeRating:
     async def test_custom_weights(self, temp_store: store.DataStore) -> None:
-        """비균일 weight에서 가중 평균 정확성 검증"""
-        # 기준 2개만 사용, 나머지 weight=0 대신 아주 작은 값
+        """종합 점수는 기준별 표시 점수의 가중 평균입니다."""
         await temp_store.set_criteria(
             [
                 {"key": "a", "label": "A", "color": "blue", "weight": 2.0},
@@ -32,14 +33,9 @@ class TestCompositeRating:
     async def test_empty_criteria_returns_display_center(
         self, temp_store: store.DataStore
     ) -> None:
-        """criteria가 비어 있어도 0이 아닌 display_center를 반환 (회귀 보호)
-
-        예전 `or 1.0` fallback은 빈 criteria에서 0을 반환해 매치메이킹·랭킹·확률
-        계산이 모두 0점으로 표시되는 사용자 영향이 있었음.
-        """
+        """기준을 모두 지운 랭킹도 0점이 아니라 중심점을 보여줍니다."""
         await temp_store.add_items(["Alpha"])
         item = temp_store.items[0]
-        # criteria를 강제로 비움 (정상 경로에선 발생하지 않지만 일시 상태 방어)
         temp_store._data["criteria"] = []
         assert composite_rating(temp_store, item) == pytest.approx(
             temp_store.settings["display_center"]

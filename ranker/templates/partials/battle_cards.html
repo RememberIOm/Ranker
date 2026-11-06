@@ -4,10 +4,10 @@
      data-item2-id="{{ item2.id }}"
      data-round-token="{{ round_token }}"
      data-criteria-keys='{{ criteria_info | map(attribute="key") | list | tojson }}'
-     data-redirect-to="{{ ('/battle/focus/' ~ focus_id) if focus_mode else '' }}"
+     data-redirect-to="{{ ('/battle/focus/' ~ focus_id) if focus_id else '' }}"
      data-battle-mode="2way"></div>
 
-{% if focus_mode %}
+{% if focus_id %}
 <div class="mb-6 flex items-center justify-between gap-3 rounded-2xl border border-violet-300/70 bg-violet-100/60 px-4 py-3 dark:border-violet-500/40 dark:bg-violet-500/10">
   <div class="flex min-w-0 items-center gap-2.5 text-sm font-semibold text-violet-800 dark:text-violet-300">
     <span class="animate-pulse text-violet-600 dark:text-violet-400">{{ icon('target', 'w-5 h-5') }}</span>
@@ -68,7 +68,7 @@
               aria-pressed="false" aria-label="{{ c.label }}: {{ item1.name }} 선택">
         <span class="font-display text-xs font-extrabold text-violet-600 dark:text-violet-400" aria-hidden="true">A</span>
         {% if not blind_mode %}
-        <span class="font-display text-lg font-bold tabular-nums">{{ c.r1 | round(0) | int }}<span class="ml-0.5 text-[11px] font-medium text-zinc-400">&plusmn;{{ c.sigma1 | round(0) | int }}</span></span>
+        <span class="font-display text-lg font-bold tabular-nums">{{ c.item_ratings[0].r | round(0) | int }}<span class="ml-0.5 text-[11px] font-medium text-zinc-400">&plusmn;{{ c.item_ratings[0].sigma | round(0) | int }}</span></span>
         <span class="text-xs font-semibold text-zinc-500 tabular-nums dark:text-zinc-400">{{ c.probs.win_a }}%</span>
         {% else %}<span class="text-sm font-semibold">선택</span>{% endif %}
       </button>
@@ -81,7 +81,7 @@
               aria-pressed="false" aria-label="{{ c.label }}: {{ item2.name }} 선택">
         <span class="font-display text-xs font-extrabold text-rose-500 dark:text-rose-400" aria-hidden="true">B</span>
         {% if not blind_mode %}
-        <span class="font-display text-lg font-bold tabular-nums">{{ c.r2 | round(0) | int }}<span class="ml-0.5 text-[11px] font-medium text-zinc-400">&plusmn;{{ c.sigma2 | round(0) | int }}</span></span>
+        <span class="font-display text-lg font-bold tabular-nums">{{ c.item_ratings[1].r | round(0) | int }}<span class="ml-0.5 text-[11px] font-medium text-zinc-400">&plusmn;{{ c.item_ratings[1].sigma | round(0) | int }}</span></span>
         <span class="text-xs font-semibold text-zinc-500 tabular-nums dark:text-zinc-400">{{ c.probs.win_b }}%</span>
         {% else %}<span class="text-sm font-semibold">선택</span>{% endif %}
       </button>

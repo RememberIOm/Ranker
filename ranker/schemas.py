@@ -1,5 +1,7 @@
-# schemas.py
-from typing import Annotated, Literal
+"""저장 데이터, 백업, 요청 본문의 형식과 한도."""
+
+from collections.abc import Mapping
+from typing import Annotated, Any, Literal
 
 from pydantic import (
     AfterValidator,
@@ -21,6 +23,15 @@ MAX_ITEMS = 1_500
 
 VoteChoice = Literal["1", "2", "draw", "skip"]
 ThreeWayRole = Literal["best", "worst", "tied"]
+
+
+def vote_ids(payload: Mapping[str, Any]) -> list[int]:
+    """대결 라운드나 투표 기록에 나온 항목 ID를 순서대로 돌려줍니다."""
+    return [
+        payload[key]
+        for key in ("item1_id", "item2_id", "item3_id")
+        if payload.get(key) is not None
+    ]
 
 
 def safe_relative_path(value: str | None) -> str | None:
@@ -71,8 +82,8 @@ class CriterionModel(BaseModel):
         "gray",
     ] = "gray"
     weight: float = Field(default=1.0, gt=0.0, le=1_000_000)
-    battles: int = Field(default=0, ge=0, le=2**63 - 1)
-    draws: int = Field(default=0, ge=0, le=2**63 - 1)
+    battles: int = Field(default=0, ge=0, le=MAX_ID)
+    draws: int = Field(default=0, ge=0, le=MAX_ID)
 
     @model_validator(mode="after")
     def validate_counters(self) -> CriterionModel:
@@ -103,7 +114,7 @@ def _default_criteria() -> list[CriterionModel]:
 class ItemModel(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
-    id: int = Field(ge=1, le=2**63 - 1)
+    id: int = Field(ge=1, le=MAX_ID)
     name: str = Field(min_length=1, max_length=500)
     mu: dict[str, Annotated[float, Field(ge=-1_000_000, le=1_000_000)]] = Field(
         default_factory=dict
@@ -111,8 +122,8 @@ class ItemModel(BaseModel):
     sigma_sq: dict[str, Annotated[float, Field(gt=0.0, le=1_000_000)]] = Field(
         default_factory=dict
     )
-    matches_played: int = Field(default=0, ge=0, le=2**63 - 1)
-    criterion_matches: dict[str, Annotated[int, Field(ge=0, le=2**63 - 1)]] = Field(
+    matches_played: int = Field(default=0, ge=0, le=MAX_ID)
+    criterion_matches: dict[str, Annotated[int, Field(ge=0, le=MAX_ID)]] = Field(
         default_factory=dict
     )
 
@@ -131,8 +142,8 @@ class ActiveRoundModel(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     token: str = Field(min_length=16, max_length=255)
-    item1_id: int = Field(ge=1, le=2**63 - 1)
-    item2_id: int = Field(ge=1, le=2**63 - 1)
+    item1_id: int = Field(ge=1, le=MAX_ID)
+    item2_id: int = Field(ge=1, le=MAX_ID)
     item3_id: int | None = Field(default=None, ge=1)
     issued_at: float = Field(ge=0.0)
 
@@ -151,7 +162,7 @@ class ObservationModel(BaseModel):
 
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
     groups: tuple[tuple[int, ...], ...]
-    count: int = Field(ge=1, le=2**63 - 1)
+    count: int = Field(ge=1, le=MAX_ID)
 
     @field_validator("groups")
     @classmethod
@@ -186,7 +197,7 @@ class SessionDataModel(BaseModel):
     items: list[ItemModel] = Field(default_factory=list, max_length=MAX_ITEMS)
     active_round: ActiveRoundModel | None = None
     observations: dict[str, list[ObservationModel]] = Field(default_factory=dict)
-    exposures: dict[str, Annotated[int, Field(ge=0, le=2**63 - 1)]] = Field(
+    exposures: dict[str, Annotated[int, Field(ge=0, le=MAX_ID)]] = Field(
         default_factory=dict
     )
     posteriors: dict[str, PosteriorModel] = Field(default_factory=dict)
@@ -243,8 +254,8 @@ class SessionDataModel(BaseModel):
 class BattleVoteRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
-    item1_id: int = Field(ge=1, le=2**63 - 1)
-    item2_id: int = Field(ge=1, le=2**63 - 1)
+    item1_id: int = Field(ge=1, le=MAX_ID)
+    item2_id: int = Field(ge=1, le=MAX_ID)
     round_token: str = Field(min_length=16, max_length=255)
     votes: dict[str, VoteChoice] = Field(min_length=1)
     redirect_to: SafeRedirect = None
@@ -264,9 +275,9 @@ class ThreeWayBattleVoteRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
-    item1_id: int = Field(ge=1, le=2**63 - 1)
-    item2_id: int = Field(ge=1, le=2**63 - 1)
-    item3_id: int = Field(ge=1, le=2**63 - 1)
+    item1_id: int = Field(ge=1, le=MAX_ID)
+    item2_id: int = Field(ge=1, le=MAX_ID)
+    item3_id: int = Field(ge=1, le=MAX_ID)
     round_token: str = Field(min_length=16, max_length=255)
     votes: dict[str, dict[str, ThreeWayRole] | Literal["skip"]] = Field(min_length=1)
     redirect_to: SafeRedirect = None

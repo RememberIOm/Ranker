@@ -1,8 +1,6 @@
-# deps.py
-# FastAPI 의존성 — 세션 쿠키에서 DataStore를 주입합니다.
+"""FastAPI 의존성: 세션 쿠키로 연 랭킹과 백업 업로드 읽기."""
 
 import re
-import uuid
 from typing import Annotated
 
 from fastapi import Cookie, Depends, Request, UploadFile
@@ -23,10 +21,6 @@ class RequiresSessionException(Exception):
 
 class UploadTooLargeError(ValueError):
     """백업 파일이 한도를 넘습니다."""
-
-
-def create_session_id() -> str:
-    return uuid.uuid4().hex
 
 
 async def get_session_store(

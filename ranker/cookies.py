@@ -4,15 +4,8 @@ import os
 
 from fastapi.responses import Response
 
-
-def _env_flag(name: str, default: bool = False) -> bool:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    return raw.strip().lower() in {"1", "true", "yes", "on"}
-
-
-COOKIE_SECURE = _env_flag("COOKIE_SECURE", False)
+_TRUTHY = frozenset({"1", "true", "yes", "on"})
+COOKIE_SECURE = os.getenv("COOKIE_SECURE", "").strip().lower() in _TRUTHY
 # 지금 연 랭킹을 기억하는 기간입니다. 랭킹 자체는 목록에 남습니다.
 SESSION_COOKIE_MAX_AGE = 7 * 24 * 3600
 

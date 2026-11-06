@@ -3,13 +3,13 @@
 import hashlib
 import re
 import secrets
+import uuid
 
 from fastapi import Request
 from fastapi.responses import Response
 
 from ranker.cookies import COOKIE_SECURE, set_session_cookie
 from ranker.database import transaction
-from ranker.deps import create_session_id
 from ranker.store import DataStore, create_store
 
 COOKIE_NAME = "ranker_library"
@@ -37,14 +37,6 @@ async def get_library(request: Request) -> str | None:
     return code if await library_exists(code) else None
 
 
-async def library_code(request: Request) -> str:
-    """쿠키의 목록 코드를 쓰고, 없으면 새 복구 코드를 만듭니다.
-
-    새 목록은 첫 랭킹과 같은 트랜잭션에서 저장합니다.
-    """
-    return await get_library(request) or secrets.token_urlsafe(32)
-
-
 def set_library_cookie(response: Response, code: str) -> None:
     response.set_cookie(
         COOKIE_NAME,
@@ -57,10 +49,13 @@ def set_library_cookie(response: Response, code: str) -> None:
 
 
 async def create_board(request: Request, response: Response, name: str) -> DataStore:
-    """새 랭킹을 만들어 내 목록에 넣고, 그 랭킹을 현재 랭킹으로 엽니다."""
-    code = await library_code(request)
+    """새 랭킹을 만들어 내 목록에 넣고, 그 랭킹을 현재 랭킹으로 엽니다.
+
+    목록이 없으면 새 복구 코드를 만들고, 첫 랭킹과 같은 트랜잭션에서 저장합니다.
+    """
+    code = await get_library(request) or secrets.token_urlsafe(32)
     store = await create_store(
-        create_session_id(), library_id(code), name.strip()[:100] or "새 랭킹"
+        uuid.uuid4().hex, library_id(code), name.strip()[:100] or "새 랭킹"
     )
     set_session_cookie(response, store.session_id)
     set_library_cookie(response, code)

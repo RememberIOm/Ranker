@@ -5,10 +5,10 @@
      data-item3-id="{{ item3.id }}"
      data-round-token="{{ round_token }}"
      data-criteria-keys='{{ criteria_info | map(attribute="key") | list | tojson }}'
-     data-redirect-to="{{ ('/battle/focus/' ~ focus_id) if focus_mode else '' }}"
+     data-redirect-to="{{ ('/battle/focus/' ~ focus_id) if focus_id else '' }}"
      data-battle-mode="3way"></div>
 
-{% if focus_mode %}
+{% if focus_id %}
 <div class="mb-6 flex items-center justify-between gap-3 rounded-2xl border border-violet-300/70 bg-violet-100/60 px-4 py-3 dark:border-violet-500/40 dark:bg-violet-500/10">
   <div class="flex min-w-0 items-center gap-2.5 text-sm font-semibold text-violet-800 dark:text-violet-300">
     <span class="animate-pulse text-violet-600 dark:text-violet-400">{{ icon('target', 'w-5 h-5') }}</span>

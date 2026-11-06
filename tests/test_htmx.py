@@ -1,10 +1,13 @@
-"""HTMX partial 응답 통합 테스트"""
+"""HTMX 요청에 돌려주는 조각 HTML과 헤더."""
+
+import re
 
 import httpx2
 import pytest
 from httpx2 import ASGITransport
 
 from ranker.main import app
+from ranker.schemas import MAX_ITEMS
 
 
 @pytest.fixture()
@@ -34,12 +37,27 @@ async def _setup_battle(client: httpx2.AsyncClient) -> None:
     )
 
 
+async def _vote_story(client: httpx2.AsyncClient) -> str:
+    """대결 화면에 그려진 라운드로 story 기준에 A 승을 보내고 결과 HTML을 돌려줍니다."""
+    page = (await client.get("/battle")).text
+    response = await client.post(
+        "/battle/vote",
+        json={
+            "item1_id": int(re.search(r'data-item1-id="(\d+)"', page).group(1)),
+            "item2_id": int(re.search(r'data-item2-id="(\d+)"', page).group(1)),
+            "round_token": re.search(r'data-round-token="([^"]+)"', page).group(1),
+            "votes": {"story": "1"},
+        },
+        headers={"HX-Request": "true"},
+    )
+    assert response.status_code == 200
+    return response.text
+
+
 async def test_item_limit_keeps_the_form_instead_of_reloading(
     client: httpx2.AsyncClient,
 ) -> None:
     """app.js는 409를 낡은 화면으로 보고 새로고침하므로, 한도 초과는 409가 아니어야 입력이 남습니다."""
-    from ranker.schemas import MAX_ITEMS
-
     names = "\n".join(f"항목 {i}" for i in range(MAX_ITEMS + 1))
     resp = await client.post(
         "/manage/add-bulk", data={"names": names}, headers={"HX-Request": "true"}
@@ -64,8 +82,6 @@ class TestBattleHTMX:
         self, client: httpx2.AsyncClient
     ) -> None:
         """3개 비교의 건너뛰기는 문자열 "skip"으로 저장됩니다."""
-        import re
-
         await _setup_battle(client)
         await client.post(
             "/manage/settings", data={"battle_mode": "3way", "blind_mode": "on"}
@@ -104,25 +120,7 @@ class TestBattleHTMX:
             },
         )
 
-        resp = await client.get("/battle")
-        import re
-
-        token = re.search(r'data-round-token="([^"]+)"', resp.text).group(1)
-        id1 = int(re.search(r'data-item1-id="(\d+)"', resp.text).group(1))
-        id2 = int(re.search(r'data-item2-id="(\d+)"', resp.text).group(1))
-
-        vote_resp = await client.post(
-            "/battle/vote",
-            json={
-                "item1_id": id1,
-                "item2_id": id2,
-                "round_token": token,
-                "votes": {"story": "1"},
-            },
-            headers={"HX-Request": "true"},
-        )
-        assert vote_resp.status_code == 200
-        body = vote_resp.text
+        body = await _vote_story(client)
         assert 'data-auto-skip="true"' in body
         assert 'id="auto-skip-area"' in body
         # auto_skip 활성 → auto-skip-area는 hidden 아님
@@ -142,26 +140,7 @@ class TestBattleHTMX:
     ) -> None:
         """auto_skip 비활성화(기본) 시 결과 모달은 click-skip 영역만 노출한다."""
         await _setup_battle(client)
-
-        resp = await client.get("/battle")
-        import re
-
-        token = re.search(r'data-round-token="([^"]+)"', resp.text).group(1)
-        id1 = int(re.search(r'data-item1-id="(\d+)"', resp.text).group(1))
-        id2 = int(re.search(r'data-item2-id="(\d+)"', resp.text).group(1))
-
-        vote_resp = await client.post(
-            "/battle/vote",
-            json={
-                "item1_id": id1,
-                "item2_id": id2,
-                "round_token": token,
-                "votes": {"story": "1"},
-            },
-            headers={"HX-Request": "true"},
-        )
-        assert vote_resp.status_code == 200
-        body = vote_resp.text
+        body = await _vote_story(client)
         assert 'data-auto-skip="false"' in body
         # auto_skip 비활성 → auto-skip-area는 hidden
         auto_area = re.search(r'<div id="auto-skip-area"\s+class="([^"]*)"', body)
@@ -188,8 +167,6 @@ class TestManageHTMX:
         """POST /manage/edit + HX-Request → 수정된 항목 행 HTML"""
         await client.post("/manage/add", data={"name": "Original"})
         resp = await client.get("/manage?tab=items")
-        import re
-
         id_match = re.search(r'name="item_id" value="(\d+)"', resp.text)
         item_id = id_match.group(1)
 
@@ -214,9 +191,7 @@ class TestManageHTMX:
             follow_redirects=False,
         )
         assert resp.status_code == 200
-        assert "HX-Trigger" in resp.headers or "hx-trigger" in resp.headers
-        trigger = resp.headers.get("HX-Trigger") or resp.headers.get("hx-trigger")
-        assert "showToast" in trigger
+        assert "showToast" in resp.headers["HX-Trigger"]
 
     async def test_criteria_htmx_returns_toast_trigger(
         self, client: httpx2.AsyncClient
@@ -234,5 +209,4 @@ class TestManageHTMX:
             follow_redirects=False,
         )
         assert resp.status_code == 200
-        trigger = resp.headers.get("HX-Trigger") or resp.headers.get("hx-trigger")
-        assert trigger and "showToast" in trigger
+        assert "showToast" in resp.headers["HX-Trigger"]
