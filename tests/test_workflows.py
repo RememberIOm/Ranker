@@ -1,6 +1,7 @@
 """랭킹 목록, 백업 확인, 기록 화면의 요청 단위 회귀 테스트."""
 
 import json
+import re
 
 import httpx2
 import pytest
@@ -153,7 +154,7 @@ async def test_capacity_error_explains_recovery_and_preserves_data(client, monke
     await client.post("/manage/add", data={"name": "보존 항목"})
     monkeypatch.setattr(database, "MAX_BACKUP_BYTES", 1)
     response = await client.post("/manage/add", data={"name": "저장 불가"})
-    assert response.status_code == 409
+    assert response.status_code == 422
     assert "내역을 비우세요" in response.text
     monkeypatch.undo()
     export = (await client.get("/manage/export")).text
@@ -213,20 +214,6 @@ async def test_collections_page_creates_nothing_for_a_new_visitor(_temp_db):
         assert response.status_code == 200
         assert "ranker_library" not in response.headers.get("set-cookie", "")
         assert "복구 코드 보기" not in response.text
-
-
-async def test_unlisted_ranking_can_be_kept(client):
-    from ranker.store import create_store
-
-    orphan = await create_store("b" * 32)
-    client.cookies.delete("session_id")
-    client.cookies.set("session_id", orphan.session_id)
-    page = await client.get("/collections")
-    assert "목록에 추가" in page.text
-    response = await client.post("/collections/keep-current", data={"name": "옛 랭킹"})
-    assert response.status_code == 303
-    page = await client.get("/collections")
-    assert "옛 랭킹" in page.text and "목록에 추가" not in page.text
 
 
 async def test_empty_battle_pages_leave_shared_guidance_unchanged(client):
@@ -294,3 +281,123 @@ async def test_history_is_paginated(client):
     assert "1 / 2" in first and first.count('<li class="card p-5') == 50
     second = (await client.get("/history?page=2")).text
     assert second.count('<li class="card p-5') == 5
+
+
+def _undo_form(page: str) -> dict[str, str]:
+    """내역 화면의 '마지막 투표 취소' 폼이 보내는 값을 그대로 읽습니다."""
+    form = re.search(r'<form action="/history/undo".*?</form>', page, re.DOTALL).group(
+        0
+    )
+    return dict(
+        re.findall(r'<input type="hidden" name="([^"]+)" value="([^"]*)"', form)
+    )
+
+
+async def _vote_on_page(client, page: str):
+    """대결 화면에 그려진 라운드로 모든 기준에 A 승을 보냅니다."""
+    state = {
+        key: re.search(rf'data-{key}="([^"]+)"', page).group(1)
+        for key in ("item1-id", "item2-id", "round-token")
+    }
+    keys = json.loads(re.search(r"data-criteria-keys='([^']*)'", page).group(1))
+    return await client.post(
+        "/battle/vote",
+        json={
+            "item1_id": int(state["item1-id"]),
+            "item2_id": int(state["item2-id"]),
+            "round_token": state["round-token"],
+            "votes": dict.fromkeys(keys, "1"),
+        },
+    )
+
+
+async def test_undo_form_from_before_a_history_clear_cannot_undo_a_newer_vote(client):
+    await client.post("/manage/add-bulk", data={"names": "Alpha\nBeta"})
+    for _ in range(3):
+        page = (await client.get("/battle")).text
+        assert (await _vote_on_page(client, page)).status_code == 200
+    stale_form = _undo_form((await client.get("/history")).text)
+    # 다른 탭에서 내역을 비우고 같은 수만큼 다시 투표합니다.
+    await client.post("/history/clear")
+    for _ in range(3):
+        page = (await client.get("/battle")).text
+        assert (await _vote_on_page(client, page)).status_code == 200
+    assert (await client.post("/history/undo", data=stale_form)).status_code == 409
+    store = await open_store(client.cookies.get("session_id"))
+    assert not any(event["undone"] for event in await store.history_events())
+
+
+async def test_open_battle_survives_changes_that_keep_its_ballot_valid(client):
+    await client.post("/manage/add-bulk", data={"names": "Alpha\nBeta\nGamma"})
+    criteria = json.loads((await client.get("/manage/export")).text)["criteria"]
+    relabeled = {
+        "key": [c["key"] for c in criteria],
+        "label": [c["label"] + "!" for c in criteria],
+        "color": [c["color"] for c in criteria],
+        "weight": [str(c["weight"]) for c in criteria],
+    }
+
+    async def undo():
+        page = (await client.get("/history")).text
+        return await client.post("/history/undo", data=_undo_form(page))
+
+    changes = {
+        "settings": lambda: client.post("/manage/settings", data={"blind_mode": "on"}),
+        "add item": lambda: client.post("/manage/add", data={"name": "Delta"}),
+        "relabel criteria": lambda: client.post("/manage/criteria", data=relabeled),
+        "undo": undo,
+        "recalculate": lambda: client.post("/history/recalculate"),
+    }
+    for name, change in changes.items():
+        page = (await client.get("/battle")).text
+        # 다른 탭에서 대결 내용과 무관한 변경을 합니다.
+        assert (await change()).status_code == 303, name
+        assert (await _vote_on_page(client, page)).status_code == 200, name
+
+
+async def test_ballot_the_ranking_no_longer_accepts_asks_for_reload(client):
+    await client.post("/manage/add-bulk", data={"names": "Alpha\nBeta\nGamma"})
+    page = (await client.get("/battle")).text
+    await client.post(
+        "/manage/criteria",
+        data={"key": "", "label": "새 기준", "color": "blue", "weight": "1"},
+    )
+    assert (await _vote_on_page(client, page)).status_code == 409
+    page = (await client.get("/battle")).text
+    item_id = re.search(r'data-item1-id="(\d+)"', page).group(1)
+    await client.post("/manage/delete", data={"item_id": item_id})
+    assert (await _vote_on_page(client, page)).status_code == 409
+
+
+async def test_emptying_an_old_library_keeps_its_recovery_code(client):
+    from ranker.database import transaction
+    from ranker.store import cleanup_pending_imports
+
+    code = client.cookies.get("ranker_library")
+    session_id = client.cookies.get("session_id")
+    await client.post("/collections/delete", data={"session_id": session_id})
+    async with transaction() as db:
+        await db.execute("UPDATE libraries SET created_at = 0")
+    await cleanup_pending_imports()
+    client.cookies.clear()
+    response = await client.post("/collections/recover", data={"code": code})
+    assert response.status_code == 303
+
+
+async def test_failed_import_apply_can_be_retried(client, monkeypatch):
+    from ranker import store
+    from ranker.rating_engine import FitConvergenceError
+
+    await client.post("/manage/add-bulk", data={"names": "Alpha\nBeta"})
+    raw = (await client.get("/manage/export")).text
+    await client.post("/manage/add", data={"name": "새 항목"})
+    assert (await _stage(client, raw)).status_code == 200
+
+    def fail(*args, **kwargs):
+        raise FitConvergenceError("수렴하지 않았습니다.")
+
+    monkeypatch.setattr(store, "fit_rankings", fail)
+    assert (await client.post("/manage/import/confirm")).status_code == 503
+    monkeypatch.undo()
+    assert (await client.post("/manage/import/confirm")).status_code == 303
+    assert "새 항목" not in (await client.get("/manage/export")).text

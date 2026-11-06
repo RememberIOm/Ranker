@@ -40,7 +40,7 @@ from ranker.store import (
     StaleBattleRoundError,
     StaleImportError,
     StaleSessionError,
-    cleanup_expired_sessions,
+    cleanup_pending_imports,
     delete_session,
 )
 from ranker.template_env import PACKAGE_DIR, templates
@@ -60,7 +60,7 @@ async def lifespan(app: FastAPI):
         while True:
             await asyncio.sleep(3600)
             try:
-                await cleanup_expired_sessions()
+                await cleanup_pending_imports()
             except Exception:
                 logger.exception("cleanup_failed")
 
@@ -98,15 +98,17 @@ def error_response(request: Request, status: int, message: str) -> Response:
     )
 
 
+# 409는 화면이 서버 상태보다 낡았다는 뜻이며, 클라이언트는 이 응답에서 새로고침합니다.
+# 새로고침으로 풀리지 않는 한도·데이터 오류는 422로 답해 입력을 남깁니다.
 _ERROR_STATUS: dict[type[Exception], int] = {
     BattleItemNotFoundError: 404,
     InvalidBattleVoteError: 422,
-    InvalidSessionDataError: 409,
-    ItemLimitError: 409,
+    InvalidSessionDataError: 422,
+    ItemLimitError: 422,
     StaleBattleRoundError: 409,
     StaleImportError: 409,
     StaleSessionError: 409,
-    BackupLimitError: 409,
+    BackupLimitError: 422,
     SessionSaveError: 500,
     FitConvergenceError: 503,
 }

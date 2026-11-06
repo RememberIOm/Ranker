@@ -11,5 +11,7 @@
 !ranker/**
 !docker/
 !docker/**
+!scripts/__init__.py
+!scripts/drop_last_accessed.py
 **/__pycache__
 ranker/static/output.css

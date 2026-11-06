@@ -3,17 +3,7 @@
 {% block content %}
 <div class="mx-auto max-w-3xl">
   <h1 class="mb-2 font-display text-2xl font-bold">내 랭킹</h1>
-  <p class="mb-6 text-sm leading-relaxed text-zinc-500 dark:text-zinc-400">목록에 있는 랭킹은 직접 삭제하기 전까지 유지됩니다.</p>
-  {% if unlisted %}
-  <section class="card mb-6 border-amber-300 p-5 dark:border-amber-500/40">
-    <h2 class="mb-2 font-bold">지금 열린 랭킹이 목록에 없습니다</h2>
-    <p class="mb-3 text-sm text-zinc-500">7일 동안 열지 않으면 삭제됩니다. 계속 쓰려면 목록에 추가하세요.</p>
-    <form action="/collections/keep-current" method="post" class="flex flex-wrap gap-2">
-      <label class="min-w-0 flex-1"><span class="sr-only">랭킹 이름</span><input type="text" name="name" required maxlength="100" value="내 랭킹" class="field-input"></label>
-      <button type="submit" class="btn-primary">목록에 추가</button>
-    </form>
-  </section>
-  {% endif %}
+  <p class="mb-6 text-sm leading-relaxed text-zinc-500 dark:text-zinc-400">랭킹은 직접 삭제하기 전까지 유지됩니다.</p>
   <section class="card mb-6 p-5">
     <h2 class="mb-3 font-bold">새 랭킹 만들기</h2>
     <form action="/collections/create" method="post" class="flex flex-wrap gap-2">
@@ -46,7 +36,7 @@
     <h2 class="mb-2 font-bold">다른 브라우저에서 열기</h2>
     <p class="text-sm leading-relaxed text-zinc-500">복구 코드를 입력하면 다른 브라우저에서도 이 목록이 열립니다. 코드가 있으면 누구나 접근할 수 있으니 따로 보관하세요.</p>
     <details class="mt-4"><summary class="cursor-pointer font-semibold">복구 코드 보기</summary>
-      <div class="mt-3 flex flex-wrap gap-2"><label class="min-w-0 flex-1"><span class="sr-only">복구 코드</span><input id="recovery-code" type="text" readonly value="{{ recovery_code }}" class="field-input font-mono text-sm"></label><button type="button" data-action="copy-recovery-code" class="btn-secondary">복사</button></div>
+      <div class="mt-3 flex flex-wrap gap-2"><label class="min-w-0 flex-1"><span class="sr-only">복구 코드</span><input id="recovery-code" type="text" readonly value="{{ recovery_code }}" class="field-input font-mono text-sm"></label><button type="button" data-action="copy" data-target="recovery-code" class="btn-secondary">복사</button></div>
     </details>
   </section>
   {% endif %}

@@ -272,13 +272,17 @@ function serializeVotes() {
 }
 
 /* ================= submit ================= */
+// 401·409는 이 대결을 다시 보낼 수 없다는 뜻이라 대결을 다시 불러오고 true를 돌려줍니다.
+// 그 밖의 실패는 선택을 남겨 다시 시도하게 합니다.
 function handleVoteError(status, data) {
   var detail = data && typeof data.detail === 'string' ? data.detail : '';
   if (status === 401 || status === 409) {
-    showToast(detail || '화면이 최신 상태가 아닙니다. 새로고침하세요.', 'warning', 7000);
-    return;
+    showToast(detail || '화면이 최신 상태가 아닙니다. 대결을 다시 불러옵니다.', 'warning', 4000);
+    setTimeout(function () { window.location.href = redirectTo || '/battle'; }, 2000);
+    return true;
   }
   showToast(detail || '투표를 저장하지 못했습니다. 다시 시도하세요.', 'error', 5000);
+  return false;
 }
 
 async function submitAllVotes() {
@@ -291,6 +295,7 @@ async function submitAllVotes() {
   var payload = { item1_id: item1Id, item2_id: item2Id, round_token: roundToken,
     votes: serializeVotes(), redirect_to: redirectTo || null };
   if (battleMode === '3way') payload.item3_id = item3Id;
+  var reloading = false;
   try {
     var res = await fetchWithTimeout(battleMode === '3way' ? '/battle/vote/3way' : '/battle/vote', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -299,14 +304,15 @@ async function submitAllVotes() {
     if (!res.ok) {
       var data = {};
       try { data = await res.json(); } catch (e) {}
-      handleVoteError(res.status, data);
+      reloading = handleVoteError(res.status, data);
       return;
     }
     applyVoteResponse(await res.text());
   } catch (err) {
     showToast((err && err.message) || '네트워크를 확인한 뒤 다시 시도하세요.', 'error', 5000);
   } finally {
-    if (!document.getElementById('result-modal')) {
+    // 결과 창이 열렸거나 다시 불러오는 중이면 잠금을 그대로 둡니다.
+    if (!reloading && !document.getElementById('result-modal')) {
       isSubmitting = false;
       setBattleBusy(false);
       var current = document.getElementById('submit-btn');

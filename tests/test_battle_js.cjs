@@ -134,3 +134,21 @@ test('다음 카드가 없는 응답은 결과를 닫을 때 새 대결로 이�
   assert.equal(ctx.window.location.href, '/battle/focus/1');
   assert.equal(arena.inert, false);
 });
+
+// 409·401은 이 라운드를 다시 보낼 수 없다는 뜻이고, 그 밖의 실패는 선택을 남겨 다시 시도하게 합니다.
+for (const [status, reloads] of [[409, true], [401, true], [422, false]]) {
+  test(`저장 응답 ${status}에서 ${reloads ? '대결을 다시 불러온다' : '선택을 남긴다'}`, async () => {
+    const { context: ctx } = loadBattle('2way');
+    const timers = [];
+    ctx.window = { location: { href: '' } };
+    ctx.setTimeout = (fn) => { timers.push(fn); };
+    ctx.showToast = () => {};
+    ctx.setBattleBusy = () => {};
+    ctx.fetchWithTimeout = async () => ({ ok: false, status, json: async () => ({ detail: '오류' }) });
+    ctx.selectAllAs('1');
+    await ctx.submitAllVotes();
+    timers.forEach((fn) => fn());
+    assert.equal(ctx.window.location.href, reloads ? '/battle' : '');
+    assert.equal(ctx.isSubmitting, reloads);
+  });
+}

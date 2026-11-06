@@ -1,4 +1,3 @@
-import time
 from typing import Any
 
 import pytest
@@ -97,39 +96,6 @@ class TestAddItemsBulk:
         count = await temp_store.add_items(["A", "", "  ", "B"])
         assert count == 2
         assert len(temp_store.items) == 2
-
-
-# --- Cleanup Expired Sessions ---
-
-
-class TestCleanupExpiredSessions:
-    async def test_removes_expired_session(self, store_factory) -> None:
-        """만료된 세션 삭제"""
-        session_id = "h" * 32
-        await store_factory(session_id)
-        assert await store.open_store(session_id) is not None
-
-        # last_accessed를 TTL 이전으로 설정
-        old_time = time.time() - store.SESSION_TTL_SECONDS - 100
-        db = database.get_db()
-        await db.execute(
-            "UPDATE sessions SET last_accessed = ? WHERE id = ?",
-            (old_time, session_id),
-        )
-        await db.commit()
-
-        removed = await store.cleanup_expired_sessions()
-        assert removed == 1
-        assert not await store.open_store(session_id) is not None
-
-    async def test_preserves_recent_session(self, store_factory) -> None:
-        """최근 세션은 삭제하지 않음"""
-        session_id = "i" * 32
-        await store_factory(session_id)
-
-        removed = await store.cleanup_expired_sessions()
-        assert removed == 0
-        assert await store.open_store(session_id) is not None
 
 
 # --- CASCADE Delete ---
@@ -271,18 +237,6 @@ class TestStorageRecovery:
         await store_with_items.issue_battle_round([1, 2])
         async with db.execute("SELECT COUNT(*) FROM rating_writes") as cursor:
             assert (await cursor.fetchone())[0] == 0
-
-    async def test_registered_board_survives_ttl(
-        self, store_with_items: store.DataStore
-    ) -> None:
-        async with database.transaction() as db:
-            await db.execute("INSERT INTO libraries VALUES ('library', 0)")
-            await db.execute(
-                "INSERT INTO boards VALUES (?, 'library', 'Saved')",
-                (store_with_items._session_id,),
-            )
-            await db.execute("UPDATE sessions SET last_accessed = 0")
-        assert await store.cleanup_expired_sessions() == 0
 
     async def test_empty_import_rejected_without_reset(
         self, store_with_items: store.DataStore

@@ -207,23 +207,23 @@ document.addEventListener('click', function (e) {
   document.body.addEventListener('htmx:beforeRequest', function (evt) {
     setFormBusy(evt, true);
     var t = hxTargetOf(evt);
-    if (t) {
-      t.setAttribute('aria-busy', 'true');
-      if (t.id === 'item-list' && t.contains(evt.detail.elt)) t.dataset.restoreFocus = 'true';
-    }
+    if (t) t.setAttribute('aria-busy', 'true');
   });
-  document.body.addEventListener('htmx:afterSwap', function (evt) {
-    var target = evt.detail.target;
-    if (target && target.id === 'item-list' && target.dataset.restoreFocus) {
-      delete target.dataset.restoreFocus;
-      var next = target.querySelector('a, button');
-      if (next) next.focus();
-      else { var input = document.querySelector('input[name="name"]'); if (input) input.focus(); }
-    }
+  // 목록 안에서 보낸 요청은 그 행을 바꿔 없애므로 포커스를 목록에 다시 둡니다.
+  // htmx는 정착(settle) 전까지 새 요소에 이전 class를 입혀 두므로, 숨겨졌던 행이 보이는 afterSettle에서 옮깁니다.
+  document.body.addEventListener('htmx:afterSettle', function (evt) {
+    var source = evt.detail.requestConfig && evt.detail.requestConfig.elt;
+    if (evt.target.id !== 'item-list' || !source || source.isConnected) return;
+    var next = evt.target.querySelector('a, button');
+    if (next) next.focus();
+    else { var input = document.querySelector('input[name="name"]'); if (input) input.focus(); }
   });
   document.body.addEventListener('htmx:afterRequest', function (evt) {
     setFormBusy(evt, false);
     var t = hxTargetOf(evt);
     if (t) t.removeAttribute('aria-busy');
+    // CSP가 hx-on 같은 문자열 스크립트를 막으므로, 추가 폼은 속성으로 표시해 여기서 비웁니다.
+    var form = evt.detail.elt;
+    if (evt.detail.successful && form.matches && form.matches('form[data-reset-on-success]')) form.reset();
   });
 })();

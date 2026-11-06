@@ -375,15 +375,15 @@ class TestVoteHistory:
         await self._vote(session, three_way=three_way)
         first = deepcopy(session.items)
         await self._vote(session, three_way=three_way)
-        await session.undo_last_vote(expected_event_id=2)
+        await session.undo_last_vote(session.revision)
         assert session.items == approx_items(first)
         replay = await session.recalculate_ratings()
         assert replay["responses"] == len(session.criteria)
         assert session.items == approx_items(first)
-        await session.undo_last_vote(expected_event_id=1)
+        await session.undo_last_vote(session.revision)
         assert session.items == approx_items(baseline)
-        with pytest.raises(store.StaleBattleRoundError):
-            await session.undo_last_vote()
+        with pytest.raises(store.StaleBattleRoundError, match="취소할 투표가 없습니다"):
+            await session.undo_last_vote(session.revision)
 
     async def test_double_undo_is_rejected(
         self, store_with_items: store.DataStore
@@ -391,9 +391,10 @@ class TestVoteHistory:
         session = store_with_items
         await self._vote(session)
         await self._vote(session)
-        await session.undo_last_vote(expected_event_id=2)
+        seen = session.revision
+        await session.undo_last_vote(seen)
         with pytest.raises(store.StaleBattleRoundError):
-            await session.undo_last_vote(expected_event_id=2)
+            await session.undo_last_vote(seen)
         assert not (await session.history_events())[0]["undone"]
 
     async def test_structure_edit_resets_undo_baseline(
@@ -403,7 +404,7 @@ class TestVoteHistory:
         await self._vote(session)
         await session.delete_item(2)
         with pytest.raises(store.StaleBattleRoundError):
-            await session.undo_last_vote()
+            await session.undo_last_vote(session.revision)
         await session.recalculate_ratings()
         assert [item["id"] for item in session.items] == [1]
 
@@ -488,7 +489,7 @@ class TestVoteHistory:
             session.criteria
         )
         assert session.get_item(1)["name"] == "Renamed"
-        await session.undo_last_vote()
+        await session.undo_last_vote(session.revision)
         assert session.get_item(1)["name"] == "Renamed"
 
     async def test_archived_votes_with_removed_criterion_can_be_restored(
@@ -520,7 +521,7 @@ class TestVoteHistory:
         assert stored["payload"]["item1_id"] == 1
         assert isinstance(stored["created_at"], float)
         assert stored["names"] == {"1": "Alpha", "2": "Beta"}
-        await session.undo_last_vote()
+        await session.undo_last_vote(session.revision)
         assert all(item["matches_played"] == 0 for item in session.items)
         assert all(
             item["mu"][criterion["key"]] == 0

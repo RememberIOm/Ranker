@@ -31,7 +31,6 @@ CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
     settings TEXT NOT NULL,
     created_at REAL NOT NULL,
-    last_accessed REAL NOT NULL,
     revision INTEGER NOT NULL DEFAULT 0,
     next_item_id INTEGER NOT NULL DEFAULT 1
 );
@@ -111,7 +110,6 @@ CREATE TABLE IF NOT EXISTS pending_imports (
 
 CREATE INDEX IF NOT EXISTS idx_items_session ON items(session_id);
 CREATE INDEX IF NOT EXISTS idx_item_ratings_session_item ON item_ratings(session_id, item_id);
-CREATE INDEX IF NOT EXISTS idx_sessions_last_accessed ON sessions(last_accessed);
 """
 
 
@@ -267,12 +265,16 @@ async def save_session_data(
     data: dict[str, Any],
     *,
     created_at: float,
-    last_accessed: float,
     expected_revision: int | None,
     events: EventChanges,
     core_bytes: int,
+    board: tuple[str, str] | None = None,
 ) -> int:
-    """변경 행만 갱신하고 데이터와 투표 이력 변경을 함께 확정합니다."""
+    """변경 행만 갱신하고 데이터와 투표 이력 변경을 함께 확정합니다.
+
+    새 랭킹은 board(목록 ID, 이름)로 같은 트랜잭션에서 목록에 넣어,
+    목록에 없는 랭킹이 생기지 않게 합니다.
+    """
     async with transaction() as db:
         async with db.execute(
             "SELECT revision FROM sessions WHERE id = ?", (session_id,)
@@ -285,19 +287,28 @@ async def save_session_data(
             )
         new_revision = (revision or 0) + 1
         await db.execute(
-            "INSERT INTO sessions (id, settings, created_at, last_accessed, revision, next_item_id) "
-            "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET settings=excluded.settings, "
-            "last_accessed=excluded.last_accessed, revision=excluded.revision, "
-            "next_item_id=excluded.next_item_id",
+            "INSERT INTO sessions (id, settings, created_at, revision, next_item_id) "
+            "VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET settings=excluded.settings, "
+            "revision=excluded.revision, next_item_id=excluded.next_item_id",
             (
                 session_id,
                 json.dumps(data["settings"], ensure_ascii=False),
                 created_at,
-                last_accessed,
                 new_revision,
                 data["next_item_id"],
             ),
         )
+        if board is not None:
+            library, name = board
+            await db.execute(
+                "INSERT INTO libraries(id, created_at) VALUES (?, ?) "
+                "ON CONFLICT(id) DO NOTHING",
+                (library, created_at),
+            )
+            await db.execute(
+                "INSERT INTO boards(session_id, library_id, name) VALUES (?, ?, ?)",
+                (session_id, library, name),
+            )
         tables = {
             "criteria": (
                 ["key", "label", "color", "weight", "battles", "draws", "sort_order"],

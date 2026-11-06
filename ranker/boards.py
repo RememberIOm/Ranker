@@ -3,7 +3,6 @@
 import hashlib
 import re
 import secrets
-import time
 
 from fastapi import Request
 from fastapi.responses import Response
@@ -38,18 +37,12 @@ async def get_library(request: Request) -> str | None:
     return code if await library_exists(code) else None
 
 
-async def ensure_library(request: Request) -> str:
-    """쿠키의 목록을 쓰고, 없으면 새 복구 코드로 목록을 만듭니다."""
-    code = await get_library(request)
-    if code:
-        return code
-    code = secrets.token_urlsafe(32)
-    async with transaction() as db:
-        await db.execute(
-            "INSERT INTO libraries(id, created_at) VALUES (?, ?)",
-            (library_id(code), time.time()),
-        )
-    return code
+async def library_code(request: Request) -> str:
+    """쿠키의 목록 코드를 쓰고, 없으면 새 복구 코드를 만듭니다.
+
+    새 목록은 첫 랭킹과 같은 트랜잭션에서 저장합니다.
+    """
+    return await get_library(request) or secrets.token_urlsafe(32)
 
 
 def set_library_cookie(response: Response, code: str) -> None:
@@ -63,21 +56,12 @@ def set_library_cookie(response: Response, code: str) -> None:
     )
 
 
-async def attach_board(code: str, session_id: str, name: str) -> None:
-    """이미 다른 목록에 속한 랭킹의 소유권은 바꾸지 않습니다."""
-    async with transaction() as db:
-        await db.execute(
-            "INSERT INTO boards(session_id, library_id, name) VALUES (?, ?, ?) "
-            "ON CONFLICT(session_id) DO NOTHING",
-            (session_id, library_id(code), name.strip()[:100] or "새 랭킹"),
-        )
-
-
 async def create_board(request: Request, response: Response, name: str) -> DataStore:
     """새 랭킹을 만들어 내 목록에 넣고, 그 랭킹을 현재 랭킹으로 엽니다."""
-    code = await ensure_library(request)
-    store = await create_store(create_session_id())
-    await attach_board(code, store.session_id, name)
+    code = await library_code(request)
+    store = await create_store(
+        create_session_id(), library_id(code), name.strip()[:100] or "새 랭킹"
+    )
     set_session_cookie(response, store.session_id)
     set_library_cookie(response, code)
     return store
@@ -90,12 +74,3 @@ async def owns_board(code: str, session_id: str) -> bool:
             (session_id, library_id(code)),
         )
         return await cursor.fetchone() is not None
-
-
-async def board_library(session_id: str) -> str | None:
-    async with transaction() as db:
-        cursor = await db.execute(
-            "SELECT library_id FROM boards WHERE session_id=?", (session_id,)
-        )
-        row = await cursor.fetchone()
-    return row["library_id"] if row else None

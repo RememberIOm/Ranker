@@ -8,7 +8,7 @@
   </header>
   {% if last_event_id %}
   <form action="/history/undo" method="post" data-confirm-message="마지막 투표를 취소할까요? 남은 투표로 점수를 다시 계산합니다." class="mb-5">
-    <input type="hidden" name="event_id" value="{{ last_event_id }}"><button type="submit" class="btn-secondary">마지막 투표 취소</button>
+    <input type="hidden" name="revision" value="{{ revision }}"><button type="submit" class="btn-secondary">마지막 투표 취소</button>
   </form>
   {% endif %}
   <ol class="flex flex-col gap-3">

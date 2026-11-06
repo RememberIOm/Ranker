@@ -67,7 +67,7 @@ async def test_undo_restores_nonparticipants_and_joint_covariance(
     covariance = s.posterior("story").covariance([1, 2, 3])
     await vote(s, a=1, b=3, winner="2")
     assert s.get_item(2)["mu"]["story"] != before[1]["mu"]["story"]
-    await s.undo_last_vote()
+    await s.undo_last_vote(s.revision)
     assert s.items == approx_items(before)
     np.testing.assert_allclose(
         s.posterior("story").covariance([1, 2, 3]), covariance, atol=1e-12

@@ -34,6 +34,20 @@ async def _setup_battle(client: httpx2.AsyncClient) -> None:
     )
 
 
+async def test_item_limit_keeps_the_form_instead_of_reloading(
+    client: httpx2.AsyncClient,
+) -> None:
+    """app.js는 409를 낡은 화면으로 보고 새로고침하므로, 한도 초과는 409가 아니어야 입력이 남습니다."""
+    from ranker.schemas import MAX_ITEMS
+
+    names = "\n".join(f"항목 {i}" for i in range(MAX_ITEMS + 1))
+    resp = await client.post(
+        "/manage/add-bulk", data={"names": names}, headers={"HX-Request": "true"}
+    )
+    assert resp.status_code == 422
+    assert f"{MAX_ITEMS:,}개" in resp.json()["detail"]
+
+
 class TestBattleHTMX:
     async def test_get_battle_htmx_returns_partial(
         self, client: httpx2.AsyncClient

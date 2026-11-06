@@ -27,7 +27,7 @@ async def _temp_db():
 @pytest.fixture()
 async def temp_store(_temp_db) -> store.DataStore:
     """기본 세션 ID로 새 DataStore를 반환합니다."""
-    return await store.create_store("a" * 32)
+    return await store.create_store("a" * 32, "test-library", "테스트 랭킹")
 
 
 @pytest.fixture()
@@ -35,7 +35,9 @@ async def store_factory(
     _temp_db,
 ) -> Callable[[str], Coroutine[None, None, store.DataStore]]:
     """임의 session_id로 새 DataStore를 만드는 팩토리"""
-    return store.create_store
+    return lambda session_id: store.create_store(
+        session_id, "test-library", "테스트 랭킹"
+    )
 
 
 @pytest.fixture()

@@ -75,8 +75,6 @@ def _build_battle_context(
         "focus_name": store.get_item(focus_id)["name"] if focus_id else "",
         "round_token": round_token,
         "blind_mode": store.settings["blind_mode"],
-        "result_auto_skip": store.settings["result_auto_skip"],
-        "result_skip_seconds": store.settings["result_skip_seconds"],
     }
 
 
@@ -127,8 +125,6 @@ def _build_3way_context(
         "focus_name": store.get_item(focus_id)["name"] if focus_id else "",
         "round_token": round_token,
         "blind_mode": store.settings["blind_mode"],
-        "result_auto_skip": store.settings["result_auto_skip"],
-        "result_skip_seconds": store.settings["result_skip_seconds"],
     }
 
 

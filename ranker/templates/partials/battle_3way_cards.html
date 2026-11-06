@@ -6,8 +6,6 @@
      data-round-token="{{ round_token }}"
      data-criteria-keys='{{ criteria_info | map(attribute="key") | list | tojson }}'
      data-redirect-to="{{ ('/battle/focus/' ~ focus_id) if focus_mode else '' }}"
-     data-auto-skip="{{ 'true' if result_auto_skip else 'false' }}"
-     data-skip-seconds="{{ result_skip_seconds }}"
      data-battle-mode="3way"></div>
 
 {% if focus_mode %}

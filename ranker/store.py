@@ -5,7 +5,6 @@
 import asyncio
 import json
 import logging
-import os
 import secrets
 import sqlite3
 import time
@@ -53,7 +52,7 @@ __all__ = [
     "StaleBattleRoundError",
     "StaleImportError",
     "StaleSessionError",
-    "cleanup_expired_sessions",
+    "cleanup_pending_imports",
     "create_store",
     "delete_session",
     "open_store",
@@ -61,8 +60,6 @@ __all__ = [
 
 logger = logging.getLogger("ranker.store")
 
-# 내 랭킹 목록에 없는 세션의 만료 시간 (7일)
-SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_SECONDS", str(7 * 24 * 60 * 60)))
 PENDING_IMPORT_TTL_SECONDS = 3600
 # 항목 1,500개면 기준 하나의 Cholesky 인자가 18MiB입니다. 512MB VM에서 기준이
 # 많아도 넘치지 않도록 요청마다 이 크기까지만 인자를 보관합니다.
@@ -79,7 +76,7 @@ class InvalidBattleVoteError(ValueError):
 
 
 class StaleBattleRoundError(RuntimeError):
-    """이미 처리되었거나 만료된 대결, 또는 이미 바뀐 투표 기록입니다."""
+    """이미 처리되었거나 무효가 된 대결, 또는 화면을 연 뒤 바뀐 랭킹에 대한 취소입니다."""
 
 
 class BattleItemNotFoundError(LookupError):
@@ -140,9 +137,14 @@ class DataStore:
     def session_id(self) -> str:
         return self._session_id
 
+    @property
+    def revision(self) -> int:
+        """마지막으로 읽거나 저장한 랭킹 상태의 버전입니다."""
+        return self._revision
+
     # --- Loading and saving ---
 
-    async def _load(self, *, touch: bool = False) -> bool:
+    async def _load(self) -> bool:
         """같은 커넥션의 쓰기 중간 상태를 읽지 않도록 트랜잭션 안에서 읽습니다.
 
         저장할 때마다 검증하므로 읽을 때는 다시 검증하지 않습니다.
@@ -150,15 +152,7 @@ class DataStore:
         self._posterior_cache.clear()
         self._events = EventChanges()
         async with transaction() as db:
-            found = await self._read_snapshot(db)
-            if found and touch:
-                # 읽기만 하는 세션의 접근 시각 갱신은 5분에 한 번으로 제한합니다.
-                now = time.time()
-                await db.execute(
-                    "UPDATE sessions SET last_accessed = ? WHERE id = ? AND last_accessed < ?",
-                    (now, self._session_id, now - 300),
-                )
-        return found
+            return await self._read_snapshot(db)
 
     async def _reload(self) -> None:
         if not await self._load():
@@ -277,7 +271,7 @@ class DataStore:
             )
         }
 
-    async def _save_to_db(self) -> None:
+    async def _save_to_db(self, board: tuple[str, str] | None = None) -> None:
         """검증한 상태와 투표 기록 변경을 단일 트랜잭션으로 기록합니다."""
         self._data = SessionDataModel.model_validate(self._data).model_dump(
             mode="python"
@@ -287,10 +281,10 @@ class DataStore:
                 self._session_id,
                 self._data,
                 created_at=self._created_at,
-                last_accessed=time.time(),
                 expected_revision=self._revision,
                 events=self._events,
                 core_bytes=len(_dumps(self._core()).encode()),
+                board=board,
             )
         except (OSError, sqlite3.Error) as exc:
             logger.error(
@@ -393,6 +387,7 @@ class DataStore:
             "pages": pages,
             "total": total,
             "last_event_id": last[0]["id"] if last else None,
+            "revision": self._revision,
         }
 
     # --- Settings, criteria and items ---
@@ -403,7 +398,6 @@ class DataStore:
             self._update_settings(patch)
             if self.settings["initial_sigma"] != previous_sigma:
                 await self._refit({c["key"] for c in self.criteria})
-            self._data["active_round"] = None
             await self._save_to_db()
 
     def _update_settings(self, patch: dict[str, Any]) -> None:
@@ -440,8 +434,9 @@ class DataStore:
                 for key in removed:
                     self._data[field].pop(key, None)
             self._posterior_cache.clear()
-            self._data["active_round"] = None
             if added or removed:
+                # 진행 중인 대결은 기준마다 답해야 하므로 기준이 바뀌면 버립니다.
+                self._data["active_round"] = None
                 # 구조가 바뀌기 전 기록은 보관하되 개별 취소는 막습니다.
                 self._events.archive_all = True
             await self._save_to_db()
@@ -471,7 +466,6 @@ class DataStore:
                     f"항목은 랭킹마다 {MAX_ITEMS:,}개까지 넣을 수 있습니다."
                 )
             self.items.extend(self._new_item(name) for name in names)
-            self._data["active_round"] = None
             await self._save_to_db()
         return len(names)
 
@@ -490,7 +484,9 @@ class DataStore:
             if not self.get_item(item_id):
                 return False
             self._data["items"] = [i for i in self.items if i["id"] != item_id]
-            self._data["active_round"] = None
+            active = self._data["active_round"]
+            if active and item_id in _vote_ids(active):
+                self._data["active_round"] = None
             self._events.archive_all = True
             await self._save_to_db()
             return True
@@ -621,17 +617,16 @@ class DataStore:
         return preview
 
     async def apply_staged_import(self) -> None:
+        """저장에 성공해야 미리보기가 사라지므로, 적용이 실패하면 다시 확인할 수 있습니다."""
         async with self._mutation():
-            async with transaction() as db:
-                async with db.execute(
+            async with (
+                transaction() as db,
+                db.execute(
                     "SELECT revision, raw, created_at FROM pending_imports WHERE session_id = ?",
                     (self._session_id,),
-                ) as cursor:
-                    row = await cursor.fetchone()
-                await db.execute(
-                    "DELETE FROM pending_imports WHERE session_id = ?",
-                    (self._session_id,),
-                )
+                ) as cursor,
+            ):
+                row = await cursor.fetchone()
             if (
                 row is None
                 or row["revision"] != self._revision
@@ -816,11 +811,7 @@ class DataStore:
             self._data["active_round"] = None
             await self._save_to_db()
             self._recent = [stored, *self._recent][:5]
-        response = {
-            "results": results,
-            "total_items": len(self.items),
-            "next_url": payload.redirect_to or "/battle",
-        }
+        response = {"results": results, "total_items": len(self.items)}
         for index, iid in enumerate(ids, 1):
             response[f"a{index}_id"] = iid
             response[f"a{index}_name"] = self.get_item(iid)["name"]
@@ -868,21 +859,22 @@ class DataStore:
 
     # --- History ---
 
-    async def undo_last_vote(
-        self, expected_event_id: int | None = None
-    ) -> dict[str, Any]:
-        """마지막 투표의 관측을 빼고 전체를 다시 적합합니다."""
+    async def undo_last_vote(self, expected_revision: int) -> dict[str, Any]:
+        """화면에서 본 상태 그대로일 때만 마지막 투표의 관측을 빼고 다시 적합합니다.
+
+        투표 ID는 내역을 비우거나 가져오면 다시 쓰이므로 revision으로 확인합니다.
+        """
         async with self._mutation():
+            if self._revision != expected_revision:
+                raise StaleBattleRoundError(
+                    "이미 취소되었거나 투표 내역이 바뀌었습니다. 새로고침하세요."
+                )
             last = await database.fetch_events(
                 self._session_id, limit=1, newest_first=True, active_only=True
             )
             if not last:
                 raise StaleBattleRoundError("취소할 투표가 없습니다.")
             event = last[0]
-            if expected_event_id is not None and event["id"] != expected_event_id:
-                raise StaleBattleRoundError(
-                    "이미 취소되었거나 투표 내역이 바뀌었습니다. 새로고침하세요."
-                )
             ids = _vote_ids(event["payload"])
             answered = set()
             for key, vote in event["payload"]["votes"].items():
@@ -896,7 +888,6 @@ class DataStore:
                     self.get_item(iid)["matches_played"] -= 1
             await self._refit(answered)
             self._events.undo = event["id"]
-            self._data["active_round"] = None
             await self._save_to_db()
             return {**event, "undone": True}
 
@@ -907,7 +898,6 @@ class DataStore:
         async with self._mutation():
             self._update_settings(settings_patch or {})
             await self._refit({c["key"] for c in self.criteria})
-            self._data["active_round"] = None
             await self._save_to_db()
             return {
                 "responses": sum(c["battles"] for c in self.criteria),
@@ -927,16 +917,16 @@ class DataStore:
 async def open_store(session_id: str) -> DataStore | None:
     """저장된 랭킹을 엽니다. 없으면 None입니다."""
     store = DataStore(session_id)
-    return store if await store._load(touch=True) else None
+    return store if await store._load() else None
 
 
-async def create_store(session_id: str) -> DataStore:
-    """기본 기준을 가진 새 랭킹을 저장합니다."""
+async def create_store(session_id: str, library: str, name: str) -> DataStore:
+    """기본 기준을 가진 새 랭킹을 목록(library)에 넣어 저장합니다."""
     store = DataStore(session_id)
     store._data = SessionDataModel().model_dump(mode="python")
     store._created_at = time.time()
     async with _get_lock(session_id):
-        await store._save_to_db()
+        await store._save_to_db(board=(library, name))
     return store
 
 
@@ -946,35 +936,13 @@ async def delete_session(session_id: str) -> None:
         await db.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
 
 
-async def cleanup_expired_sessions() -> int:
-    """목록에 없는 만료 세션, 빈 목록, 오래된 가져오기 미리보기를 정리합니다."""
-    now = time.time()
-    cutoff = now - SESSION_TTL_SECONDS
+async def cleanup_pending_imports() -> None:
+    """확인하지 않은 채 시간이 지난 가져오기 미리보기를 지웁니다.
+
+    랭킹과 목록은 사용자가 직접 지울 때만 사라집니다.
+    """
     async with transaction() as db:
-        async with db.execute(
-            "SELECT id FROM sessions WHERE last_accessed < ? "
-            "AND id NOT IN (SELECT session_id FROM boards)",
-            (cutoff,),
-        ) as cursor:
-            expired = [row["id"] for row in await cursor.fetchall()]
-        await db.execute(
-            "DELETE FROM libraries WHERE created_at < ? "
-            "AND id NOT IN (SELECT library_id FROM boards)",
-            (cutoff,),
-        )
         await db.execute(
             "DELETE FROM pending_imports WHERE created_at < ?",
-            (now - PENDING_IMPORT_TTL_SECONDS,),
+            (time.time() - PENDING_IMPORT_TTL_SECONDS,),
         )
-    removed = 0
-    for session_id in expired:
-        async with _get_lock(session_id), transaction() as db:
-            cursor = await db.execute(
-                "DELETE FROM sessions WHERE id = ? AND last_accessed < ? "
-                "AND id NOT IN (SELECT session_id FROM boards)",
-                (session_id, cutoff),
-            )
-            removed += cursor.rowcount
-    if removed:
-        logger.info("cleanup_expired_sessions — removed %d sessions", removed)
-    return removed

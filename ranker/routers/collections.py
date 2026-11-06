@@ -6,10 +6,7 @@ from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from ranker.boards import (
-    attach_board,
-    board_library,
     create_board,
-    ensure_library,
     get_library,
     library_exists,
     library_id,
@@ -39,14 +36,12 @@ async def list_collections(request: Request) -> HTMLResponse:
             )
             boards = [dict(row) for row in await cursor.fetchall()]
     store = await get_session_store(request, request.cookies.get("session_id"))
-    unlisted = store is not None and await board_library(store.session_id) is None
     return templates.TemplateResponse(
         request,
         "collections.html",
         {
             "boards": boards,
             "active_session_id": store.session_id if store else None,
-            "unlisted": unlisted,
             "recovery_code": code,
         },
     )
@@ -58,23 +53,6 @@ async def create_collection(
 ) -> RedirectResponse:
     response = RedirectResponse("/manage", status_code=303)
     await create_board(request, response, name)
-    return response
-
-
-@router.post("/keep-current")
-async def keep_current(
-    request: Request, name: Annotated[str, Form(max_length=100)] = "내 랭킹"
-) -> RedirectResponse:
-    """목록에 없는 현재 랭킹을 내 목록에 넣습니다."""
-    store = await get_session_store(request, request.cookies.get("session_id"))
-    if store is None:
-        raise HTTPException(
-            404, "열려 있는 랭킹이 없습니다. 먼저 랭킹을 열거나 새로 만드세요."
-        )
-    code = await ensure_library(request)
-    await attach_board(code, store.session_id, name)
-    response = RedirectResponse("/collections", status_code=303)
-    set_library_cookie(response, code)
     return response
 
 

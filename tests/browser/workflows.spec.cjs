@@ -98,6 +98,43 @@ test('이름 있는 목록과 복구 코드로 다시 열기', async ({ page, co
   await expect(page).toHaveURL(/\/ranking$/);
 });
 
+test('복구 코드 복사 버튼이 동작함', async ({ page }) => {
+  await page.request.post('/start');
+  await page.goto('/collections');
+  await page.getByText('복구 코드 보기', { exact: true }).click();
+  await page.getByRole('button', { name: '복사', exact: true }).click();
+  await expect(page.locator('#toast-container')).toContainText('복사');
+});
+
+test('목록 수정 뒤 포커스는 목록에 남고, 실패한 요청은 다음 추가에 영향을 주지 않음', async ({ page }) => {
+  // 일부러 실패시킨 요청의 콘솔 로그는 빼고, CSP 위반 같은 스크립트 오류만 모읍니다.
+  const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  await page.request.post('/start');
+  await page.request.post('/manage/add', { form: { name: 'Alpha' } });
+  await page.goto('/manage');
+  const list = page.locator('#item-list');
+  // 저장한 행이 바뀌어 사라지므로 포커스를 목록 안에 다시 둡니다.
+  await list.getByRole('button', { name: '수정', exact: true }).click();
+  await list.locator('input[name="new_name"]').fill('Alpha 2');
+  await list.getByRole('button', { name: '저장', exact: true }).click();
+  await expect(list).toContainText('Alpha 2');
+  await expect(list.locator(':focus')).toHaveCount(1);
+  // 실패한 수정은 목록을 바꾸지 않으므로 다음 추가의 포커스를 가져가지 않습니다.
+  await list.getByRole('button', { name: '수정', exact: true }).click();
+  await list.locator('input[name="new_name"]').fill('x'.repeat(501));
+  await list.getByRole('button', { name: '저장', exact: true }).click();
+  await expect(page.locator('#toast-container')).toContainText('다시 확인');
+  await list.getByRole('button', { name: '취소', exact: true }).click();
+  const input = page.getByRole('textbox', { name: '추가할 항목 이름' });
+  await input.fill('Beta');
+  await input.press('Enter');
+  await expect(list).toContainText('Beta');
+  await expect(input).toBeFocused();
+  await expect(input).toHaveValue('');
+  expect(errors).toEqual([]);
+});
+
 test('백업 미리보기 후 교체', async ({ page }) => {
   await setup(page);
   const backup = await (await page.request.get('/manage/export')).text();

@@ -57,8 +57,8 @@ async def history_page(
 
 
 @router.post("/undo")
-async def undo_vote(event_id: Annotated[int, Form()], store: StoreDep) -> Response:
-    await store.undo_last_vote(expected_event_id=event_id)
+async def undo_vote(revision: Annotated[int, Form()], store: StoreDep) -> Response:
+    await store.undo_last_vote(revision)
     return RedirectResponse("/history", status_code=303)
 
 
