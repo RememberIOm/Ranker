@@ -116,8 +116,17 @@ class TestThreeWayBallots:
             {"abc": "best", "2": "tied", "3": "tied"},
             # int("01") == 1이라 항목 1이 자기 자신과 비교됩니다.
             {"1": "best", "01": "tied", "3": "tied"},
+            # 비정규 문자열 키는 저장 뒤 /history 렌더링에서 KeyError를 일으킵니다.
+            {"01": "best", "3": "worst"},
+            {"+1": "best", "3": "worst"},
         ],
-        ids=["two-best", "non-numeric-id", "same-item-twice"],
+        ids=[
+            "two-best",
+            "non-numeric-id",
+            "same-item-twice",
+            "leading-zero-id",
+            "plus-sign-id",
+        ],
     )
     async def test_invalid_ballot_is_rejected(
         self, store_with_three_items: store.DataStore, ballot: dict[str, str]
@@ -135,7 +144,7 @@ class TestVoteHistory:
         key = session.criteria[0]["key"]
         before = deepcopy(session.items)
         result = await vote(session, *ballot, skip={key})
-        for item, original in zip(session.items, before):
+        for item, original in zip(session.items, before, strict=True):
             assert item["mu"][key] == original["mu"][key]
             assert item["sigma_sq"][key] == original["sigma_sq"][key]
             assert item["criterion_matches"][key] == 0

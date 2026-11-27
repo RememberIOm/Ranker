@@ -12,13 +12,41 @@ from pydantic import (
     model_validator,
 )
 
-from ranker.rating_engine import ballot_ranking, canonical_ranking
+from ranker.rating_engine import ALGORITHM_VERSION, ballot_ranking, canonical_ranking
 
 MAX_BACKUP_BYTES = 64 * 1024 * 1024
 MAX_HISTORY_EVENTS = 100_000
 MAX_ID = 2**63 - 1
 # Each criterion factors a dense matrix over every item it has seen.
 MAX_ITEMS = 1_500
+
+CRITERION_COLORS = frozendict(
+    red="#ef4444",
+    orange="#f97316",
+    yellow="#eab308",
+    green="#22c55e",
+    teal="#14b8a6",
+    cyan="#06b6d4",
+    blue="#3b82f6",
+    indigo="#6366f1",
+    purple="#a855f7",
+    pink="#ec4899",
+    gray="#71717a",
+)
+
+CriterionColor = Literal[
+    "red",
+    "orange",
+    "yellow",
+    "green",
+    "teal",
+    "cyan",
+    "blue",
+    "indigo",
+    "purple",
+    "pink",
+    "gray",
+]
 
 
 VoteChoice = Literal["1", "2", "draw", "skip"]
@@ -68,19 +96,7 @@ class CriterionModel(BaseModel):
 
     key: str = Field(min_length=1, max_length=100, pattern=r"^[a-z0-9_]+$")
     label: str = Field(min_length=1, max_length=200)
-    color: Literal[
-        "blue",
-        "purple",
-        "pink",
-        "green",
-        "indigo",
-        "red",
-        "yellow",
-        "orange",
-        "teal",
-        "cyan",
-        "gray",
-    ] = "gray"
+    color: CriterionColor = "gray"
     weight: float = Field(default=1.0, gt=0.0, le=1_000_000)
     battles: int = Field(default=0, ge=0, le=MAX_ID)
     draws: int = Field(default=0, ge=0, le=MAX_ID)
@@ -144,7 +160,7 @@ class ActiveRoundModel(BaseModel):
     token: str = Field(min_length=16, max_length=255)
     item1_id: int = Field(ge=1, le=MAX_ID)
     item2_id: int = Field(ge=1, le=MAX_ID)
-    item3_id: int | None = Field(default=None, ge=1)
+    item3_id: int | None = Field(default=None, ge=1, le=MAX_ID)
     issued_at: float = Field(ge=0.0)
 
     @model_validator(mode="after")
@@ -174,10 +190,17 @@ class PosteriorModel(BaseModel):
     """Database cache of the MAP location, rebuilt from observations on import."""
 
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
-    algorithm_version: Literal["gpl-map-v2"]
+    algorithm_version: str
     item_ids: list[int]
     location: list[float]
     prior_variance: float = Field(ge=0.01, le=100)
+
+    @field_validator("algorithm_version")
+    @classmethod
+    def validate_algorithm_version(cls, value: str) -> str:
+        if value != ALGORITHM_VERSION:
+            raise ValueError(f"지원하지 않는 평점 모형 버전입니다: {value}")
+        return value
 
     @model_validator(mode="after")
     def validate_shape(self):
@@ -187,7 +210,9 @@ class PosteriorModel(BaseModel):
         return self
 
 
-class SessionDataModel(BaseModel):
+class _CoreSessionModel(BaseModel):
+    """백업과 저장 상태가 공유하는 핵심 랭킹 데이터."""
+
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     settings: SettingsModel = Field(default_factory=SettingsModel)
@@ -195,23 +220,21 @@ class SessionDataModel(BaseModel):
         default_factory=_default_criteria, max_length=64
     )
     items: list[ItemModel] = Field(default_factory=list, max_length=MAX_ITEMS)
-    active_round: ActiveRoundModel | None = None
     observations: dict[str, list[ObservationModel]] = Field(default_factory=dict)
     exposures: dict[str, Annotated[int, Field(ge=0, le=MAX_ID)]] = Field(
         default_factory=dict
     )
-    posteriors: dict[str, PosteriorModel] = Field(default_factory=dict)
     # Item IDs are never reused, even for items deleted before any vote.
     next_item_id: int = Field(default=1, ge=1, le=MAX_ID)
 
     @model_validator(mode="after")
-    def validate_consistency(self) -> SessionDataModel:
+    def validate_consistency(self) -> _CoreSessionModel:
         criterion_keys = [criterion.key for criterion in self.criteria]
         if len(set(criterion_keys)) != len(criterion_keys):
             raise ValueError("criteria.key는 중복될 수 없습니다.")
 
         allowed_keys = set(criterion_keys)
-        for mapping in (self.observations, self.exposures, self.posteriors):
+        for mapping in (self.observations, self.exposures):
             if set(mapping) - allowed_keys:
                 raise ValueError("모형 데이터에 없는 평가 기준이 포함되어 있습니다.")
         for key, observations in self.observations.items():
@@ -248,6 +271,18 @@ class SessionDataModel(BaseModel):
         }
         if used and self.next_item_id <= max(used):
             raise ValueError("next_item_id는 사용된 항목 ID보다 커야 합니다.")
+        return self
+
+
+class SessionDataModel(_CoreSessionModel):
+    active_round: ActiveRoundModel | None = None
+    posteriors: dict[str, PosteriorModel] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_posteriors(self) -> SessionDataModel:
+        allowed_keys = {criterion.key for criterion in self.criteria}
+        if set(self.posteriors) - allowed_keys:
+            raise ValueError("모형 데이터에 없는 평가 기준이 포함되어 있습니다.")
         return self
 
 
@@ -339,16 +374,14 @@ class VoteEventModel(BaseModel):
         return self
 
 
-class BackupModel(BaseModel):
+class BackupModel(_CoreSessionModel):
     """Backup format 4. Posteriors are derived and refitted on import."""
 
-    model_config = ConfigDict(extra="forbid")
-
     schema_version: Literal[4]
-    settings: dict
-    criteria: list
-    items: list
-    next_item_id: int
-    observations: dict
-    exposures: dict
+    settings: SettingsModel
+    criteria: list[CriterionModel] = Field(max_length=64)
+    items: list[ItemModel] = Field(max_length=MAX_ITEMS)
+    next_item_id: int = Field(ge=1, le=MAX_ID)
+    observations: dict[str, list[ObservationModel]]
+    exposures: dict[str, Annotated[int, Field(ge=0, le=MAX_ID)]]
     history: list[VoteEventModel] = Field(max_length=MAX_HISTORY_EVENTS)

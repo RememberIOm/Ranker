@@ -7,6 +7,7 @@ from ranker.services import (
     composite_rating,
     display_rating,
     get_item_ranks,
+    rank_uncertainty,
 )
 
 
@@ -53,3 +54,27 @@ class TestGetItemRank:
         ranks, total = get_item_ranks(temp_store)
         assert list(ranks.values()) == [1, 1, 3]
         assert total == 3
+
+
+class TestRankUncertainty:
+    async def test_adjacent_confidence_follows_map_order_not_sample_mean(
+        self, temp_store: store.DataStore
+    ) -> None:
+        """표시 순서와 다른 표본 평균 순서로 인접 확률을 구하면 상향 편향이 생깁니다."""
+        import numpy as np
+
+        await temp_store.set_criteria(
+            [{"key": "a", "label": "A", "color": "blue", "weight": 1.0}]
+        )
+        await temp_store.add_items(["Alpha", "Beta"])
+        temp_store.items[0]["mu"]["a"] = 0.0
+        temp_store.items[1]["mu"]["a"] = 0.001
+        # seed 0의 처음 5개 표본에서는 첫 번째 항목(Alpha)의 표본 평균이 더 크지만,
+        # 인접 순위 신뢰도는 표시 순서(Beta -> Alpha) 기준으로 계산해야 합니다.
+        draws = temp_store.posterior("a").sample([1, 2], 5, np.random.default_rng(0))
+        assert draws[:, 0].mean() > draws[:, 1].mean()
+        result = rank_uncertainty(temp_store, "total", samples=5)
+        assert result is not None
+        assert result["adjacent_confidence"] == pytest.approx(
+            float((draws[:, 1] > draws[:, 0]).mean())
+        )

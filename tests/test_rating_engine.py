@@ -148,7 +148,9 @@ def test_full_ballot_fisher_matches_all_thirteen_score_outer_products():
 
         def log_probability(y, ranking=ranking):
             return np.log(
-                ranking_probability(dict(zip([1, 2, 3], y[:3])), tuple(y[3:]), ranking)
+                ranking_probability(
+                    dict(zip([1, 2, 3], y[:3], strict=True)), tuple(y[3:]), ranking
+                )
             )
 
         gradient = approx_derivative(log_probability, x)

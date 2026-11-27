@@ -32,7 +32,9 @@ def get_match_probabilities(
     ticks = np.floor(scaled).astype(int)
     for i in np.argsort(-(scaled - ticks))[: 1000 - int(ticks.sum())]:
         ticks[i] += 1
-    return dict(zip(("win_a", "draw", "win_b"), (float(x) / 10 for x in ticks)))
+    return dict(
+        zip(("win_a", "draw", "win_b"), (float(x) / 10 for x in ticks), strict=True)
+    )
 
 
 def composite_rating(store: DataStore, item: dict[str, Any]) -> float:
@@ -51,6 +53,7 @@ def composite_rating(store: DataStore, item: dict[str, Any]) -> float:
 # A bounded, uniformly sampled search. These limits bound latency, not confidence.
 _MATCH_POOL_SIZE = 64
 _MATCH_CANDIDATES = 512
+_LEGENDRE_NODES, _LEGENDRE_WEIGHTS = roots_legendre(12)
 
 
 def candidate_utilities(
@@ -87,7 +90,7 @@ def candidate_utilities(
             [posterior.mean(iid) for iid in ids] + posterior.location[-2:].tolist()
         )
         local = covariance[indices[:, :, None], indices[:, None, :]]
-        cross = covariance[np.arange(n)[None, :, None], indices[:, None, :]]
+        cross = covariance[:n, indices].transpose(1, 0, 2)
         fisher = expected_information(means[indices], size)
         reduction = np.linalg.solve(np.eye(size + 2) + fisher @ local, fisher)
         weight = criterion["weight"] / total_weight
@@ -96,7 +99,7 @@ def candidate_utilities(
         resolved += (
             weight**2
             * store.response_rate(key)
-            * np.einsum("bni,bij,bmj->bnm", cross, reduction, cross, optimize=True)
+            * ((cross @ reduction) @ cross.swapaxes(1, 2))
         )
     a, b = np.triu_indices(n, 1)
     variance = np.maximum(
@@ -110,12 +113,28 @@ def candidate_utilities(
     angle = np.arcsin(np.clip(reduction / variance, 0.0, 1.0))
     # Smooth one-dimensional integral; avoid an array over pairs AND all nodes.
     integral = np.zeros_like(angle)
-    nodes, weights = roots_legendre(12)
-    for node, weight in zip(nodes, weights):
+    for node, weight in zip(_LEGENDRE_NODES, _LEGENDRE_WEIGHTS, strict=True):
         theta = angle * (node + 1) / 2
         integral += weight * np.exp(-z_squared / (1 + np.sin(theta)))
     scores = np.mean(angle * integral / (4 * math.pi), axis=1)
     return scores / (size - 1)
+
+
+def _sample_candidates(
+    pool_size: int, size: int, *, focused: bool
+) -> list[tuple[int, ...]]:
+    available = pool_size - 1 if focused else pool_size
+    pick = size - 1 if focused else size
+    if math.comb(available, pick) <= _MATCH_CANDIDATES:
+        if focused:
+            return [(0, *tail) for tail in combinations(range(1, pool_size), pick)]
+        return list(combinations(range(pool_size), pick))
+    seen: set[tuple[int, ...]] = set()
+    indices = range(1, pool_size) if focused else range(pool_size)
+    while len(seen) < _MATCH_CANDIDATES:
+        tail = tuple(sorted(random.sample(indices, pick)))
+        seen.add((0, *tail) if focused else tail)
+    return list(seen)
 
 
 def select_match(
@@ -132,13 +151,7 @@ def select_match(
     pool = random.sample(others, min(limit, len(others)))
     if focus is not None:
         pool.insert(0, focus)
-    options = (
-        [(0, *tail) for tail in combinations(range(1, len(pool)), size - 1)]
-        if focus is not None
-        else list(combinations(range(len(pool)), size))
-    )
-    if len(options) > _MATCH_CANDIDATES:
-        options = random.sample(options, _MATCH_CANDIDATES)
+    options = _sample_candidates(len(pool), size, focused=focus is not None)
     recent = store.recent_votes()
     if store.active_round:
         recent.append(store.active_round)
@@ -156,31 +169,46 @@ def select_match(
     ]
     least = min(repeats)
     options = [
-        candidate for candidate, repeated in zip(options, repeats) if repeated == least
+        candidate
+        for candidate, repeated in zip(options, repeats, strict=True)
+        if repeated == least
     ]
-    scores = candidate_utilities(store, pool, options)
-    best = float(scores.max())
-    tied = np.flatnonzero(np.isclose(scores, best, rtol=1e-10, atol=1e-14))
-    selected = [pool[i] for i in options[int(random.choice(tied))]]
+    if len(options) == 1:
+        chosen = options[0]
+    else:
+        scores = candidate_utilities(store, pool, options)
+        best = float(scores.max())
+        tied = np.flatnonzero(np.isclose(scores, best, rtol=1e-10, atol=1e-14))
+        chosen = options[int(random.choice(tied))]
+    selected = [pool[i] for i in chosen]
     random.shuffle(selected)
     return tuple(selected)
 
 
+def competition_ranks(scores: list[float]) -> list[int]:
+    """내림차순 정렬된 점수 목록에 공동 순위(1, 1, 3)를 매깁니다."""
+    ranks: list[int] = []
+    previous: float | None = None
+    rank = 0
+    for position, score in enumerate(scores, 1):
+        if previous is None or score != previous:
+            rank = position
+        ranks.append(rank)
+        previous = score
+    return ranks
+
+
 def get_item_ranks(store: DataStore) -> tuple[dict[int, int], int]:
-    scores = sorted(
+    scored = sorted(
         ((composite_rating(store, item), item["id"]) for item in store.items),
         key=lambda x: x[0],
         reverse=True,
     )
-    ranks = {}
-    previous = None
-    rank = 0
-    for position, (score, iid) in enumerate(scores, 1):
-        if previous is None or score != previous:
-            rank = position
-        ranks[iid] = rank
-        previous = score
-    return ranks, len(scores)
+    ranked = competition_ranks([score for score, _ in scored])
+    return (
+        {iid: rank for (_, iid), rank in zip(scored, ranked, strict=True)},
+        len(scored),
+    )
 
 
 # Dense joint sampling is O(n^3); beyond this the page shows point ranks only.
@@ -207,17 +235,25 @@ def rank_uncertainty(
     rng = np.random.default_rng(0)
     total_weight = sum(c["weight"] for c in criteria)
     draws = np.zeros((samples, len(ids)))
+    point_scores = np.zeros(len(ids))
     for criterion in criteria:
-        posterior = store.posterior(criterion["key"])
-        draws += (
-            criterion["weight"] / total_weight * posterior.sample(ids, samples, rng)
-        )
+        key = criterion["key"]
+        weight = criterion["weight"] / total_weight
+        posterior = store.posterior(key)
+        draws += weight * posterior.sample(ids, samples, rng)
+        point_scores += weight * np.array([item["mu"][key] for item in items])
     ranks = np.empty((samples, len(ids)), dtype=int)
     np.put_along_axis(
         ranks, np.argsort(-draws, axis=1), np.arange(1, len(ids) + 1), axis=1
     )
     low, high = np.percentile(ranks, [5, 95], axis=0, method="nearest")
-    order = np.argsort(-draws.mean(axis=0))
+    # 실제 랭킹 표에 표시되는 MAP 순서와 동일하게 정렬해 in-sample 편향을 피합니다.
+    order = np.array(
+        sorted(
+            range(len(items)),
+            key=lambda i: (-float(point_scores[i]), items[i]["name"], items[i]["id"]),
+        )
+    )
     adjacent = (draws[:, order[:-1]] > draws[:, order[1:]]).mean(axis=0)
     return {
         "intervals": {

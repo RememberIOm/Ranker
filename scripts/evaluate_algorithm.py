@@ -113,7 +113,7 @@ def reference_match(store, mode):
     return random.choice(
         [
             c
-            for c, score in zip(available, scores)
+            for c, score in zip(available, scores, strict=True)
             if math.isclose(score, best, abs_tol=1e-12)
         ]
     )

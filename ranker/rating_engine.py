@@ -58,14 +58,21 @@ def ballot_ranking(ids: list[int], vote: str | dict[str, str]) -> Ranking | None
         return canonical_ranking(choices[vote])
     if not isinstance(vote, dict):
         # Callers treat every malformed ballot as a validation error.
-        raise ValueError(_BAD_BALLOT)  # noqa: TRY004
+        raise ValueError(_BAD_BALLOT)
     roles: dict[int, str] = {}
     for key, role in vote.items():
+        if not isinstance(key, str):
+            raise ValueError(_BAD_BALLOT)
         try:
             iid = int(key)
-        except TypeError, ValueError:
+        except ValueError:
             raise ValueError(_BAD_BALLOT) from None
-        if iid in roles or iid not in ids or role not in {"best", "worst", "tied"}:
+        if (
+            key != str(iid)
+            or iid in roles
+            or iid not in ids
+            or role not in {"best", "worst", "tied"}
+        ):
             raise ValueError(_BAD_BALLOT)
         roles[iid] = role
     best = [i for i, role in roles.items() if role == "best"]
@@ -195,7 +202,7 @@ class Posterior:
         rhs[[idx for _, idx in known], np.arange(len(known))] = 1
         solved = cho_solve((self.factor, True), rhs)
         result = np.zeros((len(ids) + 2, len(ids) + 2))
-        rows, cols = zip(*known)
+        rows, cols = zip(*known, strict=True)
         result[np.ix_(rows, rows)] = solved[list(cols), :]
         for row, idx in enumerate(indices):
             if idx is None:
@@ -213,7 +220,7 @@ class Posterior:
             rhs[np.arange(start, stop), np.arange(stop - start)] = 1
             block = solve_triangular(self.factor, rhs, lower=True)
             variances[start:stop] = np.einsum("ij,ij->j", block, block)
-        return dict(zip(self.item_ids, variances[:-2].tolist()))
+        return dict(zip(self.item_ids, variances[:-2].tolist(), strict=True))
 
     def sample(self, ids: list[int], samples: int, rng: np.random.Generator) -> NDArray:
         """Joint draws of the requested skills, shaped (samples, len(ids)).
@@ -221,16 +228,27 @@ class Posterior:
         location + L⁻ᵀz has covariance (LLᵀ)⁻¹, so the dense covariance is never
         formed. Unobserved items keep independent prior draws.
         """
+        observed = [
+            (col, self.index[iid]) for col, iid in enumerate(ids) if iid in self.index
+        ]
+        if not observed:
+            return rng.standard_normal((samples, len(ids))) * math.sqrt(
+                self.prior_variance
+            )
         noise = rng.standard_normal((len(self.location), samples))
         joint = self.location[:, None] + solve_triangular(
             self.factor, noise, lower=True, trans="T"
         )
-        draws = rng.standard_normal((samples, len(ids))) * math.sqrt(
-            self.prior_variance
-        )
-        for col, iid in enumerate(ids):
-            if iid in self.index:
-                draws[:, col] = joint[self.index[iid]]
+        if len(observed) == len(ids):
+            return joint[[row for _, row in observed]].T
+        draws = np.empty((samples, len(ids)))
+        obs_cols, obs_rows = zip(*observed, strict=True)
+        obs_col_set = set(obs_cols)
+        unobs_cols = [col for col in range(len(ids)) if col not in obs_col_set]
+        draws[:, obs_cols] = joint[list(obs_rows)].T
+        draws[:, unobs_cols] = rng.standard_normal(
+            (samples, len(unobs_cols))
+        ) * math.sqrt(self.prior_variance)
         return draws
 
     def to_dict(self) -> dict:
@@ -264,6 +282,7 @@ def _newton(objective: RankingLikelihood, x: NDArray) -> tuple[NDArray, NDArray]
         if factor is None:
             break
         step = cho_solve((factor, True), -gradient)
+        del factor
         decrement = float(-gradient @ step)
         if not math.isfinite(decrement):
             break
@@ -315,7 +334,7 @@ def fit_rankings(
     objective = _objective(rankings, counts, initial_sigma**2)
     x = np.zeros(len(objective.item_ids) + 2)
     if start is not None:
-        previous = dict(zip(start["item_ids"], start["location"]))
+        previous = dict(zip(start["item_ids"], start["location"][:-2], strict=True))
         x[:-2] = [previous.get(iid, 0.0) for iid in objective.item_ids]
         x[-2:] = start["location"][-2:]
     x, factor = _newton(objective, x)
