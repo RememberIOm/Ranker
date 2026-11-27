@@ -11,7 +11,5 @@
 !ranker/**
 !docker/
 !docker/**
-!scripts/__init__.py
-!scripts/drop_redundant_indexes.py
 **/__pycache__
 ranker/static/output.css
