@@ -10,9 +10,11 @@ from fastapi import APIRouter, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from pydantic import ValidationError
 
+from ranker import database
 from ranker.deps import (
     StoreDep,
     UploadTooLargeError,
+    error_response,
     import_error_message,
     is_htmx,
     read_backup_upload,
@@ -45,15 +47,6 @@ def _toast(response: Response, message: str, toast_type: str = "success") -> Res
         {"showToast": {"message": message, "type": toast_type}}
     )
     return response
-
-
-def _form_error(request: Request, message: str) -> Response:
-    """폼 검증 실패 응답 — HTMX면 에러 토스트, 아니면 400."""
-    if is_htmx(request):
-        response = _toast(HTMLResponse(""), message, "error")
-        response.headers["HX-Reswap"] = "none"
-        return response
-    return HTMLResponse(message, status_code=400)
 
 
 def _item_list_response(
@@ -151,29 +144,46 @@ async def update_criteria(request: Request, store: StoreDep) -> Response:
     weights = form.getlist("weight")
 
     if not (len(keys) == len(labels) == len(colors) == len(weights)):
-        return _form_error(request, "입력한 내용이 올바르지 않습니다. 다시 확인하세요.")
+        return error_response(
+            request,
+            400,
+            "입력한 내용이 올바르지 않습니다. 다시 확인하세요.",
+            back_url="/manage?tab=criteria",
+        )
 
+    # 폼에 이미 지정된 키와 기존 저장 키를 모두 예약해 충돌 및 삭제 기준 데이터 승계를 막습니다.
+    reserved_keys: set[str] = {k.strip() for k in keys if k.strip()} | {
+        c["key"] for c in store.criteria
+    }
     used_keys: set[str] = set()
     new_criteria = []
 
-    for raw_key, lbl, clr, w in zip(keys, labels, colors, weights):
+    for raw_key, lbl, clr, w in zip(keys, labels, colors, weights, strict=True):
         lbl = lbl.strip()
         if not lbl:
             continue
 
         key = raw_key.strip()
         if not key:
-            key = _generate_key(lbl, used_keys)
+            key = _generate_key(lbl, reserved_keys)
+            reserved_keys.add(key)
         if key in used_keys:
-            return _form_error(
+            return error_response(
                 request,
+                400,
                 "같은 기준이 두 번 들어 있습니다. 새로고침한 뒤 다시 저장하세요.",
+                back_url="/manage?tab=criteria",
             )
 
         try:
             weight_val = float(w) if w else 1.0
         except ValueError:
-            return _form_error(request, f"'{lbl}'의 가중치에는 숫자만 입력하세요.")
+            return error_response(
+                request,
+                400,
+                f"'{lbl}'의 가중치에는 숫자만 입력하세요.",
+                back_url="/manage?tab=criteria",
+            )
 
         used_keys.add(key)
         new_criteria.append(
@@ -185,12 +195,23 @@ async def update_criteria(request: Request, store: StoreDep) -> Response:
             }
         )
 
+    if len(new_criteria) > 64:
+        return error_response(
+            request,
+            400,
+            "평가 기준은 최대 64개까지 만들 수 있습니다.",
+            back_url="/manage?tab=criteria",
+        )
+
     try:
         for criterion in new_criteria:
             CriterionModel(**criterion)  # key 형식·weight 범위 검증
     except ValidationError:
-        return _form_error(
-            request, "평가 기준을 저장하지 못했습니다. 이름과 가중치를 확인하세요."
+        return error_response(
+            request,
+            400,
+            "평가 기준을 저장하지 못했습니다. 이름과 가중치를 확인하세요.",
+            back_url="/manage?tab=criteria",
         )
 
     await store.set_criteria(new_criteria)
@@ -205,20 +226,25 @@ async def update_criteria(request: Request, store: StoreDep) -> Response:
     return RedirectResponse(url="/manage?tab=criteria", status_code=303)
 
 
+_MAX_CRITERION_KEY_LEN = 100
+
+
 def _generate_key(label: str, existing: set[str]) -> str:
-    """label로부터 안전한 key를 생성합니다. 충돌 시 숫자 접미사를 추가합니다."""
+    """label로부터 안전한 key를 생성합니다. 길이 한도를 지키고 충돌 시 숫자 접미사를 붙입니다."""
     ascii_label = (
         unicodedata.normalize("NFKD", label).encode("ascii", "ignore").decode()
     )
     base = re.sub(r"[^a-z0-9]+", "_", ascii_label.lower()).strip("_")
 
     if not base:
-        base = "c_" + hashlib.md5(label.encode()).hexdigest()[:6]
+        base = "c_" + hashlib.sha256(label.encode()).hexdigest()[:8]
 
+    base = base[:_MAX_CRITERION_KEY_LEN]
     key = base
     counter = 2
     while key in existing:
-        key = f"{base}_{counter}"
+        suffix = f"_{counter}"
+        key = f"{base[: _MAX_CRITERION_KEY_LEN - len(suffix)]}{suffix}"
         counter += 1
     return key
 
@@ -242,7 +268,7 @@ async def update_settings(request: Request, store: StoreDep) -> Response:
     patch: dict = {key: form[key] for key in _NUMERIC_SETTINGS_FIELDS if form.get(key)}
     patch["result_auto_skip"] = "result_auto_skip" in form
     patch["blind_mode"] = "blind_mode" in form
-    if form.get("battle_mode") in {"2way", "3way"}:
+    if "battle_mode" in form:
         patch["battle_mode"] = form["battle_mode"]
 
     try:
@@ -250,11 +276,14 @@ async def update_settings(request: Request, store: StoreDep) -> Response:
             mode="python"
         )
     except ValidationError:
-        return _form_error(
-            request, "설정값이 올바르지 않습니다. 입력 범위를 확인하세요."
+        return error_response(
+            request,
+            400,
+            "설정값이 올바르지 않습니다. 입력 범위를 확인하세요.",
+            back_url="/manage?tab=settings",
         )
 
-    await store.update_settings(validated)
+    await store.update_settings({key: validated[key] for key in patch})
 
     if is_htmx(request):
         return _toast(HTMLResponse(""), "설정을 저장했습니다.")
@@ -283,9 +312,20 @@ async def import_data(
     try:
         preview = await store.stage_import(await read_backup_upload(file))
     except UploadTooLargeError as exc:
-        return _import_error(request, 413, str(exc))
+        return error_response(
+            request,
+            413,
+            f"{exc} 현재 데이터는 바뀌지 않았습니다.",
+            back_url="/manage?tab=data",
+        )
     except (ValueError, ValidationError) as exc:
-        return _import_error(request, 400, import_error_message(exc))
+        return error_response(
+            request,
+            400,
+            f"{import_error_message(exc)} 현재 데이터는 바뀌지 않았습니다.",
+            back_url="/manage?tab=data",
+        )
+    current_history = await database.count_events(store.session_id)
     return templates.TemplateResponse(
         request,
         "import_preview.html",
@@ -293,6 +333,7 @@ async def import_data(
             "preview": preview,
             "current_items": len(store.items),
             "current_criteria": len(store.criteria),
+            "current_history": current_history,
         },
     )
 
@@ -301,15 +342,3 @@ async def import_data(
 async def confirm_import(store: StoreDep) -> Response:
     await store.apply_staged_import()
     return RedirectResponse(url="/manage?tab=data", status_code=303)
-
-
-def _import_error(request: Request, status: int, message: str) -> Response:
-    return templates.TemplateResponse(
-        request,
-        "error.html",
-        {
-            "message": f"{message} 현재 데이터는 바뀌지 않았습니다.",
-            "back_url": "/manage?tab=data",
-        },
-        status_code=status,
-    )

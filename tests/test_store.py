@@ -207,6 +207,28 @@ class TestStorageRecovery:
             await store_with_items.add_items(["Failure"])
         assert not database.get_db().in_transaction
 
+    async def test_mutation_preserves_save_error_when_reload_also_fails(
+        self, store_with_items: store.DataStore, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        async def fail_save(*args: Any, **kwargs: Any) -> int:
+            raise sqlite3.OperationalError("disk I/O error")
+
+        async def fail_read(*args: Any, **kwargs: Any) -> bool:
+            raise sqlite3.OperationalError("disk I/O error on reload")
+
+        monkeypatch.setattr(database, "save_session_data", fail_save)
+        monkeypatch.setattr(store_with_items, "_read_snapshot", fail_read)
+        with pytest.raises(store.SessionSaveError):
+            await store_with_items.add_items(["Failure"])
+
+    async def test_stage_import_on_deleted_session_raises_stale_session(
+        self, store_with_items: store.DataStore
+    ) -> None:
+        raw = await store_with_items.export_json()
+        await store.delete_session(store_with_items.session_id)
+        with pytest.raises(database.StaleSessionError):
+            await store_with_items.stage_import(raw)
+
     async def test_bulk_over_item_limit_is_rejected_before_database_write(
         self, store_with_items: store.DataStore
     ) -> None:

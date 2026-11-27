@@ -53,6 +53,8 @@ __all__ = [
     "StaleSessionError",
     "cleanup_pending_imports",
     "create_store",
+    "create_store_from_import",
+    "delete_board_session",
     "delete_session",
     "open_store",
 ]
@@ -127,11 +129,15 @@ class DataStore:
     def __init__(self, session_id: str) -> None:
         self._session_id = session_id
         self._data: dict[str, Any] = {}
+        self._items_by_id: dict[int, dict[str, Any]] = {}
         self._created_at = 0.0
         self._revision: int | None = None
-        self._recent: list[dict[str, Any]] = []
+        self._recent: list[dict[str, Any]] | None = None
         self._events = EventChanges()
         self._posterior_cache: dict[str, Posterior] = {}
+
+    def _rebuild_item_index(self) -> None:
+        self._items_by_id = {item["id"]: item for item in self._data.get("items", [])}
 
     @property
     def session_id(self) -> str:
@@ -151,7 +157,8 @@ class DataStore:
         """
         self._posterior_cache.clear()
         self._events = EventChanges()
-        async with transaction() as db:
+        self._recent = None
+        async with transaction(write=False) as db:
             return await self._read_snapshot(db)
 
     async def _reload(self) -> None:
@@ -165,7 +172,7 @@ class DataStore:
 
         대결 라운드는 revision을 올리지 않으므로 따로 읽습니다.
         """
-        async with transaction() as db:
+        async with transaction(write=False) as db:
             async with db.execute(
                 "SELECT revision FROM sessions WHERE id = ?", (self._session_id,)
             ) as cursor:
@@ -235,14 +242,6 @@ class DataStore:
                 }
             )
         async with db.execute(
-            "SELECT event FROM vote_events WHERE session_id = ? AND undone = 0 "
-            "ORDER BY id DESC LIMIT 5",
-            sid,
-        ) as cursor:
-            self._recent = [
-                json.loads(r["event"])["payload"] for r in await cursor.fetchall()
-            ]
-        async with db.execute(
             "SELECT state FROM ranking_models WHERE session_id = ?", sid
         ) as cursor:
             model = await cursor.fetchone()
@@ -251,7 +250,11 @@ class DataStore:
                 "저장된 랭킹을 읽을 수 없습니다. 백업 파일을 불러와 복구하세요."
             )
         data.update(json.loads(model["state"]))
+        for obs_rows in data.get("observations", {}).values():
+            for obs_row in obs_rows:
+                obs_row["groups"] = tuple(tuple(group) for group in obs_row["groups"])
         self._data = data
+        self._rebuild_item_index()
         return True
 
     def _core(self) -> dict[str, Any]:
@@ -263,6 +266,7 @@ class DataStore:
         self._data = SessionDataModel.model_validate(self._data).model_dump(
             mode="python"
         )
+        self._rebuild_item_index()
         try:
             self._revision = await database.save_session_data(
                 self._session_id,
@@ -290,7 +294,13 @@ class DataStore:
             try:
                 yield
             except BaseException:
-                await asyncio.shield(self._load())
+                try:
+                    await asyncio.shield(self._load())
+                except Exception:
+                    logger.exception(
+                        "mutation_rollback_reload_failed — session_id=%s",
+                        self._session_id,
+                    )
                 raise
 
     # --- Read access ---
@@ -312,14 +322,16 @@ class DataStore:
         return deepcopy(self._data["active_round"])
 
     def get_item(self, item_id: int) -> dict[str, Any] | None:
-        for item in self._data["items"]:
-            if item["id"] == item_id:
-                return item
-        return None
+        return self._items_by_id.get(item_id)
+
+    async def ensure_recent_votes(self) -> None:
+        """대진 선택이 필요할 때만 최근 투표 다섯 건을 읽습니다."""
+        if self._recent is None:
+            self._recent = await database.fetch_recent_votes(self._session_id)
 
     def recent_votes(self) -> list[dict[str, Any]]:
         """취소되지 않은 최근 투표 다섯 건의 대결 구성입니다."""
-        return deepcopy(self._recent)
+        return deepcopy(self._recent or [])
 
     def response_rate(self, key: str) -> float:
         answered = sum(row["count"] for row in self._data["observations"].get(key, []))
@@ -450,6 +462,7 @@ class DataStore:
                     f"항목은 랭킹마다 {MAX_ITEMS:,}개까지 넣을 수 있습니다."
                 )
             self.items.extend(self._new_item(name) for name in names)
+            self._rebuild_item_index()
             await self._save_to_db()
         return len(names)
 
@@ -468,6 +481,7 @@ class DataStore:
             if not self.get_item(item_id):
                 return False
             self._data["items"] = [i for i in self.items if i["id"] != item_id]
+            self._rebuild_item_index()
             active = self._data["active_round"]
             if active and item_id in vote_ids(active):
                 self._data["active_round"] = None
@@ -481,13 +495,12 @@ class DataStore:
         async with _get_lock(self._session_id):
             await self._refresh()
             history = await database.fetch_events(self._session_id)
-        return _dumps(
-            {
+            payload = {
                 "schema_version": BACKUP_SCHEMA_VERSION,
-                **self._core(),
+                **deepcopy(self._core()),
                 "history": history,
             }
-        )
+        return await asyncio.to_thread(_dumps, payload)
 
     @staticmethod
     def parse_import(raw: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
@@ -502,11 +515,9 @@ class DataStore:
             or parsed.get("schema_version") != BACKUP_SCHEMA_VERSION
         ):
             raise InvalidSessionDataError("형식 4 백업 파일만 불러올 수 있습니다.")
-        backup = BackupModel.model_validate(parsed)
-        data = SessionDataModel.model_validate(
-            {key: parsed[key] for key in _BACKUP_KEYS}
-        ).model_dump(mode="python")
-        history = [event.model_dump(mode="python") for event in backup.history]
+        dumped = BackupModel.model_validate(parsed).model_dump(mode="python")
+        data = {key: dumped[key] for key in _BACKUP_KEYS}
+        history = dumped["history"]
         if len({e["id"] for e in history}) != len(history):
             raise InvalidSessionDataError("백업 파일의 투표 내역이 올바르지 않습니다.")
         history.sort(key=lambda e: e["id"])
@@ -571,33 +582,41 @@ class DataStore:
         self, data: dict[str, Any], history: list[dict[str, Any]]
     ) -> None:
         self._data = {**data, "posteriors": {}, "active_round": None}
+        self._rebuild_item_index()
+        self._posterior_cache.clear()
         self._events.replace = history
         await self._refit({c["key"] for c in self.criteria})
 
     async def import_json(self, raw: str) -> None:
         """검증한 백업으로 현재 랭킹을 교체합니다."""
-        data, history = self.parse_import(raw)
+        data, history = await asyncio.to_thread(self.parse_import, raw)
         async with self._mutation():
             await self._replace_with(data, history)
             await self._save_to_db()
 
     async def stage_import(self, raw: str) -> dict[str, int]:
         """백업을 검증해 보관하고, 확인하면 같은 상태에서만 교체합니다."""
-        preview = self.preview_import(raw)
-        async with transaction() as db:
-            await db.execute(
-                "INSERT INTO pending_imports (session_id, revision, raw, created_at) "
-                "VALUES (?, ?, ?, ?) ON CONFLICT(session_id) DO UPDATE SET "
-                "revision=excluded.revision, raw=excluded.raw, created_at=excluded.created_at",
-                (self._session_id, self._revision, raw, time.time()),
-            )
+        preview = await asyncio.to_thread(self.preview_import, raw)
+        async with _get_lock(self._session_id):
+            await self._refresh()
+            try:
+                await database.stage_pending_import(
+                    self._session_id, self._revision, raw, time.time()
+                )
+            except (OSError, sqlite3.Error) as exc:
+                logger.error(
+                    "stage_import_failed — session_id=%s: %s", self._session_id, exc
+                )
+                raise SessionSaveError(
+                    "저장하지 못했습니다. 잠시 후 다시 시도하세요."
+                ) from exc
         return preview
 
     async def apply_staged_import(self) -> None:
         """저장에 성공해야 미리보기가 사라지므로, 적용이 실패하면 다시 확인할 수 있습니다."""
         async with self._mutation():
             async with (
-                transaction() as db,
+                transaction(write=False) as db,
                 db.execute(
                     "SELECT revision, raw, created_at FROM pending_imports WHERE session_id = ?",
                     (self._session_id,),
@@ -613,7 +632,8 @@ class DataStore:
                     "확인하는 사이에 랭킹이 바뀌었거나 확인 시간이 지났습니다. "
                     "파일을 다시 불러오세요."
                 )
-            await self._replace_with(*self.parse_import(row["raw"]))
+            data, history = await asyncio.to_thread(self.parse_import, row["raw"])
+            await self._replace_with(data, history)
             await self._save_to_db()
 
     # --- Battles ---
@@ -635,8 +655,7 @@ class DataStore:
             return None
         return active["token"], items
 
-    async def issue_battle_round(self, ids: list[int]) -> str:
-        """대결 라운드만 기록합니다. 나머지 상태는 다시 쓰지 않습니다."""
+    async def _write_round(self, ids: list[int]) -> str:
         if len(ids) not in (2, 3) or len(set(ids)) != len(ids):
             raise BattleItemNotFoundError(
                 "대결 정보가 올바르지 않습니다. 새로고침한 뒤 다시 투표하세요."
@@ -649,15 +668,42 @@ class DataStore:
         }
         if len(ids) == 3:
             round_data["item3_id"] = ids[2]
-        async with _get_lock(self._session_id):
-            try:
-                await database.save_active_round(self._session_id, round_data)
-            except LookupError as exc:
-                raise BattleItemNotFoundError(
-                    "대결 항목이 바뀌었습니다. 새로고침하세요."
-                ) from exc
+        try:
+            await database.save_active_round(self._session_id, round_data)
+        except LookupError as exc:
+            raise BattleItemNotFoundError(
+                "대결 항목이 바뀌었습니다. 새로고침하세요."
+            ) from exc
+        except (OSError, sqlite3.Error) as exc:
+            logger.error("round_save_failed — session_id=%s: %s", self._session_id, exc)
+            raise SessionSaveError(
+                "저장하지 못했습니다. 잠시 후 다시 시도하세요."
+            ) from exc
         self._data["active_round"] = round_data
         return round_data["token"]
+
+    async def issue_battle_round(self, ids: list[int]) -> str:
+        """대결 라운드만 기록합니다. 나머지 상태는 다시 쓰지 않습니다."""
+        async with _get_lock(self._session_id):
+            return await self._write_round(ids)
+
+    async def pick_battle_round(
+        self, focus_id: int | None, select_fn
+    ) -> tuple[str, list[dict[str, Any]]] | None:
+        """세션 락 안에서 진행 중인 대결을 재사용하거나 새 라운드를 발급합니다."""
+        async with _get_lock(self._session_id):
+            await self._refresh()
+            three_way = self.settings["battle_mode"] == "3way" and len(self.items) >= 3
+            size = 3 if three_way else 2
+            reused = self.reusable_round(size, focus_id)
+            if reused:
+                return reused
+            await self.ensure_recent_votes()
+            selected = await asyncio.to_thread(select_fn, self, size, focus_id)
+            if selected is None:
+                return None
+            token = await self._write_round([item["id"] for item in selected])
+            return token, list(selected)
 
     def _validate_active_round(self, payload: Any, ids: list[int]) -> None:
         active = self._data["active_round"]
@@ -673,7 +719,7 @@ class DataStore:
     def _change_observation(self, key: str, ranking, amount: int) -> None:
         rows = self._data["observations"].setdefault(key, [])
         for row in rows:
-            if tuple(tuple(group) for group in row["groups"]) == ranking:
+            if row["groups"] == ranking:
                 row["count"] += amount
                 if row["count"] < 0:
                     raise InvalidSessionDataError(
@@ -681,14 +727,13 @@ class DataStore:
                     )
                 if row["count"] == 0:
                     rows.remove(row)
-                break
-        else:
-            if amount < 0:
-                raise InvalidSessionDataError(
-                    "투표 내역과 점수 데이터가 맞지 않아 취소하지 못했습니다."
-                )
-            rows.append({"groups": ranking, "count": amount})
-        rows.sort(key=lambda row: tuple(tuple(g) for g in row["groups"]))
+                return
+        if amount < 0:
+            raise InvalidSessionDataError(
+                "투표 내역과 점수 데이터가 맞지 않아 취소하지 못했습니다."
+            )
+        rows.append({"groups": ranking, "count": amount})
+        rows.sort(key=lambda row: row["groups"])
 
     async def _refit(self, keys: set[str]) -> None:
         """보존된 모든 순위 응답을 설정된 사전분포에서 다시 적합합니다."""
@@ -787,7 +832,8 @@ class DataStore:
             }
             self._data["active_round"] = None
             await self._save_to_db()
-            self._recent = [stored, *self._recent][:5]
+            if self._recent is not None:
+                self._recent = [stored, *self._recent][:5]
         response = {"results": results}
         for index, iid in enumerate(ids, 1):
             response[f"a{index}_id"] = iid
@@ -870,15 +916,14 @@ class DataStore:
     async def recalculate_ratings(
         self, settings_patch: dict[str, Any] | None = None
     ) -> dict[str, Any]:
-        """보관된 기록을 포함한 모든 순위 응답을 현재 설정으로 다시 적합합니다."""
+        """보관된 기록을 포함한 모든 순위 응답을 현재 설정으로 처음부터 다시 적합합니다."""
         async with self._mutation():
             self._update_settings(settings_patch or {})
+            self._data["posteriors"] = {}
+            self._posterior_cache.clear()
             await self._refit({c["key"] for c in self.criteria})
             await self._save_to_db()
-            return {
-                "responses": sum(c["battles"] for c in self.criteria),
-                "items": deepcopy(self.items),
-            }
+            return {"responses": sum(c["battles"] for c in self.criteria)}
 
     async def clear_history(self) -> None:
         """상세 기록만 지웁니다. 순위 응답 횟수는 남아 다시 계산할 수 있습니다."""
@@ -900,7 +945,24 @@ async def create_store(session_id: str, library: str, name: str) -> DataStore:
     """기본 기준을 가진 새 랭킹을 목록(library)에 넣어 저장합니다."""
     store = DataStore(session_id)
     store._data = SessionDataModel().model_dump(mode="python")
+    store._rebuild_item_index()
     store._created_at = time.time()
+    async with _get_lock(session_id):
+        await store._save_to_db(board=(library, name))
+    return store
+
+
+async def create_store_from_import(
+    session_id: str,
+    library: str,
+    name: str,
+    data: dict[str, Any],
+    history: list[dict[str, Any]],
+) -> DataStore:
+    """백업을 먼저 재적합한 뒤 새 랭킹·목록·내역을 단일 트랜잭션으로 저장합니다."""
+    store = DataStore(session_id)
+    store._created_at = time.time()
+    await store._replace_with(data, history)
     async with _get_lock(session_id):
         await store._save_to_db(board=(library, name))
     return store
@@ -910,6 +972,21 @@ async def delete_session(session_id: str) -> None:
     """진행 중인 세션 명령 뒤에 삭제하고 새 저장은 revision으로 차단합니다."""
     async with _get_lock(session_id), transaction() as db:
         await db.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
+    database.clear_event_stats(session_id)
+
+
+async def delete_board_session(session_id: str, library: str) -> bool:
+    """해당 목록 소유일 때만 단일 트랜잭션으로 삭제합니다."""
+    async with _get_lock(session_id), transaction() as db:
+        cursor = await db.execute(
+            "DELETE FROM sessions WHERE id = ? "
+            "AND EXISTS (SELECT 1 FROM boards WHERE session_id = ? AND library_id = ?)",
+            (session_id, session_id, library),
+        )
+        deleted = cursor.rowcount == 1
+    if deleted:
+        database.clear_event_stats(session_id)
+    return deleted
 
 
 async def cleanup_pending_imports() -> None:

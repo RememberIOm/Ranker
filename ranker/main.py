@@ -20,10 +20,12 @@ from ranker.database import close_db, init_db
 from ranker.deps import (
     RequiresSessionException,
     UploadTooLargeError,
-    get_session_store,
+    error_response,
+    get_active_session_id,
     import_error_message,
     is_htmx,
     read_backup_upload,
+    wants_json,
 )
 from ranker.rating_engine import FitConvergenceError
 from ranker.routers import battle, collections, history, manage, ranking
@@ -77,21 +79,6 @@ app.mount("/static", StaticFiles(directory=PACKAGE_DIR / "static"), name="static
 
 
 # --- Errors ---
-
-
-def wants_json(request: Request) -> bool:
-    """HTMX와 스크립트 요청은 JSON, 일반 폼 제출과 페이지 이동은 HTML로 답합니다."""
-    return is_htmx(request) or request.headers.get("content-type", "").startswith(
-        "application/json"
-    )
-
-
-def error_response(request: Request, status: int, message: str) -> Response:
-    if wants_json(request):
-        return JSONResponse({"detail": message}, status_code=status)
-    return templates.TemplateResponse(
-        request, "error.html", {"message": message}, status_code=status
-    )
 
 
 # 409는 화면이 서버 상태보다 낡았다는 뜻이며, 클라이언트는 이 응답에서 새로고침합니다.
@@ -178,11 +165,10 @@ class SecurityMiddleware:
             await send(message)
 
         if scope["method"] not in {"GET", "HEAD", "OPTIONS"} and self._foreign(headers):
-            response = JSONResponse(
-                {
-                    "detail": "잘못된 요청입니다. 페이지를 새로고침한 뒤 다시 시도하세요."
-                },
-                status_code=403,
+            response = error_response(
+                Request(scope),
+                403,
+                "잘못된 요청입니다. 페이지를 새로고침한 뒤 다시 시도하세요.",
             )
             return await response(scope, receive, send_with_headers)
         await self.app(scope, receive, send_with_headers)
@@ -218,9 +204,7 @@ class BodyLimitMiddleware:
         if scope["type"] != "http":
             return await self.app(scope, receive, send)
         limit = self.LARGE if scope["path"] in self.UPLOAD_PATHS else self.SMALL
-        too_large = JSONResponse(
-            {"detail": "보낸 데이터가 너무 큽니다."}, status_code=413
-        )
+        too_large = error_response(Request(scope), 413, "보낸 데이터가 너무 큽니다.")
         length = dict(scope["headers"]).get(b"content-length")
         if length is not None and (not length.isdigit() or int(length) > limit):
             return await too_large(scope, receive, send)
@@ -301,7 +285,7 @@ async def health() -> dict[str, str]:
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
-    has_session = await get_session_store(request, request.cookies.get("session_id"))
+    has_session = await get_active_session_id(request)
     return templates.TemplateResponse(
         request, "index.html", {"has_session": has_session is not None}
     )
@@ -319,12 +303,11 @@ async def upload_session(request: Request, file: Annotated[UploadFile, File()]):
     """백업 파일로 새 랭킹을 만듭니다."""
     try:
         raw = await read_backup_upload(file)
-        DataStore.parse_import(raw)  # 잘못된 파일이면 랭킹을 만들지 않습니다.
+        imported = await asyncio.to_thread(DataStore.parse_import, raw)
     except UploadTooLargeError as exc:
-        return error_response(request, 413, str(exc))
+        return error_response(request, 413, str(exc), back_url="/")
     except (ValueError, ValidationError) as exc:
-        return error_response(request, 400, import_error_message(exc))
+        return error_response(request, 400, import_error_message(exc), back_url="/")
     response = RedirectResponse(url="/battle", status_code=303)
-    store = await create_board(request, response, "불러온 랭킹")
-    await store.import_json(raw)
+    await create_board(request, response, "불러온 랭킹", imported=imported)
     return response

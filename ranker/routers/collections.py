@@ -8,6 +8,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from ranker.boards import (
     create_board,
     get_library,
+    get_library_code,
     library_exists,
     library_id,
     owns_board,
@@ -15,8 +16,8 @@ from ranker.boards import (
 )
 from ranker.cookies import delete_session_cookie, set_session_cookie
 from ranker.database import transaction
-from ranker.deps import get_session_store
-from ranker.store import delete_session
+from ranker.deps import get_active_session_id
+from ranker.store import delete_board_session
 from ranker.template_env import templates
 
 router = APIRouter(prefix="/collections", tags=["collections"])
@@ -27,7 +28,7 @@ async def list_collections(request: Request) -> HTMLResponse:
     code = await get_library(request)
     boards = []
     if code:
-        async with transaction() as db:
+        async with transaction(write=False) as db:
             cursor = await db.execute(
                 "SELECT b.session_id,b.name,COUNT(i.id) AS item_count FROM boards b "
                 "LEFT JOIN items i ON i.session_id=b.session_id WHERE b.library_id=? "
@@ -35,13 +36,13 @@ async def list_collections(request: Request) -> HTMLResponse:
                 (library_id(code),),
             )
             boards = [dict(row) for row in await cursor.fetchall()]
-    store = await get_session_store(request, request.cookies.get("session_id"))
+    active_session_id = await get_active_session_id(request)
     return templates.TemplateResponse(
         request,
         "collections.html",
         {
             "boards": boards,
-            "active_session_id": store.session_id if store else None,
+            "active_session_id": active_session_id,
             "recovery_code": code,
         },
     )
@@ -60,7 +61,7 @@ async def create_collection(
 async def switch_collection(
     request: Request, session_id: Annotated[str, Form()]
 ) -> RedirectResponse:
-    code = await get_library(request)
+    code = get_library_code(request)
     if not code or not await owns_board(code, session_id):
         raise HTTPException(404, "목록에 없는 랭킹입니다.")
     response = RedirectResponse("/ranking", status_code=303)
@@ -74,13 +75,16 @@ async def rename_collection(
     session_id: Annotated[str, Form()],
     name: Annotated[str, Form(min_length=1, max_length=100)],
 ) -> RedirectResponse:
-    code = await get_library(request)
-    if not code or not name.strip():
+    code = get_library_code(request)
+    if not code:
+        raise HTTPException(404, "목록에 없는 랭킹입니다.")
+    clean_name = name.strip()
+    if not clean_name:
         raise HTTPException(400, "랭킹 이름을 입력하세요.")
     async with transaction() as db:
         cursor = await db.execute(
             "UPDATE boards SET name=? WHERE session_id=? AND library_id=?",
-            (name.strip(), session_id, library_id(code)),
+            (clean_name, session_id, library_id(code)),
         )
         if cursor.rowcount != 1:
             raise HTTPException(404, "목록에 없는 랭킹입니다.")
@@ -102,12 +106,10 @@ async def recover_collections(code: Annotated[str, Form()]) -> RedirectResponse:
 async def delete_collection(
     request: Request, session_id: Annotated[str, Form()]
 ) -> RedirectResponse:
-    code = await get_library(request)
-    if not code or not await owns_board(code, session_id):
+    code = get_library_code(request)
+    if not code or not await delete_board_session(session_id, library_id(code)):
         raise HTTPException(404, "목록에 없는 랭킹입니다.")
-    await delete_session(session_id)
     response = RedirectResponse("/collections", status_code=303)
     if request.cookies.get("session_id") == session_id:
-        request.state.session_id = None
         delete_session_cookie(response)
     return response

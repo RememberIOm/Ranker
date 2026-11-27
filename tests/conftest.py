@@ -1,27 +1,35 @@
-import tempfile
-from collections.abc import Callable, Coroutine
+from collections.abc import AsyncIterator, Callable, Coroutine
 from pathlib import Path
 
+import httpx2
 import pytest
 
 from ranker import database, store
+from ranker.main import app
 
 
 @pytest.fixture()
-async def _temp_db():
+async def _temp_db(tmp_path: Path):
     """임시 SQLite DB를 생성하고 스키마를 초기화합니다."""
-    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
-        db_path = Path(f.name)
-
     original_path = database.DB_PATH
-    database.DB_PATH = db_path
+    database.DB_PATH = tmp_path / "ranker.db"
     await database.init_db()
     store._locks.clear()
     yield
     store._locks.clear()
     await database.close_db()
     database.DB_PATH = original_path
-    db_path.unlink(missing_ok=True)
+
+
+@pytest.fixture()
+async def client(_temp_db) -> AsyncIterator[httpx2.AsyncClient]:
+    """세션이 열린 테스트 HTTP 클라이언트를 반환합니다."""
+    async with httpx2.AsyncClient(
+        transport=httpx2.ASGITransport(app=app), base_url="http://test"
+    ) as c:
+        resp = await c.post("/start", follow_redirects=False)
+        assert resp.status_code == 303
+        yield c
 
 
 @pytest.fixture()

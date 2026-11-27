@@ -4,13 +4,14 @@ import hashlib
 import re
 import secrets
 import uuid
+from typing import Any
 
 from fastapi import Request
 from fastapi.responses import Response
 
 from ranker.cookies import COOKIE_SECURE, set_session_cookie
 from ranker.database import transaction
-from ranker.store import DataStore, create_store
+from ranker.store import DataStore, create_store, create_store_from_import
 
 COOKIE_NAME = "ranker_library"
 CODE_PATTERN = re.compile(r"[A-Za-z0-9_-]{43}")
@@ -21,10 +22,16 @@ def library_id(code: str) -> str:
     return hashlib.sha256(code.encode()).hexdigest()
 
 
+def get_library_code(request: Request) -> str | None:
+    """쿠키의 복구 코드 형식이 맞으면 반환합니다(DB 조회 없음)."""
+    code = request.cookies.get(COOKIE_NAME, "")
+    return code if CODE_PATTERN.fullmatch(code) else None
+
+
 async def library_exists(code: str) -> bool:
     if not CODE_PATTERN.fullmatch(code):
         return False
-    async with transaction() as db:
+    async with transaction(write=False) as db:
         cursor = await db.execute(
             "SELECT 1 FROM libraries WHERE id = ?", (library_id(code),)
         )
@@ -33,8 +40,8 @@ async def library_exists(code: str) -> bool:
 
 async def get_library(request: Request) -> str | None:
     """쿠키의 복구 코드가 유효하면 반환합니다. 새 목록은 만들지 않습니다."""
-    code = request.cookies.get(COOKIE_NAME, "")
-    return code if await library_exists(code) else None
+    code = get_library_code(request)
+    return code if code and await library_exists(code) else None
 
 
 def set_library_cookie(response: Response, code: str) -> None:
@@ -48,22 +55,33 @@ def set_library_cookie(response: Response, code: str) -> None:
     )
 
 
-async def create_board(request: Request, response: Response, name: str) -> DataStore:
+async def create_board(
+    request: Request,
+    response: Response,
+    name: str,
+    *,
+    imported: tuple[dict[str, Any], list[dict[str, Any]]] | None = None,
+) -> DataStore:
     """새 랭킹을 만들어 내 목록에 넣고, 그 랭킹을 현재 랭킹으로 엽니다.
 
     목록이 없으면 새 복구 코드를 만들고, 첫 랭킹과 같은 트랜잭션에서 저장합니다.
     """
     code = await get_library(request) or secrets.token_urlsafe(32)
-    store = await create_store(
-        uuid.uuid4().hex, library_id(code), name.strip()[:100] or "새 랭킹"
-    )
+    clean_name = name.strip()[:100] or "새 랭킹"
+    if imported is None:
+        store = await create_store(uuid.uuid4().hex, library_id(code), clean_name)
+    else:
+        data, history = imported
+        store = await create_store_from_import(
+            uuid.uuid4().hex, library_id(code), clean_name, data, history
+        )
     set_session_cookie(response, store.session_id)
     set_library_cookie(response, code)
     return store
 
 
 async def owns_board(code: str, session_id: str) -> bool:
-    async with transaction() as db:
+    async with transaction(write=False) as db:
         cursor = await db.execute(
             "SELECT 1 FROM boards WHERE session_id=? AND library_id=?",
             (session_id, library_id(code)),

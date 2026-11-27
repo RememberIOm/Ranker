@@ -7,6 +7,7 @@ from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 from ranker.deps import StoreDep
+from ranker.schemas import vote_ids
 from ranker.template_env import templates
 
 router = APIRouter(prefix="/history", tags=["history"])
@@ -40,17 +41,20 @@ async def history_page(
     request: Request, store: StoreDep, page: int = 1
 ) -> HTMLResponse:
     result = await store.history_page(page)
-    events = [
-        {
-            **event,
-            "item_names": list(event["names"].values()),
-            "vote_summary": _summaries(event),
-            "created_at": datetime.fromtimestamp(event["created_at"], UTC).strftime(
-                "%Y-%m-%d %H:%M UTC"
-            ),
-        }
-        for event in result["events"]
-    ]
+    events = []
+    for event in result["events"]:
+        dt = datetime.fromtimestamp(event["created_at"], UTC)
+        events.append(
+            {
+                **event,
+                "item_names": [
+                    event["names"][str(i)] for i in vote_ids(event["payload"])
+                ],
+                "vote_summary": _summaries(event),
+                "created_at": dt.strftime("%Y-%m-%d %H:%M UTC"),
+                "created_at_iso": dt.isoformat(),
+            }
+        )
     return templates.TemplateResponse(
         request, "history.html", {**result, "events": events}
     )

@@ -2,13 +2,15 @@
 
 import asyncio
 import math
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse
 
 from ranker.deps import StoreDep
+from ranker.schemas import CRITERION_COLORS
 from ranker.services import (
+    competition_ranks,
     composite_rating,
     display_rating,
     display_uncertainty,
@@ -50,13 +52,10 @@ def ranking_rows(store: DataStore, sort_by: str) -> list[dict[str, Any]]:
             else row["scores"][criterion_key]["rating"]
         )
     rows.sort(key=lambda row: (-row["sort_score"], row["name"], row["id"]))
-    previous = None
-    rank = 0
-    for index, row in enumerate(rows, 1):
-        if row["sort_score"] != previous:
-            rank = index
+    for row, rank in zip(
+        rows, competition_ranks([row["sort_score"] for row in rows]), strict=True
+    ):
         row["rank"] = rank
-        previous = row["sort_score"]
     return rows
 
 
@@ -78,36 +77,21 @@ def histogram(scores: list[float]) -> dict[str, list]:
     }
 
 
-_CHART_COLORS = frozendict(
-    red="#ef4444",
-    orange="#f97316",
-    yellow="#eab308",
-    green="#22c55e",
-    teal="#14b8a6",
-    cyan="#06b6d4",
-    blue="#3b82f6",
-    indigo="#6366f1",
-    purple="#a855f7",
-    pink="#ec4899",
-    gray="#71717a",
-)
-
-
 @router.get("", response_class=HTMLResponse)
 async def get_ranking(
     request: Request,
     store: StoreDep,
     sort_by: str = "total",
     q: str = "",
-    filter: str = "all",
+    filter_mode: Annotated[str, Query(alias="filter")] = "all",
 ) -> HTMLResponse:
     selected = next(
         (c for c in store.criteria if sort_by == "criterion:" + c["key"]), None
     )
     if selected is None:
         sort_by = "total"
-    if filter not in {"all", "uncertain", "top"}:
-        filter = "all"
+    if filter_mode not in {"all", "uncertain", "top"}:
+        filter_mode = "all"
     ranked = ranking_rows(store, sort_by)
     uncertainty = await asyncio.to_thread(rank_uncertainty, store, sort_by)
     if uncertainty:
@@ -116,9 +100,9 @@ async def get_ranking(
     total_items = len(ranked)
     q = q.strip()[:500]
     ranked = [r for r in ranked if q.casefold() in r["name"].casefold()]
-    if filter == "uncertain":
+    if filter_mode == "uncertain":
         ranked = [r for r in ranked if r["under_evaluated"]]
-    elif filter == "top":
+    elif filter_mode == "top":
         ranked = [r for r in ranked if r["rank"] <= 5]
     return templates.TemplateResponse(
         request,
@@ -128,13 +112,15 @@ async def get_ranking(
             "criteria": store.criteria,
             "sort_by": sort_by,
             "q": q,
-            "filter": filter,
+            "filter": filter_mode,
             "total_items": total_items,
             "adjacent_confidence": uncertainty and uncertainty["adjacent_confidence"],
             "chart_data": {
                 **histogram([r["sort_score"] for r in ranked]),
                 "category": selected["label"] if selected else "종합 점수",
-                "color": _CHART_COLORS[selected["color"]] if selected else "#7c3aed",
+                "color": (
+                    CRITERION_COLORS[selected["color"]] if selected else "#7c3aed"
+                ),
             },
         },
     )

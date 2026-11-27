@@ -1,18 +1,45 @@
-"""FastAPI 의존성: 세션 쿠키로 연 랭킹과 백업 업로드 읽기."""
+"""FastAPI 의존성: 세션 쿠키로 연 랭킹, 공통 오류 응답, 백업 업로드 읽기."""
 
 import re
 from typing import Annotated
 
 from fastapi import Cookie, Depends, Request, UploadFile
+from fastapi.responses import JSONResponse, Response
 
+from ranker import database
 from ranker.schemas import MAX_BACKUP_BYTES
 from ranker.store import DataStore, InvalidSessionDataError, open_store
+from ranker.template_env import templates
 
 _SESSION_ID_RE = re.compile(r"[0-9a-f]{32}")
 
 
 def is_htmx(request: Request) -> bool:
     return request.headers.get("HX-Request") == "true"
+
+
+def wants_json(request: Request) -> bool:
+    """HTMX와 스크립트 요청은 JSON, 일반 폼 제출과 페이지 이동은 HTML로 답합니다."""
+    return is_htmx(request) or request.headers.get("content-type", "").startswith(
+        "application/json"
+    )
+
+
+def error_response(
+    request: Request,
+    status: int,
+    message: str,
+    *,
+    back_url: str | None = None,
+) -> Response:
+    if wants_json(request):
+        return JSONResponse({"detail": message}, status_code=status)
+    context: dict[str, str] = {"message": message}
+    if back_url is not None:
+        context["back_url"] = back_url
+    return templates.TemplateResponse(
+        request, "error.html", context, status_code=status
+    )
 
 
 class RequiresSessionException(Exception):
@@ -23,9 +50,20 @@ class UploadTooLargeError(ValueError):
     """백업 파일이 한도를 넘습니다."""
 
 
+async def get_active_session_id(request: Request) -> str | None:
+    """스냅샷을 전부 읽지 않고 쿠키의 랭킹이 유효한지만 확인합니다."""
+    session_id = request.cookies.get("session_id")
+    if not session_id or not _SESSION_ID_RE.fullmatch(session_id):
+        return None
+    if not await database.session_exists(session_id):
+        return None
+    request.state.session_id = session_id
+    return session_id
+
+
 async def get_session_store(
     request: Request,
-    session_id: Annotated[str | None, Cookie()] = None,
+    session_id: str | None = None,
 ) -> DataStore | None:
     """쿠키의 랭킹을 엽니다. 없거나 손상되었으면 None입니다.
 

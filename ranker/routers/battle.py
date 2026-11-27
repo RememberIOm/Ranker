@@ -8,7 +8,7 @@ from typing import Any
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, Response
 
-from ranker.deps import StoreDep, is_htmx
+from ranker.deps import StoreDep, error_response, is_htmx
 from ranker.schemas import BattleVoteRequest, ThreeWayBattleVoteRequest
 from ranker.services import (
     display_rating,
@@ -102,17 +102,10 @@ async def _pick_match(
     3개 비교 모드에서 항목이 3개 미만이면 1대1로 진행합니다.
     대결을 만들 수 없으면 None입니다.
     """
-    three_way = store.settings["battle_mode"] == "3way" and len(store.items) >= 3
-    size = 3 if three_way else 2
-    reused = store.reusable_round(size, focus_id)
-    if reused:
-        token, items = reused
-    else:
-        selected = await asyncio.to_thread(select_match, store, size, focus_id)
-        if selected is None:
-            return None
-        token = await store.issue_battle_round([item["id"] for item in selected])
-        items = [store.get_item(item["id"]) for item in selected]
+    picked = await store.pick_battle_round(focus_id, select_match)
+    if picked is None:
+        return None
+    token, items = picked
     return await asyncio.to_thread(_battle_context, store, items, token, focus_id)
 
 
@@ -141,11 +134,11 @@ async def get_battle(request: Request, store: StoreDep) -> HTMLResponse:
 @router.get("/focus/{item_id}", response_class=HTMLResponse)
 async def focus_battle(item_id: int, request: Request, store: StoreDep) -> Response:
     if store.criteria and not store.get_item(item_id):
-        return templates.TemplateResponse(
+        return error_response(
             request,
-            "error.html",
-            {"message": "삭제되었거나 현재 랭킹에 없는 항목입니다."},
-            status_code=404,
+            404,
+            "삭제되었거나 현재 랭킹에 없는 항목입니다.",
+            back_url="/battle",
         )
     return await _battle_page(request, store, item_id)
 

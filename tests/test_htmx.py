@@ -3,22 +3,8 @@
 import re
 
 import httpx2
-import pytest
-from httpx2 import ASGITransport
 
-from ranker.main import app
 from ranker.schemas import MAX_ITEMS
-
-
-@pytest.fixture()
-async def client(_temp_db) -> httpx2.AsyncClient:
-    """세션이 설정된 테스트 클라이언트를 반환합니다."""
-    transport = ASGITransport(app=app)
-    async with httpx2.AsyncClient(transport=transport, base_url="http://test") as c:
-        # 새 세션 생성
-        resp = await c.post("/start", follow_redirects=False)
-        assert resp.status_code == 303
-        yield c
 
 
 async def _setup_battle(client: httpx2.AsyncClient) -> None:
