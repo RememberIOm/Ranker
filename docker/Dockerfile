@@ -14,16 +14,15 @@ RUN npm run build:css
 # ── Stage 2: Python 런타임 ─────────────────────────────────────
 FROM python:3.15.2-slim@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928
 
-COPY --from=uv /uv /uvx /bin/
-
 WORKDIR /app
 
-# 의존성 파일 먼저 복사 (레이어 캐시 활용)
+# 의존성 파일 먼저 복사 (레이어 캐시 활용, uv 바이너리는 런타임 이미지에 남기지 않음)
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev --no-editable
+RUN --mount=from=uv,source=/uv,target=/bin/uv uv sync --frozen --no-dev --no-editable
 
 COPY LICENSE ./
 COPY ranker/ ranker/
+COPY scripts/__init__.py scripts/drop_redundant_indexes.py scripts/
 
 # 사전 빌드된 CSS 복사
 COPY --from=css-builder /build/ranker/static/output.css /app/ranker/static/output.css

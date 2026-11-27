@@ -2,6 +2,7 @@
 
 import json
 import os
+import sqlite3
 import subprocess
 import sys
 from pathlib import Path
@@ -10,6 +11,7 @@ import pytest
 from pydantic import ValidationError
 
 from ranker.store import InvalidSessionDataError, open_store
+from scripts.drop_redundant_indexes import convert as drop_redundant_indexes
 
 
 @pytest.mark.parametrize("version", [None, 1, 2, 3, 4.5, "4"])
@@ -78,3 +80,25 @@ with TestClient(app) as client:
         check=False,
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_drop_redundant_indexes_migrates_existing_db_idempotently(tmp_path):
+    db_path = tmp_path / "legacy.db"
+    with sqlite3.connect(db_path) as db:
+        db.executescript(
+            """
+            CREATE TABLE items (session_id TEXT, id INTEGER, PRIMARY KEY (session_id, id));
+            CREATE TABLE item_ratings (
+                session_id TEXT, item_id INTEGER, criterion_key TEXT,
+                PRIMARY KEY (session_id, item_id, criterion_key)
+            );
+            CREATE INDEX idx_items_session ON items(session_id);
+            CREATE INDEX idx_item_ratings_session_item ON item_ratings(session_id, item_id);
+            """
+        )
+    assert drop_redundant_indexes(db_path) == [
+        "idx_items_session",
+        "idx_item_ratings_session_item",
+    ]
+    assert drop_redundant_indexes(db_path) == []
+    assert drop_redundant_indexes(tmp_path / "missing.db") == []
