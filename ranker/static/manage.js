@@ -16,7 +16,16 @@ pageActions['pick-color'] = function (el) {
 };
 
 pageActions['remove-criterion'] = function (el) {
-  el.closest('.criteria-row').remove();
+  var row = el.closest('.criteria-row');
+  var form = el.closest('#criteria-form');
+  var keyInput = row && row.querySelector('input[name="key"]');
+  if (form && keyInput && keyInput.value) {
+    form.setAttribute(
+      'hx-confirm',
+      '삭제한 평가 기준의 투표 결과도 함께 지워지며 되돌릴 수 없습니다. 저장할까요?'
+    );
+  }
+  if (row) row.remove();
 };
 
 pageActions['add-criterion'] = function () {

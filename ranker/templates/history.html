@@ -15,7 +15,7 @@
     {% for event in events %}
     <li class="card p-5 {{ 'opacity-60' if event.undone or event.archived }}">
       <div class="mb-2 flex flex-wrap justify-between gap-2"><h2 class="font-bold">{{ event.item_names | join(' · ') }}</h2><span class="text-xs text-zinc-500">{% if event.undone %}취소됨{% elif event.archived %}취소 불가 (항목·기준 변경){% else %}{{ '3개 비교' if event.mode == '3way' else '1대1' }}{% endif %}</span></div>
-      <p class="mb-3 text-xs text-zinc-500">{{ event.created_at }}</p>
+      <p class="mb-3 text-xs text-zinc-500"><time datetime="{{ event.created_at_iso }}">{{ event.created_at }}</time></p>
       <ul class="flex flex-col gap-1 text-sm text-zinc-600 dark:text-zinc-300">{% for line in event.vote_summary %}<li>{{ line }}</li>{% endfor %}</ul>
     </li>
     {% else %}<li class="card p-8 text-center text-sm text-zinc-500">아직 투표 내역이 없습니다.</li>{% endfor %}

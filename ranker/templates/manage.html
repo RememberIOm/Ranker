@@ -27,7 +27,7 @@
         <form action="/manage/add" method="post" class="mt-3 flex gap-2"
               hx-post="/manage/add" hx-target="#item-list" hx-swap="innerHTML"
               data-reset-on-success>
-          <input type="text" name="name" placeholder="항목 이름" aria-label="추가할 항목 이름" required autocomplete="off" class="field-input flex-1">
+          <input type="text" name="name" placeholder="항목 이름" aria-label="추가할 항목 이름" maxlength="500" required autocomplete="off" class="field-input flex-1">
           <button type="submit" class="btn-primary shrink-0 px-5">추가</button>
         </form>
       </section>
@@ -65,6 +65,7 @@
     <form action="/manage/settings" method="post" hx-post="/manage/settings" hx-swap="none" class="mt-6 flex flex-col gap-8">
 
       <fieldset class="rounded-2xl border border-zinc-200 p-5 dark:border-zinc-800">
+        <legend class="sr-only">일반 설정</legend>
 
         <div class="mt-4">
           <span class="field-label">비교 방식</span>
@@ -106,7 +107,7 @@
         <div class="mt-5">
           <label class="block">
             <span class="field-label">대기 시간 (초)</span>
-            <input type="number" name="result_skip_seconds" value="{{ settings.get('result_skip_seconds', 3.0) }}" step="0.5" min="0.5" max="60" inputmode="decimal" class="field-input max-w-48">
+            <input type="number" name="result_skip_seconds" value="{{ settings.get('result_skip_seconds', 3.0) }}" step="any" min="0.5" max="60" inputmode="decimal" class="field-input max-w-48">
           </label>
           <p class="field-hint">보통 2~5초</p>
         </div>
@@ -123,7 +124,7 @@
           <label class="block">
             <span class="field-label">초기 점수 변동 폭 <span class="font-normal text-zinc-500 dark:text-zinc-400">(σ)</span></span>
             <span class="field-help block">값이 클수록 적은 투표로도 점수 차이가 크게 벌어집니다.</span>
-            <input type="number" name="initial_sigma" value="{{ settings.initial_sigma }}" step="0.1" min="0.1" max="10" inputmode="decimal" class="field-input max-w-48">
+            <input type="number" name="initial_sigma" value="{{ settings.initial_sigma }}" step="any" min="0.1" max="10" inputmode="decimal" class="field-input max-w-48">
           </label>
           <p class="field-hint">보통 1.5~3</p>
         </div>
@@ -137,7 +138,7 @@
             <label class="block">
               <span class="field-label">중심점</span>
               <span class="field-help block">기준이 되는 평균 점수</span>
-              <input type="number" name="display_center" value="{{ settings.display_center }}" step="50" inputmode="decimal" class="field-input">
+              <input type="number" name="display_center" value="{{ settings.display_center }}" step="any" min="0" max="100000" inputmode="decimal" class="field-input">
             </label>
             <p class="field-hint">기본값 1200</p>
           </div>
@@ -145,7 +146,7 @@
             <label class="block">
               <span class="field-label">배율</span>
               <span class="field-help block">내부 점수 1이 표시 점수로 몇 점인지</span>
-              <input type="number" name="display_scale" value="{{ settings.display_scale }}" step="0.01" inputmode="decimal" class="field-input">
+              <input type="number" name="display_scale" value="{{ settings.display_scale }}" step="any" min="0.01" max="10000" inputmode="decimal" class="field-input">
             </label>
             <p class="field-hint">기본값 173.72 (Elo와 같은 간격)</p>
           </div>
@@ -169,7 +170,7 @@
     <section class="card animate-slide-up border-amber-200 p-5 sm:p-6 dark:border-amber-500/30" style="animation-delay: 60ms">
       <h2 class="flex items-center gap-2 font-display text-base font-bold text-amber-700 dark:text-amber-400">{{ icon('upload') }} 백업 불러오기</h2>
       <p class="mt-2 text-sm text-zinc-600 dark:text-zinc-400">파일을 확인한 뒤 바뀔 내용을 미리 보여줍니다.</p>
-      <form id="import-form" action="/manage/import" method="post" enctype="multipart/form-data" class="mt-5 flex flex-col gap-3">
+      <form id="import-form" action="/manage/import" method="post" enctype="multipart/form-data" data-busy-label="확인 중…" class="mt-5 flex flex-col gap-3">
         <input type="file" name="file" accept="application/json,.json" required aria-label="백업 파일(JSON) 선택"
                class="field-input cursor-pointer py-2.5 file:mr-3 file:cursor-pointer file:rounded-lg file:border-0 file:bg-amber-100 file:px-3 file:py-1.5 file:text-xs file:font-bold file:text-amber-700 dark:file:bg-amber-500/20 dark:file:text-amber-300">
         <button type="submit" class="btn-primary self-start bg-amber-600 hover:bg-amber-500">{{ icon('upload') }} 파일 불러오기</button>

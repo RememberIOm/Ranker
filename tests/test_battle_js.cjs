@@ -64,11 +64,63 @@ test('3개 비교에서 건너뛰기는 동률과 구별하고 재선택할 수 
   assert.equal(ctx.isComplete(ctx.votes.quality), false);
 });
 
-test('1대1에서 건너뛰기를 별도 값으로 직렬화한다', () => {
+test('1대1에서 건너뛰기를 별도 값으로 직렬화하고 다시 누르면 해제한다', () => {
   const { context: ctx } = loadBattle('2way');
   ctx.skipCriterion('quality');
   assert.equal(ctx.serializeVotes().quality, 'skip');
   assert.equal(ctx.isComplete(ctx.votes.quality), true);
+  ctx.skipCriterion('quality');
+  assert.equal(ctx.votes.quality, undefined);
+  assert.equal(ctx.isComplete(ctx.votes.quality), false);
+});
+
+test('3개 비교에서 최하만 남은 상태에서도 이것만 최하로 완료할 수 있다', () => {
+  const { context: ctx } = loadBattle('3way');
+  ctx.selectItem('quality', 1);
+  ctx.selectItem('quality', 2);
+  ctx.selectItem('quality', 1); // best 해제 -> { worst: 2 }
+  assert.equal(ctx.votes.quality.best, undefined);
+  assert.equal(ctx.votes.quality.worst, 2);
+  ctx.toggleWorstOnly('quality');
+  assert.equal(ctx.isComplete(ctx.votes.quality), true);
+  assert.deepEqual(
+    { ...ctx.serializeVotes().quality },
+    { '2': 'worst', '1': 'tied', '3': 'tied' }
+  );
+});
+
+test('OOB 응답으로 대결 모드가 바뀌어도 새로고침 없이 이어서 진행한다', () => {
+  const { context: ctx } = loadBattle('2way');
+  const originalGet = ctx.document.getElementById;
+  const arena = { inert: false, setAttribute: () => {}, querySelectorAll: () => [] };
+  const container = { innerHTML: '' };
+  const nextState = {
+    dataset: {
+      item1Id: '1', item2Id: '2', item3Id: '3',
+      roundToken: 'next-round', criteriaKeys: '["quality","taste"]', battleMode: '3way',
+    },
+  };
+  let currentState = originalGet('battle-state');
+  ctx.window = { location: { href: '' } };
+  ctx.htmx = {
+    swap: (_target, html) => {
+      container.innerHTML = html;
+      currentState = nextState;
+    },
+  };
+  ctx.document.getElementById = (id) => {
+    if (id === 'battle-arena') return arena;
+    if (id === 'result-modal-container') return container;
+    if (id === 'result-modal') return {};
+    if (id === 'battle-state') return currentState;
+    return originalGet(id);
+  };
+  ctx.initResultModal = () => {};
+  ctx.applyVoteResponse('<div>결과 + 3way OOB</div>');
+  ctx.dismissModal();
+  assert.equal(ctx.window.location.href, '');
+  assert.equal(ctx.battleMode, '3way');
+  assert.equal(ctx.roundToken, 'next-round');
 });
 
 test('일반 Enter는 제출하지 않고 Ctrl+Enter만 제출한다', () => {

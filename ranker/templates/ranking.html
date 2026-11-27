@@ -39,6 +39,7 @@
   {% endif %}
 
   {% if items %}
+  {% set current_ranking_url = '/ranking?sort_by=' ~ (sort_by | urlencode) ~ '&q=' ~ (q | default('') | urlencode) ~ '&filter=' ~ (filter | default('all') | urlencode) %}
   <div class="card overflow-x-auto">
     <table class="w-full min-w-max text-left text-sm">
       <thead class="border-b border-zinc-200 text-xs font-bold tracking-wide text-zinc-500 uppercase dark:border-zinc-800 dark:text-zinc-400">
@@ -70,8 +71,8 @@
             <span id="rank-view-{{ item.id }}" class="font-semibold break-words">{{ item.name }}</span>
             <form id="rank-edit-{{ item.id }}" action="/manage/edit" method="post" class="hidden items-center gap-2">
               <input type="hidden" name="item_id" value="{{ item.id }}">
-              <input type="hidden" name="redirect_url" value="/ranking?sort_by={{ sort_by | urlencode }}">
-              <input type="text" name="new_name" value="{{ item.name }}" required autocomplete="off" class="field-input min-h-9 w-36 px-2.5 text-xs" aria-label="새 이름">
+              <input type="hidden" name="redirect_url" value="{{ current_ranking_url }}">
+              <input type="text" name="new_name" value="{{ item.name }}" maxlength="500" required autocomplete="off" class="field-input min-h-9 w-36 px-2.5 text-xs" aria-label="새 이름">
               <button type="submit" class="btn-primary min-h-9 px-3 text-xs">저장</button>
               <button type="button" class="btn-ghost min-h-9 px-3 text-xs" data-action="toggle-rank-edit" data-id="{{ item.id }}">취소</button>
             </form>
@@ -99,7 +100,7 @@
               <button type="button" role="menuitem" class="menu-item" data-action="toggle-rank-edit" data-id="{{ item.id }}">{{ icon('pencil', 'w-4 h-4') }} 수정</button>
               <form data-confirm-message="'{{ item.name }}' 항목을 삭제할까요?" action="/manage/delete" method="post">
                 <input type="hidden" name="item_id" value="{{ item.id }}">
-                <input type="hidden" name="redirect_url" value="/ranking?sort_by={{ sort_by | urlencode }}">
+                <input type="hidden" name="redirect_url" value="{{ current_ranking_url }}">
                 <button type="submit" role="menuitem" class="menu-item text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-500/10">{{ icon('trash', 'w-4 h-4') }} 삭제</button>
               </form>
             </div>
@@ -119,7 +120,9 @@
 {% endblock %}
 
 {% block scripts %}
+{% if items %}
 <script type="application/json" id="chart-data">{{ chart_data | tojson }}</script>
 <script src="/static/vendor/chart.umd.min.js" defer></script>
 <script src="/static/ranking.js" defer></script>
+{% endif %}
 {% endblock %}

@@ -1,10 +1,5 @@
-{% from "partials/_icons.html" import icon %}
-<div id="result-modal" role="dialog" aria-modal="true" aria-label="대결 결과" aria-hidden="false"
-     data-auto-skip="{{ 'true' if result_auto_skip else 'false' }}"
-     data-skip-seconds="{{ result_skip_seconds }}"
-     class="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/60 p-4 opacity-0 backdrop-blur-sm transition-opacity duration-300">
-  <div class="card w-full max-w-lg scale-95 p-5 transition-transform duration-300 sm:p-6">
-    <p class="text-center font-display text-[11px] font-extrabold tracking-widest text-violet-600 uppercase dark:text-violet-400">대결 결과</p>
+{% from "partials/_battle_chrome.html" import result_modal %}
+{% call result_modal(result_auto_skip, result_skip_seconds, 'max-w-lg') %}
     <div class="mt-2 flex items-center justify-center gap-3 text-center">
       <span class="min-w-0 flex-1 truncate text-right font-display text-base font-bold sm:text-lg">{{ a1_name }}</span>
       <span class="shrink-0 rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-bold text-zinc-500 uppercase dark:bg-zinc-800 dark:text-zinc-400">vs</span>
@@ -12,7 +7,9 @@
     </div>
 
     <div class="mt-4 flex max-h-[45dvh] flex-col gap-1.5 overflow-y-auto pr-1">
-      {% if not results %}<p class="py-4 text-center text-sm text-zinc-500">모든 기준을 건너뛰어 점수가 그대로입니다.</p>{% endif %}
+      {% if results | selectattr('skipped', 'undefined') | list | length == 0 %}
+      <p class="py-2 text-center text-xs text-zinc-500">모든 기준을 건너뛰어 점수가 그대로입니다.</p>
+      {% endif %}
       {% for r in results %}
       {% if r.skipped | default(false) %}
       <p class="rounded-xl bg-zinc-50 px-3 py-3 text-center text-sm text-zinc-500 dark:bg-zinc-800/60">{{ r.label }} · 건너뜀</p>
@@ -23,7 +20,8 @@
           <span class="text-xs font-bold tabular-nums {{ 'text-emerald-600 dark:text-emerald-400' if r.diff_r1 > 0 else ('text-rose-600 dark:text-rose-400' if r.diff_r1 < 0 else 'text-zinc-400 dark:text-zinc-500') }}">{{ '%+.1f' | format(r.diff_r1) }}</span>
         </div>
         <div class="flex items-center justify-center gap-1.5">
-          <span aria-hidden="true" class="w-4 text-center text-sm font-bold {{ 'text-violet-500' if r.winner == '1' else 'text-zinc-300 dark:text-zinc-600' }}">{{ '◀' if r.winner == '1' else ('▶' if r.winner == '2' else '=') }}</span>
+          <span aria-hidden="true" class="w-4 text-center text-sm font-bold {{ 'text-violet-500' if r.winner == '1' else ('text-rose-500' if r.winner == '2' else 'text-zinc-300 dark:text-zinc-600') }}">{{ '◀' if r.winner == '1' else ('▶' if r.winner == '2' else '=') }}</span>
+          <span class="sr-only">{{ a1_name ~ ' 승' if r.winner == '1' else (a2_name ~ ' 승' if r.winner == '2' else '무승부') }}</span>
           <span class="max-w-24 truncate text-[11px] font-extrabold tracking-wide uppercase text-{{ r.color }}-600 dark:text-{{ r.color }}-400">{{ r.label }}</span>
         </div>
         <div class="flex items-baseline justify-start gap-1.5">
@@ -34,18 +32,4 @@
       {% endif %}
       {% endfor %}
     </div>
-
-    <div id="auto-skip-area" class="{{ '' if result_auto_skip else 'hidden' }} mt-5">
-      <div class="h-1.5 w-full rounded-full bg-zinc-200 dark:bg-zinc-800">
-        <div id="modal-progress" class="h-full rounded-full bg-violet-500 transition-[width] ease-linear" style="width: 0%; transition-duration: {{ (result_skip_seconds * 1000) | int }}ms"></div>
-      </div>
-      <div class="mt-3 flex items-center justify-between gap-3">
-        <p class="text-xs font-medium text-zinc-500 dark:text-zinc-400">{{ result_skip_seconds }}초 뒤 다음 대결로 넘어갑니다</p>
-        <button type="button" data-battle="keep-result" class="btn-secondary px-4 py-2 text-xs">멈추기</button>
-      </div>
-    </div>
-    <div id="click-skip-area" class="{{ 'hidden' if result_auto_skip else '' }} mt-5 text-center">
-      <button type="button" id="next-battle-btn" data-battle="dismiss-result" class="btn-primary w-full py-3 sm:w-auto sm:px-10">{{ icon('swords') }}<span>다음 대결</span></button>
-    </div>
-  </div>
-</div>
+{% endcall %}

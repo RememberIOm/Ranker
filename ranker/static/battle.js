@@ -14,7 +14,7 @@ function readBattleState() {
   var st = document.getElementById('battle-state');
   item1Id = Number(st.dataset.item1Id);
   item2Id = Number(st.dataset.item2Id);
-  item3Id = Number(st.dataset.item3Id);
+  item3Id = st.dataset.item3Id ? Number(st.dataset.item3Id) : null;
   roundToken = st.dataset.roundToken;
   redirectTo = st.dataset.redirectTo || '';
   criteriaKeys = JSON.parse(st.dataset.criteriaKeys || '[]');
@@ -31,32 +31,56 @@ function setBattleBusy(busy) {
 }
 
 /* ================= selection ================= */
+function clearVoteUI(key) {
+  ['1', 'draw', '2', 'skip'].forEach(function (c) {
+    var btn = document.getElementById('btn-' + key + '-' + c);
+    if (!btn) return;
+    btn.setAttribute('aria-pressed', 'false');
+    btn.classList.remove('selected-1', 'selected-draw', 'selected-2', 'active-mode');
+  });
+  var card = document.querySelector('.criteria-card[data-key="' + CSS.escape(key) + '"]');
+  if (card) card.classList.remove('voted');
+}
+
 function skipCriterion(key) {
   if (isSubmitting) return;
-  if (battleMode === '2way') { selectVote(key, 'skip'); return; }
+  if (battleMode === '2way') {
+    if (votes[key] === 'skip') {
+      delete votes[key];
+      clearVoteUI(key);
+      updateProgress();
+      return;
+    }
+    selectVote(key, 'skip');
+    return;
+  }
   votes[key] = votes[key] && votes[key].skip ? {} : { skip: true };
   updateCardUI(key);
   updateProgress();
 }
 
-function selectVote(key, choice) {
-  if (isSubmitting) return;
+function applyVoteChoice(key, choice) {
   votes[key] = choice;
-  ['1', 'draw', '2', 'skip'].forEach(function (c) {
-    var btn = document.getElementById('btn-' + key + '-' + c);
-    if (!btn) return;
-    btn.setAttribute('aria-pressed', String(c === choice));
-    btn.classList.remove('selected-1', 'selected-draw', 'selected-2', 'active-mode');
-  });
+  clearVoteUI(key);
   var chosen = document.getElementById('btn-' + key + '-' + choice);
-  if (chosen) chosen.classList.add(choice === 'skip' ? 'active-mode' : 'selected-' + choice);
+  if (chosen) {
+    chosen.setAttribute('aria-pressed', 'true');
+    chosen.classList.add(choice === 'skip' ? 'active-mode' : 'selected-' + choice);
+  }
   var card = document.querySelector('.criteria-card[data-key="' + CSS.escape(key) + '"]');
   if (card) card.classList.add('voted');
+}
+
+function selectVote(key, choice) {
+  if (isSubmitting) return;
+  applyVoteChoice(key, choice);
   updateProgress();
 }
 
 function selectAllAs(choice) {
-  criteriaKeys.forEach(function (k) { selectVote(k, choice); });
+  if (isSubmitting) return;
+  criteriaKeys.forEach(function (k) { applyVoteChoice(k, choice); });
+  updateProgress();
 }
 
 function isComplete(v) {
@@ -106,6 +130,8 @@ function toggleWorstOnly(key) {
     votes[key] = { best: v.worst };
   } else if (v.best != null) {
     votes[key] = { worst: v.best, tied: true, worstOnly: true };
+  } else if (v.worst != null) {
+    votes[key] = { worst: v.worst, tied: true, worstOnly: true };
   } else {
     return;
   }
@@ -226,6 +252,7 @@ function updateCardUI(key) {
     if (worstBtn) worstBtn.classList.remove('hidden');
   } else if (v.worst != null) {
     setRole(v.worst, 'Worst', 'sel-worst', true);
+    if (worstBtn) worstBtn.classList.remove('hidden');
   }
 }
 
@@ -433,7 +460,7 @@ function dismissModal() {
 
 function reinitBattleState() {
   var st = document.getElementById('battle-state');
-  if (!nextArenaLoaded || !st || st.dataset.battleMode !== battleMode) {
+  if (!nextArenaLoaded || !st) {
     window.location.href = redirectTo || '/battle';
     return;
   }
@@ -467,9 +494,9 @@ document.addEventListener('click', function (e) {
   if (el && BATTLE_ACTIONS[el.dataset.battle]) BATTLE_ACTIONS[el.dataset.battle](el);
 });
 
-// 일반 Enter는 포커스된 버튼의 기본 동작을 유지하고, Ctrl+Enter만 저장합니다.
+// 일반 Enter는 포커스된 버튼의 기본 동작을 유지하고, Ctrl/Cmd+Enter만 저장합니다.
 document.addEventListener('keydown', function (e) {
-  if (e.key !== 'Enter' || !e.ctrlKey || e.repeat || document.getElementById('result-modal')) return;
+  if (e.key !== 'Enter' || (!e.ctrlKey && !e.metaKey) || e.repeat || document.getElementById('result-modal')) return;
   var btn = document.getElementById('submit-btn');
   if (btn && !btn.disabled) { e.preventDefault(); submitAllVotes(); }
 });

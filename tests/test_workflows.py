@@ -1,10 +1,10 @@
 """랭킹 목록, 백업 확인, 기록 화면의 요청 단위 회귀 테스트."""
 
+import asyncio
 import json
 import re
 
 import httpx2
-import pytest
 
 from ranker.database import fetch_events, transaction
 from ranker.main import app
@@ -13,15 +13,6 @@ from ranker.routers import battle
 from ranker.routers.ranking import histogram, ranking_rows
 from ranker.store import cleanup_pending_imports, open_store
 from tests.helpers import vote
-
-
-@pytest.fixture
-async def client(_temp_db):
-    async with httpx2.AsyncClient(
-        transport=httpx2.ASGITransport(app=app), base_url="http://test"
-    ) as client:
-        await client.post("/start")
-        yield client
 
 
 async def test_library_switch_and_recovery_do_not_lose_boards(client):
@@ -385,3 +376,127 @@ async def test_failed_import_apply_can_be_retried(client, monkeypatch):
     monkeypatch.undo()
     assert (await client.post("/manage/import/confirm")).status_code == 303
     assert "새 항목" not in (await client.get("/manage/export")).text
+
+
+async def test_criteria_key_generation_avoids_collision_hijack_and_overlong_key(client):
+    await client.post("/manage/add-bulk", data={"names": "Alpha\nBeta"})
+    store = await open_store(client.cookies.get("session_id"))
+    await vote(store)
+    # 1) 기존 key="story" 앞에 같은 영문 이름의 새 기준을 넣어도 충돌하지 않습니다.
+    resp = await client.post(
+        "/manage/criteria",
+        data={
+            "key": ["", "story"],
+            "label": ["Story", "스토리"],
+            "color": ["red", "blue"],
+            "weight": ["1.0", "1.2"],
+        },
+    )
+    assert resp.status_code == 303
+    exported = json.loads((await client.get("/manage/export")).text)
+    keys = [c["key"] for c in exported["criteria"]]
+    assert "story" in keys and len(keys) == 2
+
+    # 2) 기존 story를 지우고 같은 이름의 새 기준을 한 번에 추가해도 예전 관측을 이어받지 않습니다.
+    resp = await client.post(
+        "/manage/criteria",
+        data={"key": [""], "label": ["Story"], "color": ["green"], "weight": ["1.0"]},
+    )
+    assert resp.status_code == 303
+    exported = json.loads((await client.get("/manage/export")).text)
+    assert exported["criteria"][0]["key"] != "story"
+    assert exported["criteria"][0]["battles"] == 0
+    assert exported["observations"] == {}
+
+    # 3) 100자를 넘는 유효한 영문 기준 이름도 key 길이 한도 안에서 저장됩니다.
+    long_label = "a" * 120
+    resp = await client.post(
+        "/manage/criteria",
+        data={"key": [""], "label": [long_label], "color": ["blue"], "weight": ["1.0"]},
+    )
+    assert resp.status_code == 303
+    exported = json.loads((await client.get("/manage/export")).text)
+    assert len(exported["criteria"][0]["key"]) <= 100
+
+
+async def test_upload_fit_failure_leaves_no_orphaned_board(client, monkeypatch):
+    await client.post("/manage/add-bulk", data={"names": "Alpha\nBeta"})
+    raw = (await client.get("/manage/export")).text
+    client.cookies.clear()
+
+    def fail(*args, **kwargs):
+        raise FitConvergenceError("수렴 실패")
+
+    monkeypatch.setattr("ranker.store.fit_rankings", fail)
+    resp = await client.post(
+        "/upload", files={"file": ("backup.json", raw, "application/json")}
+    )
+    assert resp.status_code == 503
+    async with transaction() as db:
+        cur = await db.execute("SELECT COUNT(*) FROM boards WHERE name = '불러온 랭킹'")
+        assert (await cur.fetchone())[0] == 0
+
+
+async def test_concurrent_battle_loads_share_the_same_round_token(client):
+    await client.post("/manage/add-bulk", data={"names": "Alpha\nBeta\nGamma"})
+    first, second = await asyncio.gather(client.get("/battle"), client.get("/battle"))
+    assert first.status_code == 200 and second.status_code == 200
+    t1 = re.search(r'data-round-token="([^"]+)"', first.text).group(1)
+    t2 = re.search(r'data-round-token="([^"]+)"', second.text).group(1)
+    assert t1 == t2
+
+
+async def test_settings_rejects_invalid_battle_mode_and_renders_error_page(client):
+    resp = await client.post("/manage/settings", data={"battle_mode": "invalid"})
+    assert resp.status_code == 400
+    assert "<!DOCTYPE" in resp.text
+
+    # HTMX 검증 실패는 400 JSON으로 응답해 app.js의 에러 토스트로 연결됩니다.
+    htmx_resp = await client.post(
+        "/manage/settings",
+        data={"battle_mode": "invalid"},
+        headers={"HX-Request": "true"},
+    )
+    assert htmx_resp.status_code == 400
+    assert "detail" in htmx_resp.json()
+
+
+async def test_import_preview_shows_current_history_count(client):
+    await client.post("/manage/add-bulk", data={"names": "Alpha\nBeta"})
+    store = await open_store(client.cookies.get("session_id"))
+    await vote(store)
+    raw = (await client.get("/manage/export")).text
+    preview = await _stage(client, raw)
+    assert preview.status_code == 200
+    assert "<td>1건</td><td>1건</td>" in preview.text
+
+
+async def test_history_preserves_battle_item_order_over_lexicographical_ids(client):
+    await client.post(
+        "/manage/add-bulk", data={"names": "\n".join(f"Item{i}" for i in range(1, 11))}
+    )
+    store = await open_store(client.cookies.get("session_id"))
+    await vote(store, (2, 10))
+    page = (await client.get("/history")).text
+    assert "Item2 · Item10" in page
+
+
+async def test_error_back_links_rename_404_and_ranking_redirect_query(client):
+    # ranking의 수정·삭제 redirect_url이 검색어와 필터를 유지합니다.
+    await client.post("/manage/add", data={"name": "Alpha"})
+    page = (await client.get("/ranking?sort_by=total&q=Alpha&filter=uncertain")).text
+    assert "q=Alpha" in page and "filter=uncertain" in page
+
+    # 비로그인 상태에서 /collections/rename은 404를 돌려줍니다.
+    client.cookies.clear()
+    resp = await client.post(
+        "/collections/rename", data={"session_id": "0" * 32, "name": "새 이름"}
+    )
+    assert resp.status_code == 404
+
+    # /upload 오류 화면은 / 로 돌아가는 링크를 제공합니다.
+    resp = await client.post(
+        "/upload", files={"file": ("bad.json", "{", "application/json")}
+    )
+    assert resp.status_code == 400
+    assert '<a href="/" class="btn-primary">돌아가기</a>' in resp.text

@@ -6,16 +6,17 @@
 @source "../ranker/static/*.js";
 
 /* Safelist: templates compose color classes at runtime from stored criterion
-   colors (text-{color}-600, bg-{color}-500, ring-{color}-300, …) for the
-   11-color palette. Guarantee they exist in the build. */
-@source inline("{dark:,}text-{red,orange,yellow,green,teal,cyan,blue,indigo,purple,pink,gray}-{300,400,500,600,700}");
-@source inline("{hover:,dark:,dark:hover:,}bg-{red,orange,yellow,green,teal,cyan,blue,indigo,purple,pink,gray}-{300,400,500,600,700}");
-@source inline("{dark:,}ring-{red,orange,yellow,green,teal,cyan,blue,indigo,purple,pink,gray}-{300,400,500,600,700}");
-@source inline("{dark:,}border-{red,orange,yellow,green,teal,cyan,blue,indigo,purple,pink,gray}-{300,400,500,600,700}");
+   colors (text-{color}-600, dark:text-{color}-400, bg-{color}-{500,600}) for
+   the 11-color palette. Guarantee only the classes actually rendered exist. */
+@source inline("text-{red,orange,yellow,green,teal,cyan,blue,indigo,purple,pink,gray}-600");
+@source inline("dark:text-{red,orange,yellow,green,teal,cyan,blue,indigo,purple,pink,gray}-400");
+@source inline("bg-{red,orange,yellow,green,teal,cyan,blue,indigo,purple,pink,gray}-{500,600}");
 
 /* Accent classes composed via Jinja loops for the 3-way item letters (A/B/C) */
-@source inline("{dark:,}{bg,text}-{violet,rose,sky}-{100,300,400,500,600,700}");
+@source inline("bg-{violet,rose,sky}-{100,500}");
 @source inline("dark:bg-{violet,rose,sky}-500/15");
+@source inline("text-{violet,rose,sky}-{600,700}");
+@source inline("dark:text-{violet,rose,sky}-{300,400}");
 
 /* Class-based dark mode driven by .dark on <html> */
 @custom-variant dark (&:where(.dark, .dark *));
@@ -69,10 +70,6 @@
   @keyframes result-row {
     from { opacity: 0; transform: translateX(-0.5rem); }
     to { opacity: 1; transform: translateX(0); }
-  }
-  @keyframes shimmer {
-    from { background-position: -200% 0; }
-    to { background-position: 200% 0; }
   }
 }
 

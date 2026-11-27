@@ -21,9 +21,18 @@
 
 /* ============ active nav marking ============ */
 document.querySelectorAll('#desktop-nav a[data-path], #mobile-nav a[data-path]').forEach(function (a) {
-  if (location.pathname.indexOf(a.dataset.path) === 0) {
+  var p = a.dataset.path;
+  if (location.pathname === p || location.pathname.indexOf(p + '/') === 0) {
     a.classList.add('nav-active');
     a.setAttribute('aria-current', 'page');
+  }
+});
+
+/* ============ local timestamps ============ */
+document.querySelectorAll('time[datetime]').forEach(function (el) {
+  var date = new Date(el.getAttribute('datetime'));
+  if (!isNaN(date.getTime())) {
+    el.textContent = date.toLocaleString('ko-KR', { dateStyle: 'medium', timeStyle: 'short' });
   }
 });
 
@@ -34,7 +43,7 @@ function showToast(message, type, duration) {
   var container = document.getElementById('toast-container');
   if (!container) return;
   var el = document.createElement('div');
-  el.setAttribute('role', 'alert');
+  if (type === 'error' || type === 'warning') el.setAttribute('role', 'alert');
   el.className = 'toast animate-toast-in toast-' + (['success', 'error', 'warning', 'info'].indexOf(type) >= 0 ? type : 'info');
   el.textContent = message;
   container.appendChild(el);
@@ -96,9 +105,21 @@ document.addEventListener('submit', function (event) {
   // 오래 걸리는 제출은 버튼을 잠가 두 번 보내지 않게 합니다.
   var button = form.dataset.busyLabel && form.querySelector('button[type="submit"]');
   if (button) {
+    if (!button.dataset.origLabel) button.dataset.origLabel = button.textContent;
     button.disabled = true;
     button.textContent = form.dataset.busyLabel;
   }
+});
+
+// 뒤로가기(bfcache)로 돌아왔을 때 제출 잠금과 확인 플래그를 복원합니다.
+window.addEventListener('pageshow', function () {
+  document.querySelectorAll('form[data-confirmed]').forEach(function (form) {
+    delete form.dataset.confirmed;
+  });
+  document.querySelectorAll('form[data-busy-label] button[type="submit"]').forEach(function (button) {
+    button.disabled = false;
+    if (button.dataset.origLabel) button.textContent = button.dataset.origLabel;
+  });
 });
 
 /* ============ fetch with timeout ============ */
@@ -157,17 +178,7 @@ document.addEventListener('click', function (e) {
 /* ============ HTMX ============ */
 (function () {
   function hxTargetOf(evt) {
-    if (evt.detail && evt.detail.target) return evt.detail.target;
-    var elt = evt.detail && evt.detail.elt;
-    if (!elt || !elt.getAttribute) return null;
-    var sel = elt.getAttribute('hx-target');
-    if (!sel || sel === 'none') return null;
-    try {
-      if (sel === 'this') return elt;
-      if (sel.indexOf('closest ') === 0) return elt.closest(sel.slice(8));
-      if (sel.indexOf('find ') === 0) return elt.querySelector(sel.slice(5));
-      return document.querySelector(sel);
-    } catch (e) { return null; }
+    return (evt.detail && evt.detail.target) || null;
   }
   function setFormBusy(evt, busy) {
     var elt = evt.detail && evt.detail.elt;

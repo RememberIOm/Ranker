@@ -22,8 +22,7 @@ async function setup(page, threeWay = false) {
 }
 
 test('투표와 partial 교체, 건너뛰기, 실행 취소', async ({ page }) => {
-  const errors = [];
-  page.on('pageerror', e => errors.push(e.message));
+  const errors = watchErrors(page);
   await setup(page);
   const token = await page.locator('#battle-state').getAttribute('data-round-token');
   await page.getByRole('button', { name: '모두 A', exact: true }).click();
@@ -42,6 +41,7 @@ test('투표와 partial 교체, 건너뛰기, 실행 취소', async ({ page }) =
 });
 
 test('3way 최고만 선택은 꼴찌를 만들지 않고 명시적 동률로 제출', async ({ page }) => {
+  const errors = watchErrors(page);
   await setup(page, true);
   await page.getByRole('button', { name: '모두 A 최고' }).click();
   await expect(page.locator('#submit-btn')).toBeDisabled();
@@ -50,9 +50,11 @@ test('3way 최고만 선택은 꼴찌를 만들지 않고 명시적 동률로 �
   await expect(page.locator('#submit-btn')).toBeEnabled();
   await page.locator('#submit-btn').click();
   await expect(page.locator('#result-modal')).toBeVisible();
+  expect(errors).toEqual([]);
 });
 
 test('빈 상태, 새 항목 추가·삭제와 검색', async ({ page }) => {
+  const errors = watchErrors(page);
   await page.request.post('/start');
   await page.goto('/ranking');
   await expect(page.locator('main')).toContainText('항목');
@@ -69,9 +71,11 @@ test('빈 상태, 새 항목 추가·삭제와 검색', async ({ page }) => {
   await page.locator('[data-confirm-ok]').click();
   await expect(page.locator('#item-list')).toContainText('항목이 없습니다');
   await expect(page.locator('#manage-counts')).toContainText('항목 0개');
+  expect(errors).toEqual([]);
 });
 
-test('새 기준 key가 저장 응답에서 갱신됨', async ({ page }) => {
+test('새 기준 key가 저장 응답에서 갱신되고 기존 기준 삭제 시 확인 창이 뜸', async ({ page }) => {
+  const errors = watchErrors(page);
   await setup(page);
   await page.goto('/manage?tab=criteria');
   await page.getByRole('button', { name: '기준 추가' }).click();
@@ -80,9 +84,17 @@ test('새 기준 key가 저장 응답에서 갱신됨', async ({ page }) => {
   await page.locator('#criteria-form button[type="submit"]').click();
   await expect(page.locator('#criteria-rows input[name="key"]').last()).not.toHaveValue('');
   await expect(page.locator('#manage-counts')).toContainText('기준 7개');
+  // 기존 기준을 지우고 저장할 때는 확인 창을 거쳐야 합니다.
+  await page.locator('#criteria-rows > div').last().getByRole('button', { name: '기준 삭제' }).click();
+  await page.locator('#criteria-form button[type="submit"]').click();
+  await expect(page.locator('[data-confirm-ok]')).toBeVisible();
+  await page.locator('[data-confirm-ok]').click();
+  await expect(page.locator('#manage-counts')).toContainText('기준 6개');
+  expect(errors).toEqual([]);
 });
 
 test('이름 있는 목록과 복구 코드로 다시 열기', async ({ page, context }) => {
+  const errors = watchErrors(page);
   await page.goto('/collections');
   await page.getByRole('textbox', { name: '새 랭킹 이름', exact: true }).fill('영화 목록');
   await page.getByRole('button', { name: '만들기', exact: true }).click();
@@ -96,14 +108,17 @@ test('이름 있는 목록과 복구 코드로 다시 열기', async ({ page, co
   await expect(page.getByRole('heading', { name: '영화 목록', exact: true })).toBeVisible();
   await page.getByRole('button', { name: '열기', exact: true }).click();
   await expect(page).toHaveURL(/\/ranking$/);
+  expect(errors).toEqual([]);
 });
 
 test('복구 코드 복사 버튼이 동작함', async ({ page }) => {
+  const errors = watchErrors(page);
   await page.request.post('/start');
   await page.goto('/collections');
   await page.getByText('복구 코드 보기', { exact: true }).click();
   await page.getByRole('button', { name: '복사', exact: true }).click();
   await expect(page.locator('#toast-container')).toContainText('복사');
+  expect(errors).toEqual([]);
 });
 
 test('목록 수정 뒤 포커스는 목록에 남고, 실패한 요청은 다음 추가에 영향을 주지 않음', async ({ page }) => {
@@ -122,7 +137,9 @@ test('목록 수정 뒤 포커스는 목록에 남고, 실패한 요청은 다�
   await expect(list.locator(':focus')).toHaveCount(1);
   // 실패한 수정은 목록을 바꾸지 않으므로 다음 추가의 포커스를 가져가지 않습니다.
   await list.getByRole('button', { name: '수정', exact: true }).click();
-  await list.locator('input[name="new_name"]').fill('x'.repeat(501));
+  const editInput = list.locator('input[name="new_name"]');
+  await editInput.evaluate(el => el.removeAttribute('maxlength'));
+  await editInput.fill('x'.repeat(501));
   await list.getByRole('button', { name: '저장', exact: true }).click();
   await expect(page.locator('#toast-container')).toContainText('다시 확인');
   await list.getByRole('button', { name: '취소', exact: true }).click();
@@ -136,6 +153,7 @@ test('목록 수정 뒤 포커스는 목록에 남고, 실패한 요청은 다�
 });
 
 test('백업 미리보기 후 교체', async ({ page }) => {
+  const errors = watchErrors(page);
   await setup(page);
   const backup = await (await page.request.get('/manage/export')).text();
   await page.request.post('/manage/add', { form: { name: '나중에 추가한 항목' } });
@@ -148,9 +166,11 @@ test('백업 미리보기 후 교체', async ({ page }) => {
   const after = await (await page.request.get('/manage/export')).text();
   expect(after).not.toContain('나중에 추가한 항목');
   expect(JSON.parse(after).items).toHaveLength(3);
+  expect(errors).toEqual([]);
 });
 
 test('새 모델의 동률 응답은 한 건이며 기록 정리 후에도 다시 계산 가능', async ({ page }) => {
+  const errors = watchErrors(page);
   await setup(page, true);
   for (const key of ['story','visual','ost','voice','char','fun']) await page.locator(`#all-tied-btn-${key}`).click();
   await page.locator('#submit-btn').click();
@@ -169,11 +189,11 @@ test('새 모델의 동률 응답은 한 건이며 기록 정리 후에도 다�
   expect(after.items).toEqual(approxItems(before.items));
   expect(after.history).toHaveLength(0);
   expect(after.observations).toEqual(before.observations);
+  expect(errors).toEqual([]);
 });
 
 test('비블라인드 확률과 설정에 삭제된 휴리스틱이 노출되지 않음', async ({ page }) => {
-  const errors = [];
-  page.on('pageerror', e => errors.push(e.message));
+  const errors = watchErrors(page);
   await setup(page, true);
   await page.request.post('/manage/settings', { form: { battle_mode: '3way' } });
   await page.goto('/battle');

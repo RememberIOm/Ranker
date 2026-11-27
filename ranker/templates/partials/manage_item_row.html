@@ -20,7 +20,7 @@
   <form id="edit-row-{{ item.id }}" class="hidden min-h-11 items-center gap-2" action="/manage/edit" method="post"
         hx-post="/manage/edit" hx-target="#item-list" hx-swap="innerHTML">
     <input type="hidden" name="item_id" value="{{ item.id }}">
-    <input id="input-name-{{ item.id }}" type="text" name="new_name" value="{{ item.name }}" required autocomplete="off"
+    <input id="input-name-{{ item.id }}" type="text" name="new_name" value="{{ item.name }}" maxlength="500" required autocomplete="off"
            class="field-input min-h-10 flex-1 px-3 text-sm" aria-label="새 이름">
     <button type="submit" class="btn-primary min-h-10 px-4 text-xs">저장</button>
     <button type="button" class="btn-ghost min-h-10 px-4 text-xs" data-action="toggle-edit" data-id="{{ item.id }}">취소</button>

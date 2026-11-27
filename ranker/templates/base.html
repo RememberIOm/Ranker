@@ -16,6 +16,7 @@
   <a href="#main" class="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-[130] focus:rounded-xl focus:bg-violet-600 focus:px-4 focus:py-3 focus:text-sm focus:font-bold focus:text-white focus:shadow-lg">본문으로 건너뛰기</a>
 
   <header class="sticky top-0 z-40 border-b border-zinc-200/70 bg-zinc-50/85 backdrop-blur-md dark:border-zinc-800/70 dark:bg-zinc-950/85">
+    {% set nav_items = [('/battle', '대결'), ('/ranking', '랭킹'), ('/manage', '관리'), ('/history', '내역'), ('/collections', '내 랭킹')] %}
     <nav aria-label="주요 메뉴" class="mx-auto w-full max-w-6xl px-4 sm:px-6">
       <div class="flex h-16 items-center justify-between gap-2">
         <a href="/" class="flex items-center gap-2 font-display text-xl font-extrabold tracking-tight text-zinc-900 dark:text-white">
@@ -23,11 +24,9 @@
           <span>Ranker</span>
         </a>
         <div id="desktop-nav" class="hidden items-center gap-1 md:flex">
-          <a href="/battle" data-path="/battle" class="nav-link">대결</a>
-          <a href="/ranking" data-path="/ranking" class="nav-link">랭킹</a>
-          <a href="/manage" data-path="/manage" class="nav-link">관리</a>
-          <a href="/history" data-path="/history" class="nav-link">내역</a>
-          <a href="/collections" data-path="/collections" class="nav-link">내 랭킹</a>
+          {% for path, label in nav_items %}
+          <a href="{{ path }}" data-path="{{ path }}" class="nav-link">{{ label }}</a>
+          {% endfor %}
         </div>
         <div class="flex items-center gap-1">
           <button type="button" id="theme-toggle" class="icon-btn" aria-label="테마 전환" title="테마 전환">
@@ -37,11 +36,9 @@
         </div>
       </div>
       <div id="mobile-nav" class="flex items-center gap-1 pb-2 md:hidden">
-        <a href="/battle" data-path="/battle" class="nav-link flex-1 justify-center">대결</a>
-        <a href="/ranking" data-path="/ranking" class="nav-link flex-1 justify-center">랭킹</a>
-        <a href="/manage" data-path="/manage" class="nav-link flex-1 justify-center">관리</a>
-        <a href="/history" data-path="/history" class="nav-link flex-1 justify-center">내역</a>
-        <a href="/collections" data-path="/collections" class="nav-link flex-1 justify-center whitespace-nowrap">내 랭킹</a>
+        {% for path, label in nav_items %}
+        <a href="{{ path }}" data-path="{{ path }}" class="nav-link flex-1 justify-center whitespace-nowrap">{{ label }}</a>
+        {% endfor %}
       </div>
     </nav>
   </header>

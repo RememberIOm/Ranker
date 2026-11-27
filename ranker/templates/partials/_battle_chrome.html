@@ -1,0 +1,59 @@
+{% from "partials/_icons.html" import icon %}
+
+{% macro focus_banner(focus_id, focus_name) %}
+{% if focus_id %}
+<div class="mb-6 flex items-center justify-between gap-3 rounded-2xl border border-violet-300/70 bg-violet-100/60 px-4 py-3 dark:border-violet-500/40 dark:bg-violet-500/10">
+  <div class="flex min-w-0 items-center gap-2.5 text-sm font-semibold text-violet-800 dark:text-violet-300">
+    <span class="animate-pulse text-violet-600 dark:text-violet-400">{{ icon('target', 'w-5 h-5') }}</span>
+    <span class="truncate">'{{ focus_name }}' 집중 평가 중</span>
+  </div>
+  <a href="/manage" class="shrink-0 rounded-lg px-3 py-2 text-sm font-bold text-violet-700 hover:bg-violet-200/60 dark:text-violet-300 dark:hover:bg-violet-500/20">종료</a>
+</div>
+{% endif %}
+{% endmacro %}
+
+{% macro battle_submit_bar(criteria_count) %}
+<div class="sticky bottom-0 z-30 mt-6 -mx-4 sm:-mx-6" style="padding-bottom: env(safe-area-inset-bottom)">
+  <div class="border-t border-zinc-200/70 bg-zinc-50/90 px-4 py-3 backdrop-blur-md sm:px-6 dark:border-zinc-800/70 dark:bg-zinc-950/90">
+    <div class="mx-auto flex max-w-3xl items-center gap-3 sm:gap-4">
+      <div class="relative h-12 w-12 shrink-0" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="{{ criteria_count }}" aria-label="투표 진행률">
+        <svg viewBox="0 0 32 32" class="h-12 w-12 -rotate-90">
+          <circle cx="16" cy="16" r="14" fill="none" stroke-width="3.5" class="stroke-zinc-200 dark:stroke-zinc-800"></circle>
+          <circle id="progress-ring" cx="16" cy="16" r="14" fill="none" stroke-width="3.5" stroke-linecap="round"
+                  stroke-dasharray="87.96" stroke-dashoffset="87.96"
+                  class="stroke-violet-500 transition-[stroke-dashoffset] duration-300"></circle>
+        </svg>
+      </div>
+      <div class="min-w-0 flex-1">
+        <p id="progress-count" class="font-display text-sm font-extrabold tabular-nums">0/{{ criteria_count }}</p>
+        <p id="progress-label" class="truncate text-xs font-medium text-zinc-500 dark:text-zinc-400">{{ criteria_count }}개 남음</p>
+      </div>
+      <button type="button" id="submit-btn" data-battle="submit" disabled class="btn-primary shrink-0 px-6 py-3">{{ icon('swords') }}<span>투표 저장</span></button>
+    </div>
+  </div>
+</div>
+{% endmacro %}
+
+{% macro result_modal(result_auto_skip, result_skip_seconds, max_width="max-w-lg") %}
+<div id="result-modal" role="dialog" aria-modal="true" aria-label="대결 결과"
+     data-auto-skip="{{ 'true' if result_auto_skip else 'false' }}"
+     data-skip-seconds="{{ result_skip_seconds }}"
+     class="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/60 p-4 opacity-0 backdrop-blur-sm transition-opacity duration-300">
+  <div class="card w-full {{ max_width }} scale-95 p-5 transition-transform duration-300 sm:p-6">
+    <p class="text-center font-display text-[11px] font-extrabold tracking-widest text-violet-600 uppercase dark:text-violet-400">대결 결과</p>
+    {{ caller() }}
+    <div id="auto-skip-area" class="{{ '' if result_auto_skip else 'hidden' }} mt-5">
+      <div class="h-1.5 w-full rounded-full bg-zinc-200 dark:bg-zinc-800">
+        <div id="modal-progress" class="h-full rounded-full bg-violet-500 transition-[width] ease-linear" style="width: 0%; transition-duration: {{ (result_skip_seconds * 1000) | int }}ms"></div>
+      </div>
+      <div class="mt-3 flex items-center justify-between gap-3">
+        <p class="text-xs font-medium text-zinc-500 dark:text-zinc-400">{{ result_skip_seconds }}초 뒤 다음 대결로 넘어갑니다</p>
+        <button type="button" data-battle="keep-result" class="btn-secondary px-4 py-2 text-xs">멈추기</button>
+      </div>
+    </div>
+    <div id="click-skip-area" class="{{ 'hidden' if result_auto_skip else '' }} mt-5 text-center">
+      <button type="button" id="next-battle-btn" data-battle="dismiss-result" class="btn-primary w-full py-3 sm:w-auto sm:px-10">{{ icon('swords') }}<span>다음 대결</span></button>
+    </div>
+  </div>
+</div>
+{% endmacro %}

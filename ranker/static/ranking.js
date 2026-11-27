@@ -60,7 +60,9 @@ window.addEventListener('resize', function () { closeAllDropdowns(); });
 document.addEventListener('scroll', function () { closeAllDropdowns(); }, true);
 
 (function () {
-  var chartData = JSON.parse(document.getElementById('chart-data').textContent);
+  var dataEl = document.getElementById('chart-data');
+  if (!dataEl) return;
+  var chartData = JSON.parse(dataEl.textContent);
   var chartInstance = null;
   function renderChart() {
     var canvas = document.getElementById('distributionChart');
